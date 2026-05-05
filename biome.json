@@ -18,7 +18,24 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "dayjs": "Use the project Day.js wrapper from @/lib/dayjs instead."
+            },
+            "patterns": [
+              {
+                "group": ["dayjs/**"],
+                "message": "Configure Day.js plugins in src/lib/dayjs.ts and import @/lib/dayjs from app code."
+              }
+            ]
+          }
+        }
+      },
       "suspicious": {
+        "noConsole": "error",
         "noUnknownAtRules": "off"
       }
     },
@@ -33,5 +50,27 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["src/lib/dayjs.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/lib/logger.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
 }
