@@ -10,9 +10,9 @@ import type {
   StoryEditorData,
 } from "@/actions/stories/_types";
 import { createChapter } from "@/actions/stories/create-chapter";
-import { StoryEditorContentPane } from "@/components/stories/story-editor-content-pane";
-import { StoryEditorContextPane } from "@/components/stories/story-editor-context-pane";
-import { StoryEditorInspectPane } from "@/components/stories/story-editor-inspect-pane";
+import { StoryEditorContentPane } from "@/components/story-editor/story-editor-content-pane";
+import { StoryEditorContextPane } from "@/components/story-editor/story-editor-context-pane";
+import { StoryEditorInspectPane } from "@/components/story-editor/story-editor-inspect-pane";
 
 type StoryEditorProps = {
   story: StoryEditorData;

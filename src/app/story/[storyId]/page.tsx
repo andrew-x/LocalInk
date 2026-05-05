@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 
 import { getStory } from "@/actions/stories/get-story";
-import { StoryEditor } from "@/components/stories/story-editor";
-import { StoryEditorHeader } from "@/components/stories/story-editor-header";
+import { StoryEditor } from "@/components/story-editor/story-editor";
+import { StoryEditorHeader } from "@/components/story-editor/story-editor-header";
 
 type StoryPageProps = {
   params: Promise<{

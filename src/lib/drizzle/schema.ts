@@ -4,6 +4,7 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 const currentTimestampSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 export type StoryCharacter = {
+  id: string;
   name: string;
   description: string;
 };

@@ -3,7 +3,7 @@
 import { FileText } from "lucide-react";
 
 import type { StoryChapterItem } from "@/actions/stories/_types";
-import { StoryEditorPaneHeader } from "@/components/stories/story-editor-pane-header";
+import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
 import day from "@/lib/dayjs";
 
 type StoryEditorInspectPaneProps = {

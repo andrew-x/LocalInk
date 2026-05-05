@@ -24,10 +24,12 @@ import {
   PopoverTrigger,
 } from "@/components/common/popover";
 import { Textarea } from "@/components/common/textarea";
-import { StoryEditorPaneHeader } from "@/components/stories/story-editor-pane-header";
+import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
 import { cn } from "@/lib/util";
 
 type StoryCharacter = StoryContext["characters"][number];
+type StoryCharacterDraft = Pick<StoryCharacter, "description" | "name"> &
+  Partial<Pick<StoryCharacter, "id">>;
 type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
 type StoryContextSave = StoryContext & { updatedAt: string };
 
@@ -290,7 +292,7 @@ function CharacterContextSection({
       {hasCharacters ? (
         <ul className="mt-3 grid gap-2">
           {characters.map((character, index) => (
-            <li key={`${character.name}-${index}`}>
+            <li key={character.id}>
               <CharacterPopover
                 character={character}
                 characterIndex={index}
@@ -428,6 +430,7 @@ function CharacterPopover({
 
     const nextCharacter = {
       description: draftDescription.trim(),
+      id: character?.id,
       name: draftName.trim(),
     };
 
@@ -561,7 +564,7 @@ function CharacterPopover({
 }
 
 function validateCharacter(
-  character: StoryCharacter,
+  character: StoryCharacterDraft,
   setNameError: (message: string) => void,
   setDescriptionError: (message: string) => void,
 ) {

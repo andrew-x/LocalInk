@@ -4,7 +4,7 @@ import { Plus } from "lucide-react";
 
 import type { StoryChapterItem } from "@/actions/stories/_types";
 import { Button } from "@/components/common/button";
-import { ChapterContentEditor } from "@/components/stories/chapter-content-editor";
+import { ChapterContentEditor } from "@/components/story-editor/chapter-content-editor";
 
 type StoryEditorContentPaneProps = {
   chapterCreateError: string | null;

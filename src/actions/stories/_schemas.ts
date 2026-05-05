@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const storyCharacterSchema = z.object({
+  id: z.string().trim().max(128, "Character id is too long.").optional(),
   name: z
     .string()
     .trim()

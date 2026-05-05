@@ -8,6 +8,7 @@ import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { stories } from "@/lib/drizzle/schema";
+import { normalizeStoryCharacters } from "@/lib/server/story-characters";
 
 import { updateStoryActionSchema } from "./_schemas";
 import type { StoryUpdateResult } from "./_types";
@@ -24,7 +25,9 @@ export const updateStory = publicActionClient
     };
 
     if (parsedInput.characters !== undefined) {
-      storyUpdates.characters = parsedInput.characters;
+      storyUpdates.characters = normalizeStoryCharacters(
+        parsedInput.characters,
+      );
     }
 
     if (parsedInput.style !== undefined) {
@@ -51,5 +54,8 @@ export const updateStory = publicActionClient
     revalidatePath("/");
     revalidatePath(`/story/${story.id}`);
 
-    return story;
+    return {
+      ...story,
+      characters: normalizeStoryCharacters(story.characters),
+    };
   });

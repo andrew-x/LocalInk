@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import type { StoryEditorData } from "@/actions/stories/_types";
 import { Button } from "@/components/common/button";
-import { EditStoryDetailsDialog } from "@/components/stories/edit-story-details-dialog";
+import { EditStoryDetailsDialog } from "@/components/story-editor/edit-story-details-dialog";
 
 type StoryEditorHeaderProps = {
   story: Pick<StoryEditorData, "id" | "name" | "description">;

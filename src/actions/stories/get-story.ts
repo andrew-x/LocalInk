@@ -5,6 +5,7 @@ import { asc, eq } from "drizzle-orm";
 import { runLoggedAction } from "@/lib/action";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
+import { normalizeStoryCharacters } from "@/lib/server/story-characters";
 
 import type { StoryEditorData } from "./_types";
 
@@ -45,6 +46,7 @@ export async function getStory(
 
     return {
       ...story,
+      characters: normalizeStoryCharacters(story.characters),
       chapters: storyChapters,
     };
   });
