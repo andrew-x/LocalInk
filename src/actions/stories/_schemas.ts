@@ -7,20 +7,14 @@ const storyCharacterSchema = z.object({
     .trim()
     .min(1, "Character name is required.")
     .max(120, "Character name must be 120 characters or fewer."),
-  description: z
-    .string()
-    .trim()
-    .max(1000, "Character description must be 1000 characters or fewer."),
+  description: z.string().trim(),
 });
 
 const storyCharactersSchema = z
   .array(storyCharacterSchema)
   .max(100, "Stories can have up to 100 characters.");
 
-const storyStyleSchema = z
-  .string()
-  .trim()
-  .max(4000, "Style must be 4000 characters or fewer.");
+const storyStyleSchema = z.string().trim();
 
 export const createStoryFormSchema = z.object({
   name: z

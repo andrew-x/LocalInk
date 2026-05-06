@@ -15,7 +15,7 @@ LocalInk's prose generation should help the writer draft fiction while preservin
 
 The prose prompt architecture separates durable generation behavior from request-specific instructions:
 
-- System prompt: stable prose-generation contract, output discipline, hierarchy rules, craft defaults, and model behavior constraints.
+- System prompt: stable prose-generation contract, output discipline, hierarchy rules, scope discipline, style and line discipline, craft defaults, and model behavior constraints.
 - Request prompt: the user's current task, insertion target, scene/project context, selected references, and soft length target.
 
 Do not mention LocalInk, local-first behavior, or private-data handling in the model-facing prose prompt. Those details are important application constraints, but they do not improve prose quality and can distract from the writing task.
@@ -48,9 +48,12 @@ For insertion tasks, use distinct insertion reminders at different scopes instea
 - Match the surrounding manuscript's tense, POV, person, paragraph rhythm, scene distance, and dialogue formatting.
 - Prefer specific action, perception, implication, and character choice over explanation. Use "show, don't tell" as a craft bias, not a ban on interiority or exposition.
 - Dialogue should sound like characters under pressure pursuing goals. Avoid interchangeable voices, over-explaining subtext, and dialogue that exists only to summarize plot.
+- Match the manuscript's language variety, spelling, grammar, idiom, and colloquial register. Prefer active voice, fresh specific phrasing, varied sentence rhythm, and lean dialogue that changes the scene's pressure or direction.
+- Format each speaker's dialogue in its own paragraph. Use unobtrusive tags or purposeful action beats for clarity, but avoid repetitive tags, empty facial-expression beats, filler words, weak adverbs, cliches, and hedging that blurs intent.
 - Use adult-fiction confidence: when the request calls for vivid, emotionally direct, or intense prose, draft it plainly within the user's stated boundaries instead of softening into generic or instructional language.
-- Respect soft length targets. Aim for the requested scale, but prioritize clean insertion boundaries, forward motion, and prose quality over exact token or word counts.
+- Respect soft length targets. Aim for the requested scale, but prioritize clean insertion boundaries, forward motion, and prose quality over exact token or word counts. Stop once the requested beat is satisfied, even if that produces a shorter draft.
 - Default to open-ended continuation. The writer builds the manuscript one generation at a time, so generated prose should not conclude the story, chapter, scene, or current dramatic beat unless the current request explicitly asks for an ending.
+- Follow the current beat instructions closely. Do not invent extra beats, endings, aftermath, teaser lines, or foreshadowing beyond what the request asks for.
 - Avoid embedding generic prose examples in the prompt contract. Examples can cause style anchoring and make outputs sound less like the user's manuscript.
 
 ## Prompt Inspection

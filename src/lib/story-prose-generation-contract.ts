@@ -5,7 +5,7 @@ const MAX_CONTEXT_TEXT_LENGTH = 1_000_000;
 const storyProseCharacterSchema = z.object({
   id: z.string().trim().max(128).optional(),
   name: z.string().trim().min(1).max(120),
-  description: z.string().trim().max(1_000),
+  description: z.string().trim(),
 });
 
 const storyProseStorySchema = z.object({
@@ -35,7 +35,7 @@ const storyProseRegenerationSchema = z.discriminatedUnion("mode", [
 
 export const storyProseGenerationRequestSchema = z.object({
   story: storyProseStorySchema,
-  style: z.string().max(8_000),
+  style: z.string(),
   characters: z.array(storyProseCharacterSchema).max(100),
   chapters: z.array(storyProseChapterSchema).max(500),
   focusedChapter: storyProseChapterSchema,

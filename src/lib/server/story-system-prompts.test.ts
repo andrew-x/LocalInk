@@ -102,6 +102,19 @@ describe("story AI system prompts", () => {
     expect(prompt).toContain("Current generation or regeneration instructions");
     expect(prompt).toContain("Writer global system instructions");
     expect(prompt).toContain("immediate manuscript continuity");
+    expect(prompt).toContain("<GENERATION_SCOPE_DISCIPLINE>");
+    expect(prompt).toContain("Never end with foreshadowing");
+    expect(prompt).toContain(
+      "Stop as soon as the continuation has satisfied the required beat",
+    );
+    expect(prompt).toContain("<STYLE_AND_LINE_DISCIPLINE>");
+    expect(prompt).toContain(
+      "Match the surrounding manuscript's tense, POV, person, language variety",
+    );
+    expect(prompt).toContain("Prefer active voice");
+    expect(prompt).toContain("Use show-don't-tell as a craft bias");
+    expect(prompt).toContain("each speaker's dialogue in its own paragraph");
+    expect(prompt).toContain("Reduce hedging and weak uncertainty indicators");
     expect(prompt).toContain("<CRAFT_DEFAULTS>");
     expect(prompt).toContain("concrete action");
     expect(prompt).toContain("Default to continuation, not closure");
@@ -240,6 +253,9 @@ describe("story prose request prompt", () => {
     );
     expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
       "<OUTPUT_DISCIPLINE>",
+    );
+    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
+      "Stop once the requested continuation has satisfied the current instructions",
     );
     expect(getSection(prompt, "TASK_CAPSULE")).toContain(
       "Do not conclude the story, chapter, scene, or current dramatic beat",

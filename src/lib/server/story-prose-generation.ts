@@ -26,8 +26,18 @@ const PRECEDENCE_RULES = [
   "Insertion boundaries and immediate manuscript continuity",
   "Current generation or regeneration instructions",
   "Writer global system instructions",
+  "Generation scope discipline",
   "Story style guide and established chapter voice",
+  "Style and line discipline",
   "Craft defaults",
+] as const;
+
+const GENERATION_SCOPE_RULES = [
+  "Follow the current beat instructions closely; do not invent extra beats, outcomes, reversals, endings, or aftermath beyond what the request asks for.",
+  "Never conclude the scene, chapter, story, or current dramatic beat on your own. Only write closure when the current writer instructions explicitly ask for closure.",
+  "Never end with foreshadowing, teaser lines, ominous setup, or promises of future consequences unless the current writer instructions explicitly request that move.",
+  "Do not write farther than the prompt asks. Stop as soon as the continuation has satisfied the required beat, even when the soft word target leaves unused room.",
+  "Avoid imagining possible endings or steering toward an ending; preserve the requested moment and hand control back to the writer.",
 ] as const;
 
 const CRAFT_DEFAULTS = [
@@ -37,6 +47,19 @@ const CRAFT_DEFAULTS = [
   "Use subtext where it fits; let emotion surface through choices, physicality, dialogue, and implication.",
   "Write dialogue as natural edited speech: purposeful, character-specific, and shaped by tension rather than exposition.",
   "Default to continuation, not closure: leave story, chapter, and scene arcs open unless the current instructions explicitly ask for an ending.",
+] as const;
+
+const STYLE_AND_LINE_DISCIPLINE = [
+  "Match the surrounding manuscript's tense, POV, person, language variety, spelling, grammar, idiom, and colloquial register unless the current instructions explicitly ask for a change.",
+  "Prefer active voice, concrete verbs, precise nouns, and direct sentence construction.",
+  "Use show-don't-tell as a craft bias: dramatize through action, perception, dialogue, physical response, and choice; use concise summary or interiority only when it improves pace or clarity.",
+  "Avoid weak adverbs, stock intensifiers, cliches, overused phrases, and generic emotional labels. Aim for fresh, specific description.",
+  "Vary sentence rhythm by mixing short, direct sentences with longer textured ones, and remove filler words that dilute momentum.",
+  "Let dialogue reveal character, pressure, relationship, and story movement when dialogue is the natural vehicle. Do not force exposition into speech.",
+  "Keep dialogue lean and active: avoid mushy, stalled, repetitive, or unnecessary exchanges, and make spoken lines change the scene's pressure or direction.",
+  "Format dialogue conventionally, with each speaker's dialogue in its own paragraph.",
+  "Use unobtrusive dialogue tags or action beats for clarity, but avoid repetitive tags and empty facial-expression beats that do not affect the action.",
+  "Reduce hedging and weak uncertainty indicators such as trying, maybe, seemed, almost, just, and somehow when they blur intent or action.",
 ] as const;
 
 export function buildStoryProseSystemPrompt(systemInstructions = ""): string {
@@ -61,6 +84,14 @@ export function buildStoryProseSystemPrompt(systemInstructions = ""): string {
           ].join("\n"),
         )
       : null,
+    proseSection(
+      "Generation Scope Discipline",
+      GENERATION_SCOPE_RULES.join("\n"),
+    ),
+    proseSection(
+      "Style And Line Discipline",
+      STYLE_AND_LINE_DISCIPLINE.join("\n"),
+    ),
     proseSection("Craft Defaults", CRAFT_DEFAULTS.join("\n")),
     proseSection(
       "Mature Fiction Default",
@@ -354,6 +385,7 @@ function buildFinalGenerationRequest(
       "OUTPUT_DISCIPLINE",
       [
         "Return only the new prose.",
+        "Stop once the requested continuation has satisfied the current instructions, even if the result is shorter than the soft word target.",
         "Do not pad with recap, filler, ornate description, or exposition. Do not cut off in the middle of a sentence or action.",
         "Do not summarize previous context, announce transitions, explain your choices, or describe what changed.",
       ].join("\n"),

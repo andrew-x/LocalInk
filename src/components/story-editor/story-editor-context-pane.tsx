@@ -283,7 +283,6 @@ function StyleContextSection({
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
   const [draftStyle, setDraftStyle] = useState(style);
-  const [fieldError, setFieldError] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
   const styleFieldId = useId();
   const hasStyle = style.trim().length > 0;
@@ -300,7 +299,6 @@ function StyleContextSection({
     }
 
     setIsOpen(open);
-    setFieldError(null);
     setRootError(null);
 
     if (open) {
@@ -310,15 +308,9 @@ function StyleContextSection({
 
   async function handleSaveStyle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setFieldError(null);
     setRootError(null);
 
     const nextStyle = draftStyle.trim();
-
-    if (nextStyle.length > 4000) {
-      setFieldError("Style must be 4000 characters or fewer.");
-      return;
-    }
 
     const result = await updateStoryAction.executeAsync({
       characters,
@@ -373,7 +365,7 @@ function StyleContextSection({
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          className="w-96 max-w-[calc(100vw-2rem)] p-0"
+          className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
           collisionPadding={12}
           side="right"
         >
@@ -385,24 +377,11 @@ function StyleContextSection({
             <div className="grid gap-2">
               <Label htmlFor={styleFieldId}>Style description</Label>
               <Textarea
-                aria-describedby={
-                  fieldError ? `${styleFieldId}-error` : undefined
-                }
-                aria-invalid={!!fieldError || undefined}
-                className="min-h-44 resize-none"
+                className="max-h-[50vh] min-h-56 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
                 id={styleFieldId}
-                maxLength={4000}
                 onChange={(event) => setDraftStyle(event.target.value)}
                 value={draftStyle}
               />
-              {fieldError ? (
-                <p
-                  className="text-caption text-destructive"
-                  id={`${styleFieldId}-error`}
-                >
-                  {fieldError}
-                </p>
-              ) : null}
             </div>
 
             {rootError ? <ContextFormError message={rootError} /> : null}
@@ -578,7 +557,6 @@ function CharacterPopover({
     character?.description ?? "",
   );
   const [nameError, setNameError] = useState<string | null>(null);
-  const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const nameFieldId = useId();
@@ -594,7 +572,6 @@ function CharacterPopover({
 
   function resetErrors() {
     setNameError(null);
-    setDescriptionError(null);
     setRootError(null);
   }
 
@@ -623,11 +600,7 @@ function CharacterPopover({
       name: draftName.trim(),
     };
 
-    const hasValidationError = validateCharacter(
-      nextCharacter,
-      setNameError,
-      setDescriptionError,
-    );
+    const hasValidationError = validateCharacter(nextCharacter, setNameError);
 
     if (hasValidationError) {
       return;
@@ -711,7 +684,7 @@ function CharacterPopover({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-96 max-w-[calc(100vw-2rem)] p-0"
+        className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
         collisionPadding={12}
         side="right"
       >
@@ -750,24 +723,11 @@ function CharacterPopover({
               Description
             </Label>
             <Textarea
-              aria-describedby={
-                descriptionError ? `${descriptionFieldId}-error` : undefined
-              }
-              aria-invalid={!!descriptionError || undefined}
-              className="min-h-32 resize-none px-2 py-1.5 text-caption leading-5"
+              className="max-h-60 min-h-40 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
               id={descriptionFieldId}
-              maxLength={1000}
               onChange={(event) => setDraftDescription(event.target.value)}
               value={draftDescription}
             />
-            {descriptionError ? (
-              <p
-                className="text-caption text-destructive"
-                id={`${descriptionFieldId}-error`}
-              >
-                {descriptionError}
-              </p>
-            ) : null}
           </div>
 
           {rootError ? <ContextFormError message={rootError} /> : null}
@@ -867,7 +827,6 @@ function CharacterPopover({
 function validateCharacter(
   character: StoryCharacterDraft,
   setNameError: (message: string) => void,
-  setDescriptionError: (message: string) => void,
 ) {
   let hasError = false;
 
@@ -876,13 +835,6 @@ function validateCharacter(
     hasError = true;
   } else if (character.name.length > 120) {
     setNameError("Character name must be 120 characters or fewer.");
-    hasError = true;
-  }
-
-  if (character.description.length > 1000) {
-    setDescriptionError(
-      "Character description must be 1000 characters or fewer.",
-    );
     hasError = true;
   }
 
