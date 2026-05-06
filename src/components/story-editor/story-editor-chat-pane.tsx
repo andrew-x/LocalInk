@@ -533,7 +533,7 @@ export function StoryEditorChatPane({
             <div className="grid gap-2">
               <Textarea
                 aria-label="Story chat message"
-                className="max-h-36 min-h-20 resize-none"
+                className="max-h-32 min-h-16 resize-none px-2.5 py-1.5 text-label-sm"
                 disabled={isBusy}
                 maxLength={4000}
                 onChange={(event) => setDraftContent(event.target.value)}
@@ -543,6 +543,7 @@ export function StoryEditorChatPane({
               />
               <div className="flex justify-end">
                 <Button
+                  className="h-7 gap-1 px-2 text-label-sm [&_svg]:size-3.5"
                   disabled={!draftContent.trim() || isBusy}
                   leftSection={<Send aria-hidden="true" />}
                   loading={prepareTurnAction.isPending || isStreaming}

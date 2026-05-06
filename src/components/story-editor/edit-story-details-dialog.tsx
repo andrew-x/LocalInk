@@ -18,6 +18,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -159,6 +160,9 @@ export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
       <DialogContent className="gap-0">
         <DialogHeader className="border-border/80 border-b p-panel pr-12">
           <DialogTitle>Edit story details</DialogTitle>
+          <DialogDescription className="sr-only">
+            Edit the story name and description or delete the story.
+          </DialogDescription>
         </DialogHeader>
 
         <form

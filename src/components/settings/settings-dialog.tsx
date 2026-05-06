@@ -1,16 +1,18 @@
 "use client";
 
 import { useHookFormAction } from "@next-safe-action/adapter-react-hook-form/hooks";
-import { Plus } from "lucide-react";
+import { Save, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Controller } from "react-hook-form";
+import { toast } from "sonner";
 
 import {
-  type CreateStoryFormValues,
-  createStoryFormSchema,
-} from "@/actions/stories/_schemas";
-import { createStory } from "@/actions/stories/create-story";
+  type SettingsFormValues,
+  settingsFormSchema,
+} from "@/actions/settings/_schemas";
+import type { AppSettings } from "@/actions/settings/_types";
+import { updateSettings } from "@/actions/settings/update-settings";
 import { Button } from "@/components/common/button";
 import {
   Dialog,
@@ -22,133 +24,136 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/common/dialog";
-import { Input } from "@/components/common/input";
 import { Label } from "@/components/common/label";
 import { Textarea } from "@/components/common/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/common/tooltip";
 import { formResolver } from "@/lib/schemas/resolve";
 
-export function CreateStoryDialog() {
+type SettingsDialogProps = {
+  settings: AppSettings;
+};
+
+export function SettingsDialog({ settings }: SettingsDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [savedSettings, setSavedSettings] = useState(settings);
   const { form, action, resetFormAndAction } = useHookFormAction(
-    createStory,
-    formResolver(createStoryFormSchema),
+    updateSettings,
+    formResolver(settingsFormSchema),
     {
       formProps: {
-        defaultValues: {
-          name: "",
-          description: "",
-        },
+        defaultValues: settings,
       },
     },
   );
-  const isCreating = action.isPending;
+  const isSaving = action.isPending;
   const rootError = form.formState.errors.root?.message;
 
-  function handleOpenChange(open: boolean) {
-    setIsOpen(open);
+  function resetToSavedSettings(nextSettings = savedSettings) {
     resetFormAndAction();
+    form.reset(nextSettings);
   }
 
-  async function handleCreateStory(values: CreateStoryFormValues) {
+  function handleOpenChange(open: boolean) {
+    if (isSaving) {
+      return;
+    }
+
+    setIsOpen(open);
+    resetToSavedSettings();
+  }
+
+  async function handleSaveSettings(values: SettingsFormValues) {
     form.clearErrors("root");
 
     const result = await action.executeAsync(values);
+
     if (result.data) {
-      resetFormAndAction();
+      setSavedSettings(result.data);
+      action.reset();
+      form.reset(result.data);
       setIsOpen(false);
-      router.push(`/story/${result.data.id}`);
+      toast.success("Settings saved.");
+      router.refresh();
       return;
     }
 
     const rootMessage =
       result.validationErrors?.formErrors[0] ??
       result.serverError?.message ??
-      (result.validationErrors ? undefined : "The story could not be created.");
+      (result.validationErrors ? undefined : "Settings could not be saved.");
 
     if (rootMessage) {
       form.setError("root", {
         message: rootMessage,
       });
+      toast.error(rootMessage);
     }
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button
-          className="w-full sm:w-auto"
-          leftSection={<Plus aria-hidden="true" />}
-          size="lg"
-        >
-          New Story
-        </Button>
-      </DialogTrigger>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DialogTrigger asChild>
+              <Button
+                aria-label="Settings"
+                className="size-10"
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <Settings aria-hidden="true" />
+                <span className="sr-only">Settings</span>
+              </Button>
+            </DialogTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Settings</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
-      <DialogContent className="gap-0">
+      <DialogContent className="gap-0 sm:max-w-2xl">
         <DialogHeader className="border-border/80 border-b p-panel pr-12">
-          <DialogTitle>Create story</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription className="sr-only">
-            Create a new story with a name and optional description.
+            Set global AI system instructions for future prose and chat
+            generations.
           </DialogDescription>
         </DialogHeader>
 
         <form
           autoComplete="off"
           className="grid gap-4 px-panel pt-4 pb-panel"
-          onSubmit={form.handleSubmit(handleCreateStory)}
+          onSubmit={form.handleSubmit(handleSaveSettings)}
         >
           <Controller
             control={form.control}
-            name="name"
+            name="systemInstructions"
             render={({ field, fieldState }) => (
               <div className="grid gap-2">
-                <Label htmlFor={field.name}>Story name</Label>
-                <Input
+                <Label htmlFor={field.name}>System instructions</Label>
+                <Textarea
                   {...field}
                   aria-describedby={
-                    fieldState.error ? "story-name-error" : undefined
+                    fieldState.error ? "system-instructions-error" : undefined
                   }
                   aria-invalid={fieldState.invalid || undefined}
                   autoFocus
                   autoComplete="off"
+                  className="min-h-72 resize-y"
                   id={field.name}
-                  maxLength={120}
-                  spellCheck={false}
+                  maxLength={8000}
                 />
                 {fieldState.error ? (
                   <p
                     className="text-caption text-destructive"
-                    id="story-name-error"
-                  >
-                    {fieldState.error.message}
-                  </p>
-                ) : null}
-              </div>
-            )}
-          />
-
-          <Controller
-            control={form.control}
-            name="description"
-            render={({ field, fieldState }) => (
-              <div className="grid gap-2">
-                <Label htmlFor={field.name}>Description</Label>
-                <Textarea
-                  {...field}
-                  aria-describedby={
-                    fieldState.error ? "story-description-error" : undefined
-                  }
-                  aria-invalid={fieldState.invalid || undefined}
-                  autoComplete="off"
-                  className="min-h-32 resize-none"
-                  id={field.name}
-                  maxLength={600}
-                />
-                {fieldState.error ? (
-                  <p
-                    className="text-caption text-destructive"
-                    id="story-description-error"
+                    id="system-instructions-error"
                   >
                     {fieldState.error.message}
                   </p>
@@ -168,16 +173,16 @@ export function CreateStoryDialog() {
 
           <DialogFooter>
             <DialogClose asChild>
-              <Button type="button" variant="outline">
+              <Button disabled={isSaving} type="button" variant="outline">
                 Cancel
               </Button>
             </DialogClose>
             <Button
-              leftSection={<Plus aria-hidden="true" />}
-              loading={isCreating}
+              leftSection={<Save aria-hidden="true" />}
+              loading={isSaving}
               type="submit"
             >
-              Create Story
+              Save
             </Button>
           </DialogFooter>
         </form>

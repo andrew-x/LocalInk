@@ -1,14 +1,16 @@
 import Image from "next/image";
 import { connection } from "next/server";
 
+import { getSettings } from "@/actions/settings/get-settings";
 import { getStories } from "@/actions/stories/get-stories";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { CreateStoryDialog } from "@/components/stories/create-story-dialog";
 import { StoryList } from "@/components/stories/story-list";
 
 export default async function Home() {
   await connection();
 
-  const stories = await getStories();
+  const [settings, stories] = await Promise.all([getSettings(), getStories()]);
 
   return (
     <main className="min-h-dvh bg-background text-foreground">
@@ -22,7 +24,10 @@ export default async function Home() {
             src="/logo.svg"
             width={169}
           />
-          <CreateStoryDialog />
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <SettingsDialog settings={settings} />
+            <CreateStoryDialog />
+          </div>
         </header>
 
         <StoryList stories={stories} />

@@ -29,13 +29,15 @@ type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
 type LengthOption = StoryProseGenerationRequest["approximateLength"];
 type StoryProseContextBase = Omit<
   StoryProseGenerationRequest,
-  "approximateLength" | "instructions"
+  "approximateLength" | "instructions" | "regeneration"
 >;
 
 type ActiveDraft = {
+  approximateLength: LengthOption;
   chapterId: string;
   contextBase: StoryProseContextBase;
   draftId: string;
+  instructions: string;
 };
 
 type AiProseGenerationWidgetProps = {
@@ -43,22 +45,28 @@ type AiProseGenerationWidgetProps = {
   chapters: StoryChapterItem[];
   focusedChapterId: string | null;
   getAiDraftHandle: (chapterId: string) => ChapterAiDraftHandle | null;
+  onDraftStreamUpdate: (
+    draftId: string,
+    options?: { resetFollow?: boolean },
+  ) => void;
   story: StoryIdentity;
   style: string;
 };
 
-const LENGTH_OPTIONS: LengthOption[] = [400, 600, 800];
+const LENGTH_OPTIONS: LengthOption[] = [200, 400, 600];
+const PROMPT_SNAPSHOT_ID_HEADER = "X-Prose-Prompt-Snapshot-Id";
 
 export function AiProseGenerationWidget({
   characters,
   chapters,
   focusedChapterId,
   getAiDraftHandle,
+  onDraftStreamUpdate,
   story,
   style,
 }: AiProseGenerationWidgetProps) {
   const [instructions, setInstructions] = useState("");
-  const [approximateLength, setApproximateLength] = useState<LengthOption>(600);
+  const [approximateLength, setApproximateLength] = useState<LengthOption>(400);
   const [status, setStatus] = useState<AiDraftStatus | "idle">("idle");
   const [activeDraft, setActiveDraft] = useState<ActiveDraft | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -97,7 +105,7 @@ export function AiProseGenerationWidget({
         return;
       }
 
-      void handleRegenerate(detail.instructions);
+      void handleRegenerate(detail.instructions, detail.text);
     }
 
     window.addEventListener(DRAFT_INLINE_ACTION_EVENT, handleInlineDraftAction);
@@ -113,8 +121,7 @@ export function AiProseGenerationWidget({
   const streamDraft = useCallback(
     async (
       draft: ActiveDraft,
-      regenerationInstructions = "",
-      baseInstructions = instructions,
+      regeneration?: StoryProseGenerationRequest["regeneration"] | undefined,
       appendVersion = false,
     ) => {
       const handle = getAiDraftHandle(draft.chapterId);
@@ -133,13 +140,12 @@ export function AiProseGenerationWidget({
       abortControllerRef.current = controller;
       const requestBody: StoryProseGenerationRequest = {
         ...draft.contextBase,
-        approximateLength,
-        instructions: getRequestInstructions(
-          baseInstructions,
-          regenerationInstructions,
-        ),
+        approximateLength: draft.approximateLength,
+        instructions: draft.instructions,
+        regeneration,
       };
       let streamedText = "";
+      let promptSnapshotId: string | undefined;
 
       setStatus("streaming");
       draftTextRef.current = "";
@@ -149,6 +155,7 @@ export function AiProseGenerationWidget({
         handle.beginDraftVersion(draft.draftId);
       }
       handle.updateDraft(draft.draftId, "", "streaming");
+      onDraftStreamUpdate(draft.draftId, { resetFollow: true });
 
       try {
         const response = await fetch("/api/story-prose", {
@@ -168,6 +175,8 @@ export function AiProseGenerationWidget({
           throw new Error("The prose stream could not be opened.");
         }
 
+        promptSnapshotId =
+          response.headers.get(PROMPT_SNAPSHOT_ID_HEADER)?.trim() || undefined;
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
@@ -180,7 +189,13 @@ export function AiProseGenerationWidget({
 
           streamedText += decoder.decode(value, { stream: true });
           draftTextRef.current = streamedText;
-          handle.updateDraft(draft.draftId, streamedText, "streaming");
+          handle.updateDraft(
+            draft.draftId,
+            streamedText,
+            "streaming",
+            promptSnapshotId,
+          );
+          onDraftStreamUpdate(draft.draftId);
         }
 
         const finalChunk = decoder.decode();
@@ -190,19 +205,37 @@ export function AiProseGenerationWidget({
           draftTextRef.current = streamedText;
         }
 
-        handle.updateDraft(draft.draftId, streamedText, "complete");
+        handle.updateDraft(
+          draft.draftId,
+          streamedText,
+          "complete",
+          promptSnapshotId,
+        );
+        onDraftStreamUpdate(draft.draftId);
         handle.setContentEditable(true);
         setStatus("complete");
       } catch (error) {
         if (controller.signal.aborted) {
-          handle.updateDraft(draft.draftId, draftTextRef.current, "stopped");
+          handle.updateDraft(
+            draft.draftId,
+            draftTextRef.current,
+            "stopped",
+            promptSnapshotId,
+          );
+          onDraftStreamUpdate(draft.draftId);
           handle.setContentEditable(true);
           setStatus("stopped");
           return;
         }
 
         const message = getGenerationFailureMessage(error);
-        handle.updateDraft(draft.draftId, draftTextRef.current, "error");
+        handle.updateDraft(
+          draft.draftId,
+          draftTextRef.current,
+          "error",
+          promptSnapshotId,
+        );
+        onDraftStreamUpdate(draft.draftId);
         handle.setContentEditable(true);
         setErrorMessage(message);
         setStatus("error");
@@ -213,7 +246,7 @@ export function AiProseGenerationWidget({
         }
       }
     },
-    [approximateLength, getAiDraftHandle, instructions],
+    [getAiDraftHandle, onDraftStreamUpdate],
   );
 
   async function handleGenerate(event: FormEvent<HTMLFormElement>) {
@@ -260,16 +293,18 @@ export function AiProseGenerationWidget({
       story,
       style,
     });
+    const requestInstructions = instructions;
     const draft = {
+      approximateLength,
       chapterId: focusedChapter.id,
       contextBase,
       draftId: snapshot.draftId,
+      instructions: requestInstructions,
     };
-    const requestInstructions = instructions;
 
     setActiveDraft(draft);
     setInstructions("");
-    await streamDraft(draft, "", requestInstructions);
+    await streamDraft(draft);
   }
 
   function handleStop() {
@@ -337,15 +372,14 @@ export function AiProseGenerationWidget({
     }
   }
 
-  async function handleRegenerate(regenerationInstructions = "") {
+  async function handleRegenerate(regenerationInstructions = "", text = "") {
     if (!activeDraft || isStreaming) {
       return;
     }
 
     await streamDraft(
       activeDraft,
-      regenerationInstructions,
-      instructions,
+      buildRegenerationRequest(regenerationInstructions, text),
       true,
     );
   }
@@ -441,25 +475,17 @@ function buildContextBase({
   story: StoryIdentity;
   style: string;
 }): StoryProseContextBase {
-  const focusedIndex = chapters.findIndex(
-    (chapter) => chapter.id === focusedChapter.id,
-  );
-  const previousChapter =
-    focusedIndex > 0 ? chapters[focusedIndex - 1] : undefined;
-  const nextChapter =
-    !snapshot.atChapterEnd && focusedIndex >= 0
-      ? chapters[focusedIndex + 1]
-      : undefined;
-
   return {
     story,
     style,
     characters,
     focusedChapter: toChapterContext(focusedChapter, snapshot.content),
-    previousChapter: previousChapter
-      ? toChapterContext(previousChapter)
-      : undefined,
-    nextChapter: nextChapter ? toChapterContext(nextChapter) : undefined,
+    chapters: chapters.map((chapter) =>
+      toChapterContext(
+        chapter,
+        chapter.id === focusedChapter.id ? snapshot.content : chapter.content,
+      ),
+    ),
     insertion: {
       afterText: snapshot.afterText,
       atChapterEnd: snapshot.atChapterEnd,
@@ -481,21 +507,23 @@ function toChapterContext(
   };
 }
 
-function getRequestInstructions(
-  baseInstructions: string,
+function buildRegenerationRequest(
   regenerationInstructions: string,
-) {
-  const base = baseInstructions.trim();
+  priorDraft: string,
+): StoryProseGenerationRequest["regeneration"] {
   const regeneration = regenerationInstructions.trim();
 
   if (!regeneration) {
-    return base;
+    return {
+      mode: "fresh-alternative",
+    };
   }
 
-  return [
-    base || "Continue the story naturally.",
-    `Regenerate the draft with these requested edits: ${regeneration}`,
-  ].join("\n\n");
+  return {
+    editInstructions: regeneration,
+    mode: "revise-prior-draft",
+    priorDraft,
+  };
 }
 
 async function readGenerationError(response: Response) {

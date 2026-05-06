@@ -24,10 +24,14 @@ export const LOCALINK_EMBEDDING_MODELS = {
 export type LocalinkAiModel = keyof typeof LOCALINK_AI_MODELS;
 export type LocalinkAiModelId = (typeof LOCALINK_AI_MODELS)[LocalinkAiModel];
 export type LocalinkEmbeddingModel = keyof typeof LOCALINK_EMBEDDING_MODELS;
+export type LocalinkProviderOptions = NonNullable<
+  Parameters<typeof streamText>[0]["providerOptions"]
+>;
 
 export type GenerateLocalinkTextOptions = Prompt &
   CallSettings & {
     model?: LocalinkAiModel;
+    providerOptions?: LocalinkProviderOptions;
   };
 
 export type StreamLocalinkTextOptions = Prompt &
@@ -37,6 +41,7 @@ export type StreamLocalinkTextOptions = Prompt &
     onError?: (event: { error: unknown }) => PromiseLike<void> | void;
     onFinish?: () => PromiseLike<void> | void;
     model?: LocalinkAiModel;
+    providerOptions?: LocalinkProviderOptions;
   };
 
 let cachedOpenRouter: OpenRouterProvider | null = null;

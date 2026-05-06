@@ -20,7 +20,7 @@ export type StoryCharacter = {
 
 export type StoryChatMessageRole = "system" | "user" | "assistant";
 
-export const localinkMetadata = sqliteTable("localink_metadata", {
+export const metadata = sqliteTable("metadata", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
   updatedAt: text("updated_at").notNull(),

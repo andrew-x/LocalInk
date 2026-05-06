@@ -1,8 +1,14 @@
-import { streamLocalinkText } from "@/lib/ai";
+import { type LocalinkProviderOptions, streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
-import { buildStoryProsePrompt } from "@/lib/server/story-prose-generation";
-import { retrieveStoryProseContext } from "@/lib/server/story-prose-retrieval";
+import { getAppSettings } from "@/lib/server/app-settings";
+import {
+  buildStoryProsePrompt,
+  buildStoryProseSystemPrompt,
+  getStoryProseManuscriptContextCharCount,
+  STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT,
+} from "@/lib/server/story-prose-generation";
+import { saveStoryProsePromptSnapshot } from "@/lib/server/story-prose-prompt-snapshots";
 import {
   type StoryProseGenerationRequest,
   storyProseGenerationRequestSchema,
@@ -12,9 +18,27 @@ export const runtime = "nodejs";
 
 const storyProseLogger = createLogger("story-prose");
 const ACTION_NAME = "story-prose-generate";
+const PROMPT_SNAPSHOT_ID_HEADER = "X-Prose-Prompt-Snapshot-Id";
+const PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH = {
+  200: 700,
+  400: 1_200,
+  600: 1_700,
+} satisfies Record<StoryProseGenerationRequest["approximateLength"], number>;
+const PROSE_PROVIDER_OPTIONS = {
+  openrouter: {
+    reasoning: {
+      effort: "none",
+      exclude: true,
+    },
+  },
+} satisfies LocalinkProviderOptions;
 
 type StoryProseRouteError = {
-  code: "AI_NOT_CONFIGURED" | "BAD_REQUEST" | "GENERATION_FAILED";
+  code:
+    | "AI_NOT_CONFIGURED"
+    | "BAD_REQUEST"
+    | "GENERATION_FAILED"
+    | "MANUSCRIPT_CONTEXT_TOO_LARGE";
   message: string;
   status: number;
 };
@@ -52,25 +76,50 @@ export async function POST(request: Request): Promise<Response> {
       approximateLength: parsedInput.approximateLength,
     });
 
-    const retrievalResult = await retrieveStoryProseContext(parsedInput);
+    const manuscriptCharCount =
+      getStoryProseManuscriptContextCharCount(parsedInput);
 
-    storyProseLogger.info("retrieval", {
-      action: ACTION_NAME,
-      storyId: parsedInput.story.id,
-      chapterId: parsedInput.focusedChapter.id,
-      eligibleChunkCount: retrievalResult.eligibleChunkCount,
-      bm25RankedCount: retrievalResult.bm25RankedCount,
-      vectorRankedCount: retrievalResult.vectorRankedCount,
-      mergedRankedCount: retrievalResult.mergedRankedCount,
-      selectedChunkCount: retrievalResult.chunks.length,
+    if (manuscriptCharCount > STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT) {
+      const routeError: StoryProseRouteError = {
+        code: "MANUSCRIPT_CONTEXT_TOO_LARGE",
+        message: buildManuscriptContextTooLargeMessage(),
+        status: 413,
+      };
+
+      storyProseLogger.info("manuscript-context-too-large", {
+        action: ACTION_NAME,
+        storyId: parsedInput.story.id,
+        chapterId: parsedInput.focusedChapter.id,
+        approximateLength: parsedInput.approximateLength,
+        manuscriptCharCount,
+        manuscriptCharLimit: STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT,
+      });
+      logEnd(startedAt, parsedInput, "error", routeError.code);
+
+      return errorResponse(routeError);
+    }
+
+    const settings = await getAppSettings();
+
+    const systemPrompt = buildStoryProseSystemPrompt(
+      settings.systemInstructions,
+    );
+    const prosePrompt = buildStoryProsePrompt(parsedInput);
+    const promptSnapshot = saveStoryProsePromptSnapshot({
+      approximateLength: parsedInput.approximateLength,
+      prompt: prosePrompt,
+      regeneration: parsedInput.regeneration,
+      system: systemPrompt,
     });
 
     const stream = streamLocalinkText({
       model: "main",
-      prompt: buildStoryProsePrompt(parsedInput, {
-        retrievedChunks: retrievalResult.chunks,
-      }),
+      system: systemPrompt,
+      prompt: prosePrompt,
       abortSignal: request.signal,
+      maxOutputTokens:
+        PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[parsedInput.approximateLength],
+      providerOptions: PROSE_PROVIDER_OPTIONS,
       temperature: 0.82,
       onAbort: () => {
         logEnd(startedAt, parsedInput, "aborted");
@@ -97,6 +146,7 @@ export async function POST(request: Request): Promise<Response> {
     return stream.toTextStreamResponse({
       headers: {
         "Cache-Control": "no-store",
+        [PROMPT_SNAPSHOT_ID_HEADER]: promptSnapshot.id,
       },
     });
   } catch (error) {
@@ -158,6 +208,14 @@ function isMissingOpenRouterApiKeyError(error: unknown) {
 
 function getErrorName(error: unknown) {
   return error instanceof Error ? error.name : "UnknownError";
+}
+
+function buildManuscriptContextTooLargeMessage(): string {
+  return `The prose was not generated because this story is too large for full-manuscript context. This is a prompt-size guard, not a model failure. Full-manuscript generation currently supports about ${formatCharacterLimit(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT)} characters of chapter text; reduce or split the manuscript before trying again.`;
+}
+
+function formatCharacterLimit(limit: number): string {
+  return limit.toLocaleString("en-US");
 }
 
 function errorResponse(error: StoryProseRouteError): Response {

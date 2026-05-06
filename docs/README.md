@@ -22,6 +22,7 @@ Protect user writing and project files as private local data. Prefer durable loc
 - `docs/backend-actions.md`: action logging, `next-safe-action` mutation clients, read/write structure, and schema split.
 - `docs/database.md`: local SQLite data paths, Drizzle schema/migrations, and startup migration behavior.
 - `docs/devdocs-index.md`: recurring documentation sources for framework/API/agent work.
+- `docs/ai-prose-generation.md`: prose generation goals, prompt architecture, context hierarchy, provider behavior, and drafting rationale.
 - `docs/styling.md`: Tailwind v4, SCSS token hub, fonts, shadcn/ui, and common component conventions.
 
 ## Maintenance Rules

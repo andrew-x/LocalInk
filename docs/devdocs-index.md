@@ -22,6 +22,8 @@ Recurring sources for implementation decisions that depend on current framework,
 | Lexical React getting started | https://lexical.dev/docs/getting-started/react | React setup path for Lexical composer, plugins, editor configuration, and initial editor state patterns for the manuscript editor. | 2026-05-05 |
 | Lucide llms.txt | https://lucide.dev/llms.txt | LLM-readable index for Lucide icon usage and package guidance. | 2026-05-05 |
 | Next local docs | `node_modules/next/dist/docs/index.md` | Installed Next 16 docs for framework-sensitive implementation. | 2026-05-05 |
+| Next use server directive | `node_modules/next/dist/docs/01-app/03-api-reference/01-directives/use-server.md` | Dedicated `"use server"` files for Server Functions imported by Client Components and server-side return-value constraints. | 2026-05-06 |
+| Next data security guide | `node_modules/next/dist/docs/01-app/02-guides/data-security.md` | Data access layer pattern for keeping Server Functions thin and delegating database work to `server-only` modules. | 2026-05-06 |
 | Next Route Handlers | `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md` | App Router route-handler convention, supported HTTP methods, caching defaults, and native `Response` handling. | 2026-05-06 |
 | Next serverExternalPackages | `node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/serverExternalPackages.md` | Opting Node-specific server packages out of bundling so they use native Node `require`. | 2026-05-06 |
 | Next App dynamic routes | `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/dynamic-routes.md` | App Router dynamic segment convention and async `params` typing for story routes. | 2026-05-05 |

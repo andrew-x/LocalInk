@@ -25,13 +25,8 @@ import {
   useRef,
   useState,
 } from "react";
-import type {
-  ChapterIndexTriggerReason,
-  StoryChapterIndexSnapshot,
-  StoryChapterItem,
-} from "@/actions/stories/_types";
+import type { StoryChapterItem } from "@/actions/stories/_types";
 import { deleteChapter } from "@/actions/stories/delete-chapter";
-import { indexChapter } from "@/actions/stories/index-chapter";
 import { updateChapterContent } from "@/actions/stories/update-chapter-content";
 import { updateChapterTitle } from "@/actions/stories/update-chapter-title";
 import { Button } from "@/components/common/button";
@@ -46,7 +41,6 @@ import { createLogger } from "@/lib/logger";
 import { cn } from "@/lib/util";
 
 const AUTOSAVE_DELAY_MS = 800;
-const INDEX_DELAY_MS = 2 * 60 * 1000;
 const chapterEditorLogger = createLogger("chapter-editor");
 
 const EDITOR_THEME: InitialConfigType["theme"] = {
@@ -71,7 +65,6 @@ type ChapterContentEditorProps = {
   isActive: boolean;
   onDeleted: (chapterId: string, updatedAt: string) => void;
   onFocus: (chapterId: string) => void;
-  onIndexed: (chapter: StoryChapterIndexSnapshot) => void;
   onRegisterAiDraftHandle: (
     chapterId: string,
     handle: ChapterAiDraftHandle | null,
@@ -85,7 +78,6 @@ export function ChapterContentEditor({
   isActive,
   onDeleted,
   onFocus,
-  onIndexed,
   onRegisterAiDraftHandle,
   onSaved,
   storyId,
@@ -162,7 +154,6 @@ export function ChapterContentEditor({
             chapterId={chapter.id}
             initialContent={chapter.content}
             isActive={isActive}
-            onIndexed={onIndexed}
             onSaved={onSaved}
             onSaveStateChange={setContentSaveState}
             storyId={storyId}
@@ -516,7 +507,6 @@ type ChapterAutosavePluginProps = {
   chapterId: string;
   initialContent: string;
   isActive: boolean;
-  onIndexed: (chapter: StoryChapterIndexSnapshot) => void;
   onSaved: (chapter: StoryChapterItem) => void;
   onSaveStateChange: (state: SaveState) => void;
   storyId: string;
@@ -526,15 +516,12 @@ function ChapterAutosavePlugin({
   chapterId,
   initialContent,
   isActive,
-  onIndexed,
   onSaved,
   onSaveStateChange,
   storyId,
 }: ChapterAutosavePluginProps) {
   const { executeAsync } = useAction(updateChapterContent);
-  const { executeAsync: executeIndexChapter } = useAction(indexChapter);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const indexTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef(initialContent);
   const latestContentRef = useRef(initialContent);
   const changeVersionRef = useRef(0);
@@ -550,47 +537,11 @@ function ChapterAutosavePlugin({
     }
   }, []);
 
-  const clearIndexTimer = useCallback(() => {
-    if (indexTimerRef.current) {
-      clearTimeout(indexTimerRef.current);
-      indexTimerRef.current = null;
-    }
-  }, []);
-
-  const fireIndexNow = useCallback(
-    (triggerReason: ChapterIndexTriggerReason) => {
-      clearIndexTimer();
-      void executeIndexChapter({
-        storyId,
-        chapterId,
-        triggerReason,
-      })
-        .then((result) => {
-          if (isMountedRef.current && result?.data?.chapter) {
-            onIndexed(result.data.chapter);
-          }
-        })
-        .catch(() => null);
-    },
-    [chapterId, clearIndexTimer, executeIndexChapter, onIndexed, storyId],
-  );
-
-  const scheduleIndex = useCallback(() => {
-    clearIndexTimer();
-    indexTimerRef.current = setTimeout(() => {
-      indexTimerRef.current = null;
-      fireIndexNow("autosave-debounce");
-    }, INDEX_DELAY_MS);
-  }, [clearIndexTimer, fireIndexNow]);
-
   const saveContent = useCallback(
     async (
       content: string,
       version: number,
       options: {
-        fireIndexImmediately?: boolean;
-        scheduleIndex?: boolean;
-        triggerReason?: ChapterIndexTriggerReason;
         updateState: boolean;
       },
     ): Promise<boolean> => {
@@ -635,23 +586,9 @@ function ChapterAutosavePlugin({
         );
       }
 
-      if (options.fireIndexImmediately && options.triggerReason) {
-        fireIndexNow(options.triggerReason);
-      } else if (options.scheduleIndex) {
-        scheduleIndex();
-      }
-
       return true;
     },
-    [
-      chapterId,
-      executeAsync,
-      fireIndexNow,
-      onSaved,
-      onSaveStateChange,
-      scheduleIndex,
-      storyId,
-    ],
+    [chapterId, executeAsync, onSaved, onSaveStateChange, storyId],
   );
 
   const enqueueSave = useCallback(
@@ -677,7 +614,6 @@ function ChapterAutosavePlugin({
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
         void enqueueSave(content, version, {
-          scheduleIndex: true,
           updateState: true,
         });
       }, AUTOSAVE_DELAY_MS);
@@ -686,26 +622,16 @@ function ChapterAutosavePlugin({
   );
 
   const flushPendingWork = useCallback(
-    async (triggerReason: ChapterIndexTriggerReason, updateState: boolean) => {
-      const hadIndexTimer = indexTimerRef.current !== null;
-
+    async (updateState: boolean) => {
       clearSaveTimer();
-      clearIndexTimer();
 
       if (latestContentRef.current !== lastSavedContentRef.current) {
         await enqueueSave(latestContentRef.current, changeVersionRef.current, {
-          fireIndexImmediately: true,
-          triggerReason,
           updateState,
         });
-        return;
-      }
-
-      if (hadIndexTimer) {
-        fireIndexNow(triggerReason);
       }
     },
-    [clearIndexTimer, clearSaveTimer, enqueueSave, fireIndexNow],
+    [clearSaveTimer, enqueueSave],
   );
 
   const flushPendingWorkRef = useRef(flushPendingWork);
@@ -716,7 +642,7 @@ function ChapterAutosavePlugin({
 
   useEffect(() => {
     if (wasActiveRef.current && !isActive) {
-      void flushPendingWork("chapter-switch", true);
+      void flushPendingWork(true);
     }
 
     wasActiveRef.current = isActive;
@@ -726,7 +652,7 @@ function ChapterAutosavePlugin({
     isMountedRef.current = true;
 
     return () => {
-      void flushPendingWorkRef.current("editor-unmount", false);
+      void flushPendingWorkRef.current(false);
       isMountedRef.current = false;
     };
   }, []);

@@ -22,20 +22,31 @@ const storyProseChapterSchema = z.object({
   content: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
 });
 
+const storyProseRegenerationSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("fresh-alternative"),
+  }),
+  z.object({
+    editInstructions: z.string().trim().min(1).max(1_000),
+    mode: z.literal("revise-prior-draft"),
+    priorDraft: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
+  }),
+]);
+
 export const storyProseGenerationRequestSchema = z.object({
   story: storyProseStorySchema,
   style: z.string().max(8_000),
   characters: z.array(storyProseCharacterSchema).max(100),
+  chapters: z.array(storyProseChapterSchema).max(500),
   focusedChapter: storyProseChapterSchema,
-  previousChapter: storyProseChapterSchema.optional(),
-  nextChapter: storyProseChapterSchema.optional(),
   insertion: z.object({
     beforeText: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
     afterText: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
     atChapterEnd: z.boolean(),
   }),
   instructions: z.string().trim().max(2_000),
-  approximateLength: z.union([z.literal(400), z.literal(600), z.literal(800)]),
+  approximateLength: z.union([z.literal(200), z.literal(400), z.literal(600)]),
+  regeneration: storyProseRegenerationSchema.optional(),
 });
 
 export type StoryProseGenerationRequest = z.infer<

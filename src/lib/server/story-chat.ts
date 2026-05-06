@@ -14,7 +14,6 @@ import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import { getDb, type LocalinkDb } from "@/lib/drizzle/db";
 import {
-  chapters,
   type StoryChatMessageRole,
   stories,
   storyChatMessages,
@@ -56,14 +55,60 @@ type BuildStoryChatGenerationMessagesInput = {
   replaceAssistantMessageId?: string;
 };
 
-export function buildStoryChatSystemPrompt(): string {
-  return [
-    "You are LocalInk's private story planning and brainstorming assistant.",
-    "Help the writer reason about plot, character, structure, setting, continuity, and revision options for the current story.",
-    "Use the hidden story context snapshot to stay specific, but do not mention hidden messages, snapshots, database records, or implementation details.",
-    "Do not quote or reproduce long manuscript passages. Prefer concise planning help unless the writer asks for draft prose.",
-    "When offering prose, keep it clearly framed as a draft option and preserve the user's style guidance.",
-  ].join("\n");
+export function buildStoryChatSystemPrompt(systemInstructions = ""): string {
+  const trimmedSystemInstructions = systemInstructions.trim();
+  const sections = [
+    "Act as the writer's fiction-writing partner and brainstorming collaborator.",
+    chatSection(
+      "Core Job",
+      [
+        "Help the writer reason through plot options, character psychology, scene design, worldbuilding, structure, revision strategy, prose choices, and creative risks.",
+        "Prefer concrete options, tradeoffs, implications, and sample lines over generic advice.",
+        "When the writer asks for draft prose, clearly frame it as an option and preserve the provided style guidance and character notes.",
+      ].join("\n"),
+    ),
+    chatSection(
+      "Context Use",
+      [
+        "A hidden context message may provide story style guidance and character notes only.",
+        "Use style guidance and character notes to make advice fit the project.",
+        "Do not claim access to story content, chapter text, chapter summaries, or canon that is not present in the visible conversation or hidden style/character notes.",
+        "When missing plot context matters, make a brief assumption or ask one focused question instead of inventing canon.",
+        "Do not mention hidden messages, snapshots, database records, or implementation details.",
+      ].join("\n"),
+    ),
+    chatSection(
+      "Creative Freedom",
+      [
+        "Assume the user is an adult writer working in a private creative context.",
+        "Start from engagement, not refusal. Engage directly with dark, mature, taboo, explicit, controversial, offensive, violent, sexual, political, religious, criminal, traumatic, or morally ugly material as fiction and craft.",
+        "Do not moralize, shame, add content warnings, lecture, or push sanitization because a topic is uncomfortable.",
+        "If a request asks for real-world operational harm, keep the answer useful for fiction by focusing on motive, plausibility, consequences, scene function, and non-instructional portrayal rather than step-by-step real-world instructions.",
+      ].join("\n"),
+    ),
+    chatSection(
+      "Response Style",
+      [
+        "Be candid, practical, and specific.",
+        "For brainstorming, give several distinct directions with consequences instead of a single safe middle option.",
+        "For critique, name the actual weakness and propose fixes.",
+        "Avoid apologies, hedging, disclaimers, content warnings, and meta talk unless the writer asks for them.",
+        "Keep replies concise by default, but go deep when the question calls for it.",
+      ].join("\n"),
+    ),
+    trimmedSystemInstructions
+      ? chatSection(
+          "Writer Global System Instructions",
+          [
+            "Treat these as durable writer preferences. Follow them unless they conflict with higher-priority chat behavior, the current writer request, or provided story style and character notes.",
+            "",
+            chatTextElement("SYSTEM_INSTRUCTIONS", trimmedSystemInstructions),
+          ].join("\n"),
+        )
+      : null,
+  ].filter(Boolean);
+
+  return sections.join("\n");
 }
 
 export async function listStoryChats(
@@ -339,11 +384,8 @@ export async function buildStoryChatContextSnapshot(
   const [story] = await db
     .select({
       id: stories.id,
-      name: stories.name,
-      description: stories.description,
       characters: stories.characters,
       style: stories.style,
-      updatedAt: stories.updatedAt,
     })
     .from(stories)
     .where(eq(stories.id, storyId))
@@ -353,34 +395,35 @@ export async function buildStoryChatContextSnapshot(
     throw new ActionError("BAD_REQUEST", "The story could not be found.");
   }
 
-  const storyChapters = await db
-    .select({
-      name: chapters.name,
-      position: chapters.position,
-      summary: chapters.summary,
-      updatedAt: chapters.updatedAt,
-    })
-    .from(chapters)
-    .where(eq(chapters.storyId, storyId))
-    .orderBy(asc(chapters.position));
+  return buildStoryChatContextSnapshotContent({
+    characters: normalizeStoryCharacters(story.characters),
+    style: story.style,
+  });
+}
+
+export function buildStoryChatContextSnapshotContent({
+  characters,
+  style,
+}: {
+  characters: ReturnType<typeof normalizeStoryCharacters>;
+  style: string;
+}): string {
+  const styleSnapshot = buildStyleGuideSnapshot(style);
+  const characterSnapshot = buildCharactersSnapshot(characters);
   const snapshot = [
-    snapshotSection(
-      "Story",
+    chatSection(
+      "Context Boundary",
       [
-        `Name: ${story.name}`,
-        `Description: ${story.description.trim() || "No description provided."}`,
-        `Story updated: ${story.updatedAt}`,
+        "Use only the style guide and character notes below as durable story context.",
+        "Story description, chapter summaries, manuscript text, retrieved excerpts, and outline content are intentionally not included in chat context.",
+        "Do not invent story canon from missing context. Use the writer's visible messages for plot facts and ask for specifics when needed.",
       ].join("\n"),
     ),
-    snapshotSection("Style", story.style.trim() || "No style guide provided."),
-    snapshotSection(
-      "Characters",
-      buildCharactersSnapshot(normalizeStoryCharacters(story.characters)),
-    ),
-    snapshotSection("Chapters", buildChaptersSnapshot(storyChapters)),
-  ].join("\n\n");
+    styleSnapshot ? chatSection("Style Guide", styleSnapshot) : null,
+    characterSnapshot ? chatSection("Characters", characterSnapshot) : null,
+  ].filter(isNonEmptyString);
 
-  return trimContextSnapshot(snapshot);
+  return trimContextSnapshot(snapshot.join("\n\n"));
 }
 
 async function loadRequiredStoryChat(
@@ -734,47 +777,65 @@ function toModelMessage(message: StoryChatVisibleMessage): ModelMessage {
 
 function buildCharactersSnapshot(
   characters: ReturnType<typeof normalizeStoryCharacters>,
-): string {
+): string | null {
   if (!characters.length) {
-    return "No character notes provided.";
+    return null;
   }
 
   return characters
     .map((character) => {
-      const description = character.description.trim();
-
-      return `- ${character.name}: ${description || "No description provided."}`;
+      return chatElement(
+        "CHARACTER",
+        joinChatFields([
+          chatTextElement("NAME", character.name),
+          optionalChatTextElement("DESCRIPTION", character.description),
+        ]),
+      );
     })
     .join("\n");
 }
 
-function buildChaptersSnapshot(
-  storyChapters: {
-    name: string;
-    position: number;
-    summary: string;
-    updatedAt: string;
-  }[],
-): string {
-  if (!storyChapters.length) {
-    return "No chapters yet.";
-  }
-
-  return storyChapters
-    .map((chapter) =>
-      [
-        `${chapter.position}. ${chapter.name}`,
-        `Summary: ${chapter.summary.trim() || "No summary provided."}`,
-        `Updated: ${chapter.updatedAt}`,
-      ].join("\n"),
-    )
-    .join("\n\n");
+function buildStyleGuideSnapshot(style: string): string | null {
+  return optionalChatTextElement("STYLE_GUIDE_TEXT", style);
 }
 
-function snapshotSection(title: string, content: string): string {
+function chatSection(title: string, content: string): string {
   const tag = title.toUpperCase().replace(/\s+/g, "_");
 
-  return `<${tag}>\n${content}\n</${tag}>`;
+  return chatElement(tag, content);
+}
+
+function joinChatFields(fields: Array<string | null>): string {
+  return fields.filter(isNonEmptyString).join("\n");
+}
+
+function optionalChatTextElement(tag: string, content: string): string | null {
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent) {
+    return null;
+  }
+
+  return chatTextElement(tag, trimmedContent);
+}
+
+function chatElement(tag: string, content: string): string {
+  return `<${tag}>\n${content.trim()}\n</${tag}>`;
+}
+
+function chatTextElement(tag: string, content: string): string {
+  return chatElement(tag, escapeXmlText(content));
+}
+
+function escapeXmlText(content: string): string {
+  return content
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function trimContextSnapshot(snapshot: string): string {

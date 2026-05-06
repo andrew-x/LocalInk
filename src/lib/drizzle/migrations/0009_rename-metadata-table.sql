@@ -1,0 +1,1 @@
+ALTER TABLE `localink_metadata` RENAME TO `metadata`;

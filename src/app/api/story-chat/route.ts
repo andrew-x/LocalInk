@@ -2,6 +2,7 @@ import { ActionError } from "@/lib/action-error";
 import { streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
+import { getAppSettings } from "@/lib/server/app-settings";
 import {
   buildStoryChatGenerationMessages,
   buildStoryChatSystemPrompt,
@@ -56,10 +57,15 @@ export async function POST(request: Request): Promise<Response> {
       isRegeneration: Boolean(parsedInput.replaceAssistantMessageId),
     });
 
+    const [settings, messages] = await Promise.all([
+      getAppSettings(),
+      buildStoryChatGenerationMessages(parsedInput),
+    ]);
+
     const stream = streamLocalinkText({
       model: "main",
-      system: buildStoryChatSystemPrompt(),
-      messages: await buildStoryChatGenerationMessages(parsedInput),
+      system: buildStoryChatSystemPrompt(settings.systemInstructions),
+      messages,
       abortSignal: request.signal,
       temperature: 0.72,
       onAbort: () => {

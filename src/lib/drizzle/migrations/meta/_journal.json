@@ -64,6 +64,13 @@
       "when": 1778028207686,
       "tag": "0008_story-chats",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778066381391,
+      "tag": "0009_rename-metadata-table",
+      "breakpoints": true
     }
   ]
 }

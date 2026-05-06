@@ -5,7 +5,6 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
-  StoryChapterIndexSnapshot,
   StoryChapterItem,
   StoryContext,
   StoryEditorData,
@@ -76,26 +75,6 @@ export function StoryEditor({ story }: StoryEditorProps) {
       ),
     );
   }, []);
-
-  const handleChapterIndexed = useCallback(
-    (indexedChapter: StoryChapterIndexSnapshot) => {
-      setChapters((currentChapters) =>
-        currentChapters.map((chapter) =>
-          chapter.id === indexedChapter.id
-            ? {
-                ...chapter,
-                chunks: indexedChapter.chunks,
-                indexedAt: indexedChapter.indexedAt,
-                indexedHash: indexedChapter.indexedHash,
-                summary: indexedChapter.summary,
-                updatedAt: indexedChapter.updatedAt,
-              }
-            : chapter,
-        ),
-      );
-    },
-    [],
-  );
 
   const handleChapterDeleted = useCallback((chapterId: string) => {
     setChapters((currentChapters) => {
@@ -194,7 +173,6 @@ export function StoryEditor({ story }: StoryEditorProps) {
         onAddChapter={handleAddChapter}
         onChapterDeleted={handleChapterDeleted}
         onChapterFocus={setActiveChapterId}
-        onChapterIndexed={handleChapterIndexed}
         onChapterSaved={handleChapterSaved}
         story={{
           id: story.id,

@@ -177,7 +177,7 @@ function buildStoryProseRetrievalQuery(
 ): string {
   return [
     "User instructions:",
-    request.instructions.trim() || "Continue the story naturally.",
+    buildStoryProseRetrievalInstructions(request),
     "",
     "Focused chapter title:",
     request.focusedChapter.name,
@@ -197,6 +197,24 @@ function buildStoryProseRetrievalQuery(
       RETRIEVAL_INSERTION_CONTEXT_CHARS,
     ) || "No text after the insertion point.",
   ].join("\n");
+}
+
+function buildStoryProseRetrievalInstructions(
+  request: StoryProseGenerationRequest,
+): string {
+  const instructions =
+    request.instructions.trim() || "Continue the story naturally.";
+  const regeneration = request.regeneration;
+
+  if (regeneration?.mode === "fresh-alternative") {
+    return `${instructions}\nRegenerate as a fresh alternative draft.`;
+  }
+
+  if (regeneration?.mode === "revise-prior-draft") {
+    return `${instructions}\nRegeneration edit instructions: ${regeneration.editInstructions.trim()}`;
+  }
+
+  return instructions;
 }
 
 function getLeadingText(text: string, maxChars: number): string {

@@ -23,9 +23,24 @@ import {
   type RangeSelection,
   type SerializedLexicalNode,
 } from "lexical";
-import { Check, ChevronLeft, ChevronRight, RefreshCw, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/common/dialog";
 import { CHAPTER_MARKDOWN_TRANSFORMERS } from "@/components/story-editor/chapter-markdown";
 import { cn } from "@/lib/util";
 
@@ -44,6 +59,7 @@ export type AiDraftInlineAction =
       action: "regenerate";
       draftId: string;
       instructions: string;
+      text: string;
     }
   | {
       action: "select";
@@ -72,15 +88,22 @@ export type ChapterAiDraftHandle = {
   removeDraft: (draftId: string) => void;
   selectDraftVersion: (draftId: string, index: number) => void;
   setContentEditable: (isEditable: boolean) => void;
-  updateDraft: (draftId: string, text: string, status: AiDraftStatus) => void;
+  updateDraft: (
+    draftId: string,
+    text: string,
+    status: AiDraftStatus,
+    promptSnapshotId?: string,
+  ) => void;
 };
 
 type AiDraftVersion = {
+  promptSnapshotId?: string;
   status: AiDraftStatus;
   text: string;
 };
 
 type SerializedAiDraftVersion = {
+  promptSnapshotId?: string;
   status?: AiDraftStatus;
   text?: string;
 };
@@ -100,6 +123,15 @@ type MarkdownSegment = {
 };
 
 type MarkdownFormat = Pick<MarkdownSegment, "bold" | "italic">;
+
+type StoryProsePromptSnapshot = {
+  approximateLength: 200 | 400 | 600;
+  createdAt: string;
+  id: string;
+  mode: "first-generation" | "fresh-alternative" | "revise-prior-draft";
+  prompt: string;
+  system: string;
+};
 
 const PLAIN_MARKDOWN_FORMAT = {
   bold: false,
@@ -144,6 +176,11 @@ function normalizeDraftVersions(
   drafts: SerializedAiDraftVersion[],
 ): AiDraftVersion[] {
   const normalizedDrafts = drafts.map((draft) => ({
+    promptSnapshotId:
+      typeof draft.promptSnapshotId === "string" &&
+      draft.promptSnapshotId.trim()
+        ? draft.promptSnapshotId
+        : undefined,
     status: isAiDraftStatus(draft.status) ? draft.status : "streaming",
     text: typeof draft.text === "string" ? draft.text : "",
   }));
@@ -304,7 +341,11 @@ export class AiDraftNode extends DecoratorNode<ReactNode> {
     return writable;
   }
 
-  setDraftContent(text: string, status: AiDraftStatus): this {
+  setDraftContent(
+    text: string,
+    status: AiDraftStatus,
+    promptSnapshotId?: string,
+  ): this {
     const writable = this.getWritable();
     const drafts: AiDraftVersion[] = writable.__drafts.length
       ? [...writable.__drafts]
@@ -320,6 +361,8 @@ export class AiDraftNode extends DecoratorNode<ReactNode> {
     );
 
     drafts[activeDraftIndex] = {
+      promptSnapshotId:
+        promptSnapshotId || drafts[activeDraftIndex]?.promptSnapshotId,
       status,
       text,
     };
@@ -441,7 +484,7 @@ export function ChapterAiDraftPlugin({
       setContentEditable(isEditable) {
         editor.setEditable(isEditable);
       },
-      updateDraft(draftId, text, status) {
+      updateDraft(draftId, text, status, promptSnapshotId) {
         editor.update(
           () => {
             const draftNode = getAiDraftNode(draftId);
@@ -450,7 +493,7 @@ export function ChapterAiDraftPlugin({
               return;
             }
 
-            draftNode.setDraftContent(text, status);
+            draftNode.setDraftContent(text, status, promptSnapshotId);
           },
           { tag: AI_DRAFT_UPDATE_TAG },
         );
@@ -501,6 +544,7 @@ function AiDraftInlineView({
       action: "regenerate",
       draftId,
       instructions: nextInstructions,
+      text,
     });
   }
 
@@ -527,6 +571,7 @@ function AiDraftInlineView({
         status === "error" && "border-destructive/45 bg-destructive/10",
       )}
       contentEditable={false}
+      data-ai-draft-id={draftId}
     >
       {status === "streaming" && !hasDraftText ? (
         <GeneratingDraftPreview />
@@ -591,6 +636,11 @@ function AiDraftInlineView({
             <RefreshCw aria-hidden="true" className="size-3" />
             Regenerate
           </button>
+          {activeDraft.promptSnapshotId ? (
+            <PromptSnapshotDialogButton
+              promptSnapshotId={activeDraft.promptSnapshotId}
+            />
+          ) : null}
           <button
             aria-label="Reject AI draft"
             className="inline-flex h-7 items-center justify-center gap-1 rounded-sm border border-border/70 bg-background/60 px-2 font-sans text-caption text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/35 focus-visible:outline-none"
@@ -624,6 +674,143 @@ function AiDraftInlineView({
       ) : null}
     </span>
   );
+}
+
+function PromptSnapshotDialogButton({
+  promptSnapshotId,
+}: {
+  promptSnapshotId: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [promptError, setPromptError] = useState<string | null>(null);
+  const [promptSnapshot, setPromptSnapshot] =
+    useState<StoryProsePromptSnapshot | null>(null);
+
+  async function loadPromptSnapshot() {
+    if (promptSnapshot?.id === promptSnapshotId) {
+      return;
+    }
+
+    setIsLoading(true);
+    setPromptError(null);
+
+    try {
+      const response = await fetch(
+        `/api/story-prose/prompts/${encodeURIComponent(promptSnapshotId)}`,
+        {
+          cache: "no-store",
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await readPromptSnapshotError(response));
+      }
+
+      const data = (await response.json()) as StoryProsePromptSnapshot;
+
+      setPromptSnapshot(data);
+    } catch (error) {
+      const message = getPromptSnapshotFailureMessage(error);
+
+      setPromptError(message);
+      toast.error(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  function handleOpenChange(nextIsOpen: boolean) {
+    setIsOpen(nextIsOpen);
+
+    if (nextIsOpen) {
+      void loadPromptSnapshot();
+    }
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <button
+        aria-label="View AI prompts"
+        className="inline-flex h-7 items-center justify-center gap-1 rounded-sm border border-border/70 bg-background/60 px-2 font-sans text-caption text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/35 focus-visible:outline-none"
+        onClick={() => handleOpenChange(true)}
+        title="Prompts"
+        type="button"
+      >
+        <FileText aria-hidden="true" className="size-3" />
+        Prompts
+      </button>
+      <DialogContent className="max-h-[85vh] max-w-5xl grid-rows-[auto_minmax(0,1fr)] overflow-hidden p-0">
+        <DialogHeader className="border-border/80 border-b px-4 pt-4 pr-12 pb-3">
+          <DialogTitle className="text-heading">Generation prompts</DialogTitle>
+          <DialogDescription className="sr-only">
+            Full system and request prompts used to generate this draft version.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 overflow-y-auto px-4 pb-4">
+          {isLoading ? (
+            <p className="py-4 text-body text-muted-foreground">
+              Loading prompts...
+            </p>
+          ) : promptError ? (
+            <p className="py-4 text-body text-destructive" role="alert">
+              {promptError}
+            </p>
+          ) : promptSnapshot ? (
+            <div className="grid gap-4 pt-4">
+              <PromptSnapshotBlock
+                title="System"
+                value={promptSnapshot.system}
+              />
+              <PromptSnapshotBlock
+                title="Request"
+                value={promptSnapshot.prompt}
+              />
+            </div>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PromptSnapshotBlock({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
+  return (
+    <section className="grid gap-2">
+      <h3 className="font-sans text-label text-muted-foreground">{title}</h3>
+      <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-border/80 bg-background/70 p-3 font-mono text-[0.75rem] leading-5">
+        {value}
+      </pre>
+    </section>
+  );
+}
+
+async function readPromptSnapshotError(response: Response) {
+  try {
+    const data = (await response.json()) as { message?: unknown };
+
+    if (typeof data.message === "string" && data.message.trim()) {
+      return data.message;
+    }
+  } catch {
+    return "The prompts for this draft could not be loaded.";
+  }
+
+  return "The prompts for this draft could not be loaded.";
+}
+
+function getPromptSnapshotFailureMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  return "The prompts for this draft could not be loaded.";
 }
 
 function GeneratingDraftPreview() {
