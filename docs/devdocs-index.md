@@ -13,6 +13,7 @@ Recurring sources for implementation decisions that depend on current framework,
 | Codex subagents guide | https://developers.openai.com/codex/subagents | `.codex/agents/*.toml` format and delegation config. | 2026-05-05 |
 | Claude Code llms.txt | https://code.claude.com/llms.txt | LLM-readable index for Claude Code behavior when maintaining runtime parity. | 2026-05-05 |
 | AI SDK llms.txt | https://ai-sdk.dev/llms.txt | LLM-readable index for AI SDK APIs and provider integration guidance. | 2026-05-05 |
+| AI SDK streamText local types | `node_modules/ai/dist/index.d.ts` | Installed AI SDK 6 `streamText` options, `abortSignal`, callbacks, and text stream response types. | 2026-05-05 |
 | AI SDK OpenRouter provider | https://ai-sdk.dev/providers/community-providers/openrouter | Current OpenRouter provider package, `createOpenRouter`, chat model, and text generation examples. | 2026-05-05 |
 | Bun llms.txt | https://bun.com/llms.txt | LLM-readable index for Bun runtime, package manager, and lockfile behavior. | 2026-05-05 |
 | Drizzle ORM llms.txt | https://orm.drizzle.team/llms.txt | LLM-readable index for Drizzle ORM schema, query, and migration guidance. | 2026-05-05 |
@@ -21,6 +22,8 @@ Recurring sources for implementation decisions that depend on current framework,
 | Lexical React getting started | https://lexical.dev/docs/getting-started/react | React setup path for Lexical composer, plugins, editor configuration, and initial editor state patterns for the manuscript editor. | 2026-05-05 |
 | Lucide llms.txt | https://lucide.dev/llms.txt | LLM-readable index for Lucide icon usage and package guidance. | 2026-05-05 |
 | Next local docs | `node_modules/next/dist/docs/index.md` | Installed Next 16 docs for framework-sensitive implementation. | 2026-05-05 |
+| Next Route Handlers | `node_modules/next/dist/docs/01-app/01-getting-started/15-route-handlers.md` | App Router route-handler convention, supported HTTP methods, caching defaults, and native `Response` handling. | 2026-05-06 |
+| Next serverExternalPackages | `node_modules/next/dist/docs/01-app/03-api-reference/05-config/01-next-config-js/serverExternalPackages.md` | Opting Node-specific server packages out of bundling so they use native Node `require`. | 2026-05-06 |
 | Next App dynamic routes | `node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/dynamic-routes.md` | App Router dynamic segment convention and async `params` typing for story routes. | 2026-05-05 |
 | Next Link component | `node_modules/next/dist/docs/01-app/03-api-reference/02-components/link.md` | Client-side navigation to dynamic story routes from story lists. | 2026-05-05 |
 | Next redirect function | `node_modules/next/dist/docs/01-app/03-api-reference/04-functions/redirect.md` | Redirect behavior and constraints when choosing between server redirects and client navigation after mutations. | 2026-05-05 |
@@ -36,6 +39,8 @@ Recurring sources for implementation decisions that depend on current framework,
 | shadcn/ui llms.txt | https://ui.shadcn.com/llms.txt | LLM-readable index for shadcn/ui component and CLI guidance. | 2026-05-05 |
 | shadcn/ui Sonner | https://ui.shadcn.com/docs/components/sonner | Current toast guidance, including Sonner installation, app-level `Toaster`, and `toast` usage. | 2026-05-05 |
 | shadcn/ui Tailwind v4 | https://ui.shadcn.com/docs/tailwind-v4 | Current shadcn guidance for Tailwind v4, `@theme inline`, OKLCH colors, `data-slot`, and `tw-animate-css`. | 2026-05-05 |
+| sqlite-vec JavaScript usage | https://alexgarcia.xyz/sqlite-vec/js.html | Current `sqlite-vec` npm package loading behavior for better-sqlite3 and JavaScript vector binding. | 2026-05-06 |
+| sqlite-vec KNN and regular tables | https://alexgarcia.xyz/sqlite-vec/features/knn.html | Current guidance for using regular SQLite BLOB columns with sqlite-vec validation and distance functions. | 2026-05-06 |
 | Tailwind CSS dark mode | https://tailwindcss.com/docs/dark-mode | Current class-driven dark variant setup using `@custom-variant`. | 2026-05-05 |
 | Tailwind CSS theme variables | https://tailwindcss.com/docs/theme | Current `@theme`, `@theme inline`, and utility namespace behavior. | 2026-05-05 |
 | Tailwind CSS utility classes | https://tailwindcss.com/docs/styling-with-utility-classes | Tailwind docs entry point for utility-first styling and navigation to related docs. | 2026-05-05 |

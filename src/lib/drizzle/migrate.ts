@@ -28,7 +28,5 @@ export function runDrizzleMigrations() {
 
   migrationLogger.info("migrate", {
     mode: databaseInfo.mode,
-    databasePath: databaseInfo.databasePath,
-    migrationsFolder,
   });
 }

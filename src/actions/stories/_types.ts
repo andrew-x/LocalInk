@@ -19,6 +19,8 @@ export type StoryChapterItem = {
   name: string;
   position: number;
   content: string;
+  indexedHash: string;
+  indexedAt: string | null;
   summary: string;
   updatedAt: string;
 };
@@ -27,3 +29,24 @@ export type StoryEditorData = StoryListItem &
   StoryContext & {
     chapters: StoryChapterItem[];
   };
+
+export type ChapterIndexTriggerReason =
+  | "autosave-debounce"
+  | "chapter-switch"
+  | "editor-unmount";
+
+export type ChapterIndexStatus =
+  | "cleared-empty"
+  | "discarded-changed"
+  | "indexed"
+  | "not-found"
+  | "skipped-current";
+
+export type ChapterIndexResult = {
+  chapterId: string;
+  chunkCount: number;
+  indexedAt: string | null;
+  indexedHash: string | null;
+  status: ChapterIndexStatus;
+  storyId: string;
+};

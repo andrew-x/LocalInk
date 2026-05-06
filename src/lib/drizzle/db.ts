@@ -3,6 +3,7 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 
 import { getDatabaseInfo } from "./paths";
 import * as schema from "./schema";
@@ -23,6 +24,8 @@ export function getSqliteClient(): Database.Database {
     mkdirSync(dataDirectory, { recursive: true });
 
     const client = new Database(databasePath);
+
+    sqliteVec.load(client);
 
     client.pragma("journal_mode = WAL");
     client.pragma("foreign_keys = ON");

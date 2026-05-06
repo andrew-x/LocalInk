@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 
 import { publicActionClient } from "@/lib/action";
 import { ActionError } from "@/lib/action-error";
+import { EMPTY_CHAPTER_CONTENT_HASH } from "@/lib/chapter-content-hash";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
@@ -43,6 +44,8 @@ export const createChapter = publicActionClient
       name: `Chapter ${position}`,
       position,
       content: "",
+      indexedHash: EMPTY_CHAPTER_CONTENT_HASH,
+      indexedAt: null,
       summary: "",
       updatedAt: now,
     } satisfies typeof chapters.$inferInsert;
@@ -61,6 +64,8 @@ export const createChapter = publicActionClient
       name: chapter.name,
       position: chapter.position,
       content: chapter.content,
+      indexedHash: chapter.indexedHash,
+      indexedAt: chapter.indexedAt,
       summary: chapter.summary,
       updatedAt: chapter.updatedAt,
     };

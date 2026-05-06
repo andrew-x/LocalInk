@@ -37,6 +37,8 @@ export async function getStory(
         name: chapters.name,
         position: chapters.position,
         content: chapters.content,
+        indexedHash: chapters.indexedHash,
+        indexedAt: chapters.indexedAt,
         summary: chapters.summary,
         updatedAt: chapters.updatedAt,
       })

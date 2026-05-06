@@ -3,13 +3,6 @@
 import {
   $convertFromMarkdownString,
   $convertToMarkdownString,
-  BOLD_ITALIC_STAR,
-  BOLD_ITALIC_UNDERSCORE,
-  BOLD_STAR,
-  BOLD_UNDERSCORE,
-  ITALIC_STAR,
-  ITALIC_UNDERSCORE,
-  type Transformer,
 } from "@lexical/markdown";
 import {
   type InitialConfigType,
@@ -32,25 +25,28 @@ import {
   useRef,
   useState,
 } from "react";
-import type { StoryChapterItem } from "@/actions/stories/_types";
+import type {
+  ChapterIndexTriggerReason,
+  StoryChapterItem,
+} from "@/actions/stories/_types";
 import { deleteChapter } from "@/actions/stories/delete-chapter";
+import { indexChapter } from "@/actions/stories/index-chapter";
 import { updateChapterContent } from "@/actions/stories/update-chapter-content";
 import { updateChapterTitle } from "@/actions/stories/update-chapter-title";
 import { Button } from "@/components/common/button";
+import {
+  AI_DRAFT_UPDATE_TAG,
+  AiDraftNode,
+  type ChapterAiDraftHandle,
+  ChapterAiDraftPlugin,
+} from "@/components/story-editor/chapter-ai-draft-plugin";
+import { CHAPTER_MARKDOWN_TRANSFORMERS } from "@/components/story-editor/chapter-markdown";
 import { createLogger } from "@/lib/logger";
 import { cn } from "@/lib/util";
 
 const AUTOSAVE_DELAY_MS = 800;
+const INDEX_DELAY_MS = 2 * 60 * 1000;
 const chapterEditorLogger = createLogger("chapter-editor");
-
-const MARKDOWN_TRANSFORMERS: Array<Transformer> = [
-  BOLD_ITALIC_STAR,
-  BOLD_ITALIC_UNDERSCORE,
-  BOLD_STAR,
-  BOLD_UNDERSCORE,
-  ITALIC_STAR,
-  ITALIC_UNDERSCORE,
-];
 
 const EDITOR_THEME: InitialConfigType["theme"] = {
   paragraph: "mb-5 last:mb-0",
@@ -74,6 +70,10 @@ type ChapterContentEditorProps = {
   isActive: boolean;
   onDeleted: (chapterId: string, updatedAt: string) => void;
   onFocus: (chapterId: string) => void;
+  onRegisterAiDraftHandle: (
+    chapterId: string,
+    handle: ChapterAiDraftHandle | null,
+  ) => void;
   onSaved: (chapter: StoryChapterItem) => void;
   storyId: string;
 };
@@ -83,6 +83,7 @@ export function ChapterContentEditor({
   isActive,
   onDeleted,
   onFocus,
+  onRegisterAiDraftHandle,
   onSaved,
   storyId,
 }: ChapterContentEditorProps) {
@@ -94,10 +95,11 @@ export function ChapterContentEditor({
     () => ({
       namespace: `LocalInkChapter:${chapter.id}`,
       theme: EDITOR_THEME,
+      nodes: [AiDraftNode],
       editorState: () => {
         $convertFromMarkdownString(
           chapter.content,
-          MARKDOWN_TRANSFORMERS,
+          CHAPTER_MARKDOWN_TRANSFORMERS,
           undefined,
           true,
         );
@@ -146,10 +148,17 @@ export function ChapterContentEditor({
             ErrorBoundary={LexicalErrorBoundary}
           />
           <HistoryPlugin />
-          <MarkdownShortcutPlugin transformers={MARKDOWN_TRANSFORMERS} />
+          <MarkdownShortcutPlugin
+            transformers={CHAPTER_MARKDOWN_TRANSFORMERS}
+          />
+          <ChapterAiDraftPlugin
+            chapterId={chapter.id}
+            onRegister={onRegisterAiDraftHandle}
+          />
           <ChapterAutosavePlugin
             chapterId={chapter.id}
             initialContent={chapter.content}
+            isActive={isActive}
             onSaved={onSaved}
             onSaveStateChange={setContentSaveState}
             storyId={storyId}
@@ -502,6 +511,7 @@ function RichTextContentEditable({ chapterName }: { chapterName: string }) {
 type ChapterAutosavePluginProps = {
   chapterId: string;
   initialContent: string;
+  isActive: boolean;
   onSaved: (chapter: StoryChapterItem) => void;
   onSaveStateChange: (state: SaveState) => void;
   storyId: string;
@@ -510,89 +520,216 @@ type ChapterAutosavePluginProps = {
 function ChapterAutosavePlugin({
   chapterId,
   initialContent,
+  isActive,
   onSaved,
   onSaveStateChange,
   storyId,
 }: ChapterAutosavePluginProps) {
   const { executeAsync } = useAction(updateChapterContent);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { execute: executeIndexChapter } = useAction(indexChapter);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const indexTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef(initialContent);
   const latestContentRef = useRef(initialContent);
   const changeVersionRef = useRef(0);
   const inFlightSavesRef = useRef(0);
   const isMountedRef = useRef(true);
+  const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const wasActiveRef = useRef(isActive);
 
   const clearSaveTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
   }, []);
 
-  useEffect(() => {
-    isMountedRef.current = true;
+  const clearIndexTimer = useCallback(() => {
+    if (indexTimerRef.current) {
+      clearTimeout(indexTimerRef.current);
+      indexTimerRef.current = null;
+    }
+  }, []);
 
-    return () => {
-      isMountedRef.current = false;
-      clearSaveTimer();
-    };
-  }, [clearSaveTimer]);
+  const fireIndexNow = useCallback(
+    (triggerReason: ChapterIndexTriggerReason) => {
+      clearIndexTimer();
+      executeIndexChapter({
+        storyId,
+        chapterId,
+        triggerReason,
+      });
+    },
+    [chapterId, clearIndexTimer, executeIndexChapter, storyId],
+  );
+
+  const scheduleIndex = useCallback(() => {
+    clearIndexTimer();
+    indexTimerRef.current = setTimeout(() => {
+      indexTimerRef.current = null;
+      fireIndexNow("autosave-debounce");
+    }, INDEX_DELAY_MS);
+  }, [clearIndexTimer, fireIndexNow]);
 
   const saveContent = useCallback(
-    async (content: string, version: number) => {
+    async (
+      content: string,
+      version: number,
+      options: {
+        fireIndexImmediately?: boolean;
+        scheduleIndex?: boolean;
+        triggerReason?: ChapterIndexTriggerReason;
+        updateState: boolean;
+      },
+    ): Promise<boolean> => {
       inFlightSavesRef.current += 1;
-      onSaveStateChange("saving");
+      if (options.updateState) {
+        onSaveStateChange("saving");
+      }
 
       const result = await executeAsync({
         storyId,
         chapterId,
         content,
-      });
+      })
+        .catch(() => null)
+        .finally(() => {
+          inFlightSavesRef.current -= 1;
+        });
 
-      inFlightSavesRef.current -= 1;
-
-      if (!isMountedRef.current) {
-        return;
-      }
-
-      if (!result.data) {
-        if (version === changeVersionRef.current) {
+      if (!result?.data) {
+        if (
+          options.updateState &&
+          isMountedRef.current &&
+          version === changeVersionRef.current
+        ) {
           onSaveStateChange("error");
         }
-        return;
+        return false;
       }
 
       if (version !== changeVersionRef.current) {
-        return;
+        return true;
       }
 
       lastSavedContentRef.current = result.data.content;
-      onSaved(result.data);
-      onSaveStateChange(
-        latestContentRef.current === result.data.content ? "saved" : "pending",
-      );
+
+      if (options.updateState && isMountedRef.current) {
+        onSaved(result.data);
+        onSaveStateChange(
+          latestContentRef.current === result.data.content
+            ? "saved"
+            : "pending",
+        );
+      }
+
+      if (options.fireIndexImmediately && options.triggerReason) {
+        fireIndexNow(options.triggerReason);
+      } else if (options.scheduleIndex) {
+        scheduleIndex();
+      }
+
+      return true;
     },
-    [chapterId, executeAsync, onSaved, onSaveStateChange, storyId],
+    [
+      chapterId,
+      executeAsync,
+      fireIndexNow,
+      onSaved,
+      onSaveStateChange,
+      scheduleIndex,
+      storyId,
+    ],
+  );
+
+  const enqueueSave = useCallback(
+    (
+      content: string,
+      version: number,
+      options: Parameters<typeof saveContent>[2],
+    ) => {
+      const savePromise = saveQueueRef.current
+        .catch(() => false)
+        .then(() => saveContent(content, version, options));
+
+      saveQueueRef.current = savePromise;
+
+      return savePromise;
+    },
+    [saveContent],
   );
 
   const queueSave = useCallback(
     (content: string, version: number) => {
       clearSaveTimer();
-      timerRef.current = setTimeout(() => {
-        timerRef.current = null;
-        void saveContent(content, version);
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        void enqueueSave(content, version, {
+          scheduleIndex: true,
+          updateState: true,
+        });
       }, AUTOSAVE_DELAY_MS);
     },
-    [clearSaveTimer, saveContent],
+    [clearSaveTimer, enqueueSave],
   );
 
+  const flushPendingWork = useCallback(
+    async (triggerReason: ChapterIndexTriggerReason, updateState: boolean) => {
+      const hadIndexTimer = indexTimerRef.current !== null;
+
+      clearSaveTimer();
+      clearIndexTimer();
+
+      if (latestContentRef.current !== lastSavedContentRef.current) {
+        await enqueueSave(latestContentRef.current, changeVersionRef.current, {
+          fireIndexImmediately: true,
+          triggerReason,
+          updateState,
+        });
+        return;
+      }
+
+      if (hadIndexTimer) {
+        fireIndexNow(triggerReason);
+      }
+    },
+    [clearIndexTimer, clearSaveTimer, enqueueSave, fireIndexNow],
+  );
+
+  const flushPendingWorkRef = useRef(flushPendingWork);
+
+  useEffect(() => {
+    flushPendingWorkRef.current = flushPendingWork;
+  }, [flushPendingWork]);
+
+  useEffect(() => {
+    if (wasActiveRef.current && !isActive) {
+      void flushPendingWork("chapter-switch", true);
+    }
+
+    wasActiveRef.current = isActive;
+  }, [flushPendingWork, isActive]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      void flushPendingWorkRef.current("editor-unmount", false);
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const handleChange = useCallback(
-    (editorState: EditorState) => {
+    (editorState: EditorState, _editor: unknown, tags: Set<string>) => {
+      if (tags.has(AI_DRAFT_UPDATE_TAG)) {
+        return;
+      }
+
       let markdown = "";
 
       editorState.read(() => {
         markdown = $convertToMarkdownString(
-          MARKDOWN_TRANSFORMERS,
+          CHAPTER_MARKDOWN_TRANSFORMERS,
           undefined,
           true,
         );
