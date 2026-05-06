@@ -37,6 +37,9 @@ yarn-error.log*
 # local app data
 /data/*
 
+# local agent/editor settings
+settings.local.json
+
 # vercel
 .vercel
 
