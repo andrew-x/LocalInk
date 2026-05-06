@@ -1,20 +1,31 @@
 import "server-only";
 
+import type { StoryProseRetrievedChunk } from "@/lib/server/story-prose-retrieval";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
 
 const MAX_SECTION_CHARS = 24_000;
 const MAX_FOCUSED_SECTION_CHARS = 36_000;
+const MAX_RETRIEVED_CHUNK_CHARS = 2_400;
 const OMITTED_CONTEXT_MARKER =
   "[Earlier and later context preserved; middle omitted to fit the model context.]";
 
 export function buildStoryProsePrompt(
   request: StoryProseGenerationRequest,
+  options: {
+    retrievedChunks?: StoryProseRetrievedChunk[];
+  } = {},
 ): string {
   const sections = [
     proseSection("Task", buildTaskSection(request)),
     proseSection("Story", buildStorySection(request)),
     proseSection("Style", request.style.trim() || "No style guide provided."),
     proseSection("Characters", buildCharactersSection(request)),
+    options.retrievedChunks?.length
+      ? proseSection(
+          "Retrieved Story Context",
+          buildRetrievedStoryContextSection(options.retrievedChunks),
+        )
+      : null,
     request.previousChapter
       ? proseSection(
           "Previous Chapter",
@@ -75,6 +86,21 @@ function buildCharactersSection(request: StoryProseGenerationRequest): string {
       return `- ${character.name}: ${description || "No description provided."}`;
     })
     .join("\n");
+}
+
+function buildRetrievedStoryContextSection(
+  retrievedChunks: StoryProseRetrievedChunk[],
+): string {
+  return retrievedChunks
+    .map((chunk) =>
+      [
+        `Chapter ${chunk.chapterPosition}: ${chunk.chapterTitle}`,
+        "",
+        trimPromptSection(chunk.text, MAX_RETRIEVED_CHUNK_CHARS) ||
+          "No excerpt text provided.",
+      ].join("\n"),
+    )
+    .join("\n\n");
 }
 
 function buildFocusedChapterSection(

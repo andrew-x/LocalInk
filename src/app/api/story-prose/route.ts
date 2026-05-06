@@ -2,6 +2,7 @@ import { streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
 import { buildStoryProsePrompt } from "@/lib/server/story-prose-generation";
+import { retrieveStoryProseContext } from "@/lib/server/story-prose-retrieval";
 import {
   type StoryProseGenerationRequest,
   storyProseGenerationRequestSchema,
@@ -51,9 +52,24 @@ export async function POST(request: Request): Promise<Response> {
       approximateLength: parsedInput.approximateLength,
     });
 
+    const retrievalResult = await retrieveStoryProseContext(parsedInput);
+
+    storyProseLogger.info("retrieval", {
+      action: ACTION_NAME,
+      storyId: parsedInput.story.id,
+      chapterId: parsedInput.focusedChapter.id,
+      eligibleChunkCount: retrievalResult.eligibleChunkCount,
+      bm25RankedCount: retrievalResult.bm25RankedCount,
+      vectorRankedCount: retrievalResult.vectorRankedCount,
+      mergedRankedCount: retrievalResult.mergedRankedCount,
+      selectedChunkCount: retrievalResult.chunks.length,
+    });
+
     const stream = streamLocalinkText({
       model: "main",
-      prompt: buildStoryProsePrompt(parsedInput),
+      prompt: buildStoryProsePrompt(parsedInput, {
+        retrievedChunks: retrievalResult.chunks,
+      }),
       abortSignal: request.signal,
       temperature: 0.82,
       onAbort: () => {
