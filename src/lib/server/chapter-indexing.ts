@@ -366,6 +366,7 @@ function buildResult(
   return {
     storyId: input.storyId,
     chapterId: input.chapterId,
+    chapter: null,
     status,
     ...details,
   };

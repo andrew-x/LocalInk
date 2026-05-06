@@ -14,6 +14,13 @@ export type StoryContext = {
 
 export type StoryUpdateResult = StoryListItem & StoryContext;
 
+export type StoryChapterChunkItem = {
+  id: string;
+  text: string;
+  startPosition: number;
+  endPosition: number;
+};
+
 export type StoryChapterItem = {
   id: string;
   name: string;
@@ -22,8 +29,14 @@ export type StoryChapterItem = {
   indexedHash: string;
   indexedAt: string | null;
   summary: string;
+  chunks: StoryChapterChunkItem[];
   updatedAt: string;
 };
+
+export type StoryChapterIndexSnapshot = Pick<
+  StoryChapterItem,
+  "chunks" | "id" | "indexedAt" | "indexedHash" | "summary" | "updatedAt"
+>;
 
 export type StoryEditorData = StoryListItem &
   StoryContext & {
@@ -43,6 +56,7 @@ export type ChapterIndexStatus =
   | "skipped-current";
 
 export type ChapterIndexResult = {
+  chapter: StoryChapterIndexSnapshot | null;
   chapterId: string;
   chunkCount: number;
   indexedAt: string | null;

@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { useCallback, useRef } from "react";
 
 import type {
+  StoryChapterIndexSnapshot,
   StoryChapterItem,
   StoryContext,
   StoryEditorData,
@@ -22,6 +23,7 @@ type StoryEditorContentPaneProps = {
   onAddChapter: () => void;
   onChapterDeleted: (chapterId: string, updatedAt: string) => void;
   onChapterFocus: (chapterId: string) => void;
+  onChapterIndexed: (chapter: StoryChapterIndexSnapshot) => void;
   onChapterSaved: (chapter: StoryChapterItem) => void;
   story: Pick<StoryEditorData, "description" | "id" | "name">;
   style: string;
@@ -36,6 +38,7 @@ export function StoryEditorContentPane({
   onAddChapter,
   onChapterDeleted,
   onChapterFocus,
+  onChapterIndexed,
   onChapterSaved,
   story,
   style,
@@ -70,6 +73,7 @@ export function StoryEditorContentPane({
                   key={chapter.id}
                   onDeleted={onChapterDeleted}
                   onFocus={onChapterFocus}
+                  onIndexed={onChapterIndexed}
                   onRegisterAiDraftHandle={handleRegisterAiDraftHandle}
                   onSaved={onChapterSaved}
                   storyId={story.id}
@@ -106,14 +110,16 @@ export function StoryEditorContentPane({
         </div>
       </div>
 
-      <AiProseGenerationWidget
-        characters={characters}
-        chapters={chapters}
-        focusedChapterId={focusedChapterId}
-        getAiDraftHandle={getAiDraftHandle}
-        story={story}
-        style={style}
-      />
+      {hasChapters ? (
+        <AiProseGenerationWidget
+          characters={characters}
+          chapters={chapters}
+          focusedChapterId={focusedChapterId}
+          getAiDraftHandle={getAiDraftHandle}
+          story={story}
+          style={style}
+        />
+      ) : null}
     </section>
   );
 }

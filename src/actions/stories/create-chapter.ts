@@ -67,6 +67,7 @@ export const createChapter = publicActionClient
       indexedHash: chapter.indexedHash,
       indexedAt: chapter.indexedAt,
       summary: chapter.summary,
+      chunks: [],
       updatedAt: chapter.updatedAt,
     };
   });
