@@ -27,6 +27,7 @@ import {
 } from "react";
 import type {
   ChapterIndexTriggerReason,
+  StoryChapterIndexSnapshot,
   StoryChapterItem,
 } from "@/actions/stories/_types";
 import { deleteChapter } from "@/actions/stories/delete-chapter";
@@ -70,6 +71,7 @@ type ChapterContentEditorProps = {
   isActive: boolean;
   onDeleted: (chapterId: string, updatedAt: string) => void;
   onFocus: (chapterId: string) => void;
+  onIndexed: (chapter: StoryChapterIndexSnapshot) => void;
   onRegisterAiDraftHandle: (
     chapterId: string,
     handle: ChapterAiDraftHandle | null,
@@ -83,6 +85,7 @@ export function ChapterContentEditor({
   isActive,
   onDeleted,
   onFocus,
+  onIndexed,
   onRegisterAiDraftHandle,
   onSaved,
   storyId,
@@ -159,6 +162,7 @@ export function ChapterContentEditor({
             chapterId={chapter.id}
             initialContent={chapter.content}
             isActive={isActive}
+            onIndexed={onIndexed}
             onSaved={onSaved}
             onSaveStateChange={setContentSaveState}
             storyId={storyId}
@@ -512,6 +516,7 @@ type ChapterAutosavePluginProps = {
   chapterId: string;
   initialContent: string;
   isActive: boolean;
+  onIndexed: (chapter: StoryChapterIndexSnapshot) => void;
   onSaved: (chapter: StoryChapterItem) => void;
   onSaveStateChange: (state: SaveState) => void;
   storyId: string;
@@ -521,12 +526,13 @@ function ChapterAutosavePlugin({
   chapterId,
   initialContent,
   isActive,
+  onIndexed,
   onSaved,
   onSaveStateChange,
   storyId,
 }: ChapterAutosavePluginProps) {
   const { executeAsync } = useAction(updateChapterContent);
-  const { execute: executeIndexChapter } = useAction(indexChapter);
+  const { executeAsync: executeIndexChapter } = useAction(indexChapter);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const indexTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef(initialContent);
@@ -554,13 +560,19 @@ function ChapterAutosavePlugin({
   const fireIndexNow = useCallback(
     (triggerReason: ChapterIndexTriggerReason) => {
       clearIndexTimer();
-      executeIndexChapter({
+      void executeIndexChapter({
         storyId,
         chapterId,
         triggerReason,
-      });
+      })
+        .then((result) => {
+          if (isMountedRef.current && result?.data?.chapter) {
+            onIndexed(result.data.chapter);
+          }
+        })
+        .catch(() => null);
     },
-    [chapterId, clearIndexTimer, executeIndexChapter, storyId],
+    [chapterId, clearIndexTimer, executeIndexChapter, onIndexed, storyId],
   );
 
   const scheduleIndex = useCallback(() => {

@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 
 import { publicActionClient } from "@/lib/action";
 import { ActionError } from "@/lib/action-error";
+import { getDb } from "@/lib/drizzle/db";
 import { createLogger } from "@/lib/logger";
 import { indexChapterContent } from "@/lib/server/chapter-indexing";
+import { loadStoryChapterIndexSnapshotById } from "@/lib/server/story-chapters";
 
 import { indexChapterActionSchema } from "./_schemas";
 import type { ChapterIndexResult } from "./_types";
@@ -24,7 +26,21 @@ export const indexChapter = publicActionClient
         revalidatePath(`/story/${parsedInput.storyId}`);
       }
 
-      return result;
+      if (shouldReturnIndexedChapter(result.status)) {
+        return {
+          ...result,
+          chapter: await loadStoryChapterIndexSnapshotById(
+            getDb(),
+            parsedInput.storyId,
+            parsedInput.chapterId,
+          ),
+        };
+      }
+
+      return {
+        ...result,
+        chapter: null,
+      };
     } catch (error) {
       indexChapterLogger.error("failed", {
         storyId: parsedInput.storyId,
@@ -42,4 +58,12 @@ export const indexChapter = publicActionClient
 
 function getErrorName(error: unknown): string {
   return error instanceof Error ? error.name : "UnknownError";
+}
+
+function shouldReturnIndexedChapter(status: ChapterIndexResult["status"]) {
+  return (
+    status === "cleared-empty" ||
+    status === "indexed" ||
+    status === "skipped-current"
+  );
 }

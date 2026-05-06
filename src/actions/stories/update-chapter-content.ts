@@ -8,6 +8,10 @@ import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
+import {
+  loadStoryChapterById,
+  storyChapterSelectFields,
+} from "@/lib/server/story-chapters";
 
 import { updateChapterContentActionSchema } from "./_schemas";
 import type { StoryChapterItem } from "./_types";
@@ -30,16 +34,7 @@ export const updateChapterContent = publicActionClient
           eq(chapters.storyId, parsedInput.storyId),
         ),
       )
-      .returning({
-        id: chapters.id,
-        name: chapters.name,
-        position: chapters.position,
-        content: chapters.content,
-        indexedHash: chapters.indexedHash,
-        indexedAt: chapters.indexedAt,
-        summary: chapters.summary,
-        updatedAt: chapters.updatedAt,
-      });
+      .returning(storyChapterSelectFields);
 
     if (!chapter) {
       throw new ActionError("BAD_REQUEST", "The chapter could not be found.");
@@ -53,5 +48,10 @@ export const updateChapterContent = publicActionClient
     revalidatePath("/");
     revalidatePath(`/story/${parsedInput.storyId}`);
 
-    return chapter;
+    return (
+      (await loadStoryChapterById(db, parsedInput.storyId, chapter.id)) ?? {
+        ...chapter,
+        chunks: [],
+      }
+    );
   });

@@ -5,6 +5,10 @@ import { asc, eq } from "drizzle-orm";
 import { runLoggedAction } from "@/lib/action";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
+import {
+  attachChunksToChapters,
+  storyChapterSelectFields,
+} from "@/lib/server/story-chapters";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
 
 import type { StoryEditorData } from "./_types";
@@ -32,16 +36,7 @@ export async function getStory(
     }
 
     const storyChapters = await db
-      .select({
-        id: chapters.id,
-        name: chapters.name,
-        position: chapters.position,
-        content: chapters.content,
-        indexedHash: chapters.indexedHash,
-        indexedAt: chapters.indexedAt,
-        summary: chapters.summary,
-        updatedAt: chapters.updatedAt,
-      })
+      .select(storyChapterSelectFields)
       .from(chapters)
       .where(eq(chapters.storyId, storyId))
       .orderBy(asc(chapters.position));
@@ -49,7 +44,7 @@ export async function getStory(
     return {
       ...story,
       characters: normalizeStoryCharacters(story.characters),
-      chapters: storyChapters,
+      chapters: await attachChunksToChapters(db, storyId, storyChapters),
     };
   });
 }
