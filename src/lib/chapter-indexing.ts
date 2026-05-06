@@ -1,5 +1,5 @@
-export const CHAPTER_INDEX_TARGET_CHARS = 900;
-export const CHAPTER_INDEX_OVERLAP_CHARS = 450;
+export const CHAPTER_INDEX_TARGET_CHARS = 400;
+export const CHAPTER_INDEX_OVERLAP_CHARS = 100;
 
 export type ChapterIndexChunk = {
   endPosition: number;

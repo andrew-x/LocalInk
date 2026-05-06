@@ -6,6 +6,7 @@ import {
   FileText,
   Plus,
   Save,
+  Trash2,
   UsersRound,
 } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
@@ -579,6 +580,7 @@ function CharacterPopover({
   const [nameError, setNameError] = useState<string | null>(null);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
   const [rootError, setRootError] = useState<string | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const nameFieldId = useId();
   const descriptionFieldId = useId();
 
@@ -586,6 +588,7 @@ function CharacterPopover({
     if (!isOpen) {
       setDraftName(character?.name ?? "");
       setDraftDescription(character?.description ?? "");
+      setIsConfirmingDelete(false);
     }
   }, [character?.description, character?.name, isOpen]);
 
@@ -602,6 +605,7 @@ function CharacterPopover({
 
     setIsOpen(open);
     resetErrors();
+    setIsConfirmingDelete(false);
 
     if (open) {
       setDraftName(character?.name ?? "");
@@ -664,6 +668,44 @@ function CharacterPopover({
     toast.error(message);
   }
 
+  async function handleDeleteCharacter() {
+    if (mode !== "edit" || characterIndex === undefined) {
+      return;
+    }
+
+    resetErrors();
+
+    const nextCharacters = characters.filter(
+      (_, index) => index !== characterIndex,
+    );
+
+    const result = await updateStoryAction.executeAsync({
+      characters: nextCharacters,
+      description: story.description,
+      id: story.id,
+      name: story.name,
+      style,
+    });
+
+    if (result.data) {
+      onSaved({
+        characters: result.data.characters,
+        style: result.data.style,
+        updatedAt: result.data.updatedAt,
+      });
+      setIsOpen(false);
+      return;
+    }
+
+    const message = getUpdateFailureMessage(
+      result,
+      "The character could not be deleted.",
+    );
+    setRootError(message);
+    setIsConfirmingDelete(true);
+    toast.error(message);
+  }
+
   return (
     <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
@@ -675,15 +717,18 @@ function CharacterPopover({
       >
         <form
           autoComplete="off"
-          className="grid gap-4 p-4"
+          className="grid gap-3 p-3"
           onSubmit={handleSaveCharacter}
         >
           <div className="grid gap-2">
-            <Label htmlFor={nameFieldId}>Name</Label>
+            <Label className="text-label-sm" htmlFor={nameFieldId}>
+              Name
+            </Label>
             <Input
               aria-describedby={nameError ? `${nameFieldId}-error` : undefined}
               aria-invalid={!!nameError || undefined}
               autoComplete="off"
+              className="h-8 px-2 text-caption"
               id={nameFieldId}
               maxLength={120}
               onChange={(event) => setDraftName(event.target.value)}
@@ -701,13 +746,15 @@ function CharacterPopover({
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor={descriptionFieldId}>Description</Label>
+            <Label className="text-label-sm" htmlFor={descriptionFieldId}>
+              Description
+            </Label>
             <Textarea
               aria-describedby={
                 descriptionError ? `${descriptionFieldId}-error` : undefined
               }
               aria-invalid={!!descriptionError || undefined}
-              className="min-h-36 resize-none"
+              className="min-h-32 resize-none px-2 py-1.5 text-caption leading-5"
               id={descriptionFieldId}
               maxLength={1000}
               onChange={(event) => setDraftDescription(event.target.value)}
@@ -725,23 +772,92 @@ function CharacterPopover({
 
           {rootError ? <ContextFormError message={rootError} /> : null}
 
-          <div className="flex justify-end gap-2">
-            <Button
-              disabled={updateStoryAction.isPending}
-              onClick={() => handleOpenChange(false)}
-              type="button"
-              variant="outline"
+          {isConfirmingDelete ? (
+            <div
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+              role="alert"
             >
-              Cancel
-            </Button>
-            <Button
-              leftSection={<Save aria-hidden="true" />}
-              loading={updateStoryAction.isPending}
-              type="submit"
+              <p className="text-label-sm text-destructive">
+                Delete this character?
+              </p>
+              <p className="mt-1 text-caption text-destructive/90">
+                This will remove {character?.name ?? "this character"} from the
+                story context.
+              </p>
+            </div>
+          ) : null}
+
+          {isConfirmingDelete ? (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+              <Button
+                className="justify-self-start text-caption"
+                leftSection={<Trash2 aria-hidden="true" />}
+                loading={updateStoryAction.isPending}
+                onClick={handleDeleteCharacter}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                Delete
+              </Button>
+              <Button
+                className="justify-self-start text-caption sm:justify-self-end"
+                disabled={updateStoryAction.isPending}
+                onClick={() => setIsConfirmingDelete(false)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Keep
+              </Button>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "grid gap-2 sm:items-center",
+                mode === "edit" ? "sm:grid-cols-[1fr_auto]" : "sm:justify-end",
+              )}
             >
-              Save
-            </Button>
-          </div>
+              {mode === "edit" ? (
+                <Button
+                  className="justify-self-start text-caption"
+                  disabled={updateStoryAction.isPending}
+                  leftSection={<Trash2 aria-hidden="true" />}
+                  onClick={() => {
+                    resetErrors();
+                    setIsConfirmingDelete(true);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="destructive"
+                >
+                  Delete
+                </Button>
+              ) : null}
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  className="text-caption"
+                  disabled={updateStoryAction.isPending}
+                  onClick={() => handleOpenChange(false)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="text-caption"
+                  leftSection={<Save aria-hidden="true" />}
+                  loading={updateStoryAction.isPending}
+                  size="sm"
+                  type="submit"
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
         </form>
       </PopoverContent>
     </Popover>
