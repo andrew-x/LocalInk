@@ -39,8 +39,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
     [activeChapterId, chapters],
   );
   const columnStyle = {
-    "--story-editor-columns": `${isContextOpen ? "18rem" : "3.5rem"} minmax(0, 1fr) ${
-      isChatOpen ? "22rem" : "3.5rem"
+    "--story-editor-columns": `${isContextOpen ? "24rem" : "3.5rem"} minmax(0, 1fr) ${
+      isChatOpen ? "28rem" : "3.5rem"
     }`,
   } as CSSProperties;
 

@@ -4,9 +4,11 @@ import {
   Copy,
   History,
   MessageSquare,
+  PenLine,
   Plus,
   RefreshCcw,
   Send,
+  UserRound,
 } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import {
@@ -14,6 +16,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -34,6 +37,7 @@ import { saveStoryChatAssistantOutput } from "@/actions/story-chats/save-story-c
 import { Button } from "@/components/common/button";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/common/popover";
@@ -41,6 +45,12 @@ import { Textarea } from "@/components/common/textarea";
 import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
 import day from "@/lib/dayjs";
 import type { StoryChatStreamRequest } from "@/lib/story-chat-contract";
+import {
+  filterStoryChatSlashCommands,
+  getStoryChatSlashCommandDraft,
+  type StoryChatSlashCommandMetadata,
+  type StoryChatSlashCommandName,
+} from "@/lib/story-chat-slash-commands";
 import { cn } from "@/lib/util";
 
 type StoryEditorChatPaneProps = {
@@ -53,7 +63,7 @@ type StoryEditorChatPaneProps = {
 };
 
 type DraftStoryChatMessage = StoryChatVisibleMessage & {
-  isStreaming?: boolean;
+  streamStatus?: "waiting" | "streaming";
 };
 
 type ActionFailureResult = {
@@ -78,9 +88,15 @@ export function StoryEditorChatPane({
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [scrollRequestCount, setScrollRequestCount] = useState(0);
+  const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
+  const [dismissedSlashCommandPrefix, setDismissedSlashCommandPrefix] =
+    useState<string | null>(null);
   const prepareTurnAction = useAction(prepareStoryChatTurn);
   const prepareRegenerationAction = useAction(prepareStoryChatRegeneration);
   const saveAssistantOutputAction = useAction(saveStoryChatAssistantOutput);
+  const slashCommandListId = useId();
+  const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeChatId = activeChat?.id ?? null;
@@ -91,6 +107,31 @@ export function StoryEditorChatPane({
     prepareTurnAction.isPending ||
     prepareRegenerationAction.isPending ||
     saveAssistantOutputAction.isPending;
+  const slashCommandDraft = getStoryChatSlashCommandDraft(draftContent);
+  const slashCommandPrefix = slashCommandDraft
+    ? `/${slashCommandDraft.query}`
+    : null;
+  const slashCommandMatches = slashCommandDraft
+    ? filterStoryChatSlashCommands(slashCommandDraft.query)
+    : [];
+  const activeSlashCommand =
+    slashCommandMatches[activeSlashCommandIndex] ?? slashCommandMatches[0];
+  const isSlashCommandMenuOpen = Boolean(
+    slashCommandDraft &&
+      !slashCommandDraft.hasArguments &&
+      !isBusy &&
+      dismissedSlashCommandPrefix !== slashCommandPrefix,
+  );
+
+  const scrollToLatestMessage = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ block: "end" });
+    });
+  }, []);
+
+  const requestScrollToLatestMessage = useCallback(() => {
+    setScrollRequestCount((currentCount) => currentCount + 1);
+  }, []);
 
   const refreshChats = useCallback(async () => {
     setIsLoadingChats(true);
@@ -108,16 +149,41 @@ export function StoryEditorChatPane({
     setActiveChat(null);
     setMessages([]);
     setDraftContent("");
+    requestScrollToLatestMessage();
     void refreshChats();
 
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [refreshChats]);
+  }, [refreshChats, requestScrollToLatestMessage]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: "end" });
-  });
+    if (!isOpen) {
+      return;
+    }
+
+    scrollToLatestMessage();
+  }, [isOpen, scrollToLatestMessage]);
+
+  useEffect(() => {
+    if (!isOpen || scrollRequestCount === 0) {
+      return;
+    }
+
+    scrollToLatestMessage();
+  }, [isOpen, scrollRequestCount, scrollToLatestMessage]);
+
+  useEffect(() => {
+    if (activeSlashCommandIndex >= slashCommandMatches.length) {
+      setActiveSlashCommandIndex(0);
+    }
+  }, [activeSlashCommandIndex, slashCommandMatches.length]);
+
+  useEffect(() => {
+    if (!slashCommandDraft) {
+      setDismissedSlashCommandPrefix(null);
+    }
+  }, [slashCommandDraft]);
 
   function handleStartNewChat() {
     if (isBusy) {
@@ -128,6 +194,7 @@ export function StoryEditorChatPane({
     setMessages([]);
     setDraftContent("");
     setIsHistoryOpen(false);
+    requestScrollToLatestMessage();
   }
 
   async function handleLoadChat(chatId: string) {
@@ -149,6 +216,7 @@ export function StoryEditorChatPane({
       setMessages(chat.messages);
       setDraftContent("");
       setIsHistoryOpen(false);
+      requestScrollToLatestMessage();
     } catch {
       toast.error("The chat could not be loaded.");
     } finally {
@@ -210,6 +278,7 @@ export function StoryEditorChatPane({
     setActiveChat(generation.chat);
     setMessages(generation.messages);
     upsertChat(generation.chat);
+    requestScrollToLatestMessage();
   }
 
   async function streamAssistantReply(generation: PreparedStoryChatGeneration) {
@@ -226,11 +295,17 @@ export function StoryEditorChatPane({
     abortControllerRef.current?.abort();
     abortControllerRef.current = controller;
     setIsStreaming(true);
+    requestScrollToLatestMessage();
     setMessages((currentMessages) => {
       if (replaceAssistantMessageId) {
         return currentMessages.map((message) =>
           message.id === replaceAssistantMessageId
-            ? { ...message, content: "", isStreaming: true, updatedAt: now }
+            ? {
+                ...message,
+                content: "",
+                streamStatus: "waiting",
+                updatedAt: now,
+              }
             : message,
         );
       }
@@ -243,7 +318,7 @@ export function StoryEditorChatPane({
           content: "",
           createdAt: now,
           updatedAt: now,
-          isStreaming: true,
+          streamStatus: "waiting",
         },
       ];
     });
@@ -300,6 +375,7 @@ export function StoryEditorChatPane({
         return;
       }
 
+      requestScrollToLatestMessage();
       setMessages((currentMessages) =>
         replaceAssistantMessageId
           ? currentMessages.map((message) =>
@@ -356,11 +432,13 @@ export function StoryEditorChatPane({
 
   function updateStreamingMessage(messageId: string, content: string) {
     const updatedAt = day().toISOString();
+    const streamStatus = content.length > 0 ? "streaming" : "waiting";
 
+    requestScrollToLatestMessage();
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
         message.id === messageId
-          ? { ...message, content, isStreaming: true, updatedAt }
+          ? { ...message, content, streamStatus, updatedAt }
           : message,
       ),
     );
@@ -400,13 +478,70 @@ export function StoryEditorChatPane({
     }
   }
 
+  function handleDraftContentChange(content: string) {
+    const nextSlashCommandDraft = getStoryChatSlashCommandDraft(content);
+
+    if (slashCommandDraft?.query !== nextSlashCommandDraft?.query) {
+      setActiveSlashCommandIndex(0);
+    }
+
+    setDraftContent(content);
+  }
+
   function handleDraftKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isSlashCommandMenuOpen) {
+      if (event.key === "ArrowDown" && slashCommandMatches.length > 0) {
+        event.preventDefault();
+        setActiveSlashCommandIndex(
+          (currentIndex) => (currentIndex + 1) % slashCommandMatches.length,
+        );
+        return;
+      }
+
+      if (event.key === "ArrowUp" && slashCommandMatches.length > 0) {
+        event.preventDefault();
+        setActiveSlashCommandIndex(
+          (currentIndex) =>
+            (currentIndex - 1 + slashCommandMatches.length) %
+            slashCommandMatches.length,
+        );
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+
+        if (slashCommandPrefix) {
+          setDismissedSlashCommandPrefix(slashCommandPrefix);
+        }
+
+        return;
+      }
+
+      if (
+        ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") &&
+        activeSlashCommand
+      ) {
+        event.preventDefault();
+        selectSlashCommand(activeSlashCommand);
+        return;
+      }
+    }
+
     if (event.key !== "Enter" || event.shiftKey) {
       return;
     }
 
     event.preventDefault();
     void handleSendMessage();
+  }
+
+  function selectSlashCommand(command: StoryChatSlashCommandMetadata) {
+    setDraftContent(`${command.token} `);
+    setDismissedSlashCommandPrefix(command.token);
+    window.requestAnimationFrame(() => {
+      draftTextareaRef.current?.focus();
+    });
   }
 
   return (
@@ -452,11 +587,11 @@ export function StoryEditorChatPane({
                 </PopoverTrigger>
                 <PopoverContent
                   align="end"
-                  className="w-72 max-w-[calc(100vw-2rem)] p-2"
+                  className="w-96 max-w-[calc(100vw-2rem)] p-2"
                 >
                   <div className="max-h-80 overflow-auto">
                     {isLoadingChats ? (
-                      <p className="px-2 py-3 text-body text-muted-foreground">
+                      <p className="px-2 py-3 text-caption text-muted-foreground">
                         Loading chats
                       </p>
                     ) : chats.length ? (
@@ -471,7 +606,7 @@ export function StoryEditorChatPane({
                             onClick={() => void handleLoadChat(chat.id)}
                             type="button"
                           >
-                            <span className="block truncate text-label-sm">
+                            <span className="block truncate text-caption font-medium">
                               {chat.title}
                             </span>
                             <span className="block text-caption text-muted-foreground">
@@ -481,7 +616,7 @@ export function StoryEditorChatPane({
                         ))}
                       </div>
                     ) : (
-                      <p className="px-2 py-3 text-body text-muted-foreground">
+                      <p className="px-2 py-3 text-caption text-muted-foreground">
                         No saved chats
                       </p>
                     )}
@@ -510,7 +645,8 @@ export function StoryEditorChatPane({
                     canRegenerate={
                       message.role === "assistant" &&
                       message.id === latestAssistantMessageId &&
-                      !message.isStreaming
+                      !message.streamStatus &&
+                      Boolean(message.content.trim())
                     }
                     isBusy={isBusy}
                     key={message.id}
@@ -531,16 +667,67 @@ export function StoryEditorChatPane({
 
           <div className="shrink-0 border-border/80 border-t p-3">
             <div className="grid gap-2">
-              <Textarea
-                aria-label="Story chat message"
-                className="max-h-32 min-h-16 resize-none px-2.5 py-1.5 text-label-sm"
-                disabled={isBusy}
-                maxLength={4000}
-                onChange={(event) => setDraftContent(event.target.value)}
-                onKeyDown={handleDraftKeyDown}
-                placeholder="Ask about the story"
-                value={draftContent}
-              />
+              <Popover
+                open={isSlashCommandMenuOpen}
+                onOpenChange={(open) => {
+                  if (!open && slashCommandPrefix) {
+                    setDismissedSlashCommandPrefix(slashCommandPrefix);
+                  }
+                }}
+              >
+                <PopoverAnchor asChild>
+                  <Textarea
+                    aria-activedescendant={
+                      isSlashCommandMenuOpen && activeSlashCommand
+                        ? getSlashCommandOptionId(
+                            slashCommandListId,
+                            activeSlashCommand.name,
+                          )
+                        : undefined
+                    }
+                    aria-autocomplete="list"
+                    aria-controls={
+                      isSlashCommandMenuOpen ? slashCommandListId : undefined
+                    }
+                    aria-expanded={isSlashCommandMenuOpen}
+                    aria-haspopup="listbox"
+                    aria-label="Story chat message"
+                    className="max-h-32 min-h-16 resize-none px-2.5 py-1.5 text-label-sm"
+                    disabled={isBusy}
+                    maxLength={4000}
+                    onChange={(event) =>
+                      handleDraftContentChange(event.target.value)
+                    }
+                    onKeyDown={handleDraftKeyDown}
+                    placeholder="Ask about the story"
+                    ref={draftTextareaRef}
+                    value={draftContent}
+                  />
+                </PopoverAnchor>
+                <PopoverContent
+                  align="start"
+                  className="w-80 max-w-[calc(100vw-2rem)] p-1.5"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  side="top"
+                  sideOffset={6}
+                >
+                  <SlashCommandMenu
+                    activeCommandName={activeSlashCommand?.name ?? null}
+                    commands={slashCommandMatches}
+                    listId={slashCommandListId}
+                    onActiveCommandChange={(commandName) => {
+                      const commandIndex = slashCommandMatches.findIndex(
+                        (command) => command.name === commandName,
+                      );
+
+                      if (commandIndex >= 0) {
+                        setActiveSlashCommandIndex(commandIndex);
+                      }
+                    }}
+                    onSelect={selectSlashCommand}
+                  />
+                </PopoverContent>
+              </Popover>
               <div className="flex justify-end">
                 <Button
                   className="h-7 gap-1 px-2 text-label-sm [&_svg]:size-3.5"
@@ -562,6 +749,87 @@ export function StoryEditorChatPane({
   );
 }
 
+type SlashCommandMenuProps = {
+  activeCommandName: StoryChatSlashCommandName | null;
+  commands: StoryChatSlashCommandMetadata[];
+  listId: string;
+  onActiveCommandChange: (commandName: StoryChatSlashCommandName) => void;
+  onSelect: (command: StoryChatSlashCommandMetadata) => void;
+};
+
+function SlashCommandMenu({
+  activeCommandName,
+  commands,
+  listId,
+  onActiveCommandChange,
+  onSelect,
+}: SlashCommandMenuProps) {
+  if (!commands.length) {
+    return (
+      <p className="px-2 py-2 text-body text-muted-foreground">
+        No matching commands
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid gap-1" id={listId} role="listbox">
+      {commands.map((command) => {
+        const isActive = command.name === activeCommandName;
+
+        return (
+          <button
+            aria-selected={isActive}
+            className={cn(
+              "grid w-full grid-cols-[1.75rem_1fr] items-start gap-2 rounded-md px-2 py-2 text-left transition-[background-color,color] hover:bg-muted focus-visible:bg-muted focus-visible:outline-none",
+              isActive && "bg-muted",
+            )}
+            id={getSlashCommandOptionId(listId, command.name)}
+            key={command.name}
+            onClick={() => onSelect(command)}
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => onActiveCommandChange(command.name)}
+            role="option"
+            type="button"
+          >
+            <span className="mt-0.5 flex size-6 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground">
+              <SlashCommandIcon commandName={command.name} />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-label-sm">
+                {command.token}
+              </span>
+              <span className="block text-caption text-muted-foreground">
+                {command.description}
+              </span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function SlashCommandIcon({
+  commandName,
+}: {
+  commandName: StoryChatSlashCommandName;
+}) {
+  switch (commandName) {
+    case "style":
+      return <PenLine aria-hidden="true" className="size-3.5" />;
+    case "character":
+      return <UserRound aria-hidden="true" className="size-3.5" />;
+  }
+}
+
+function getSlashCommandOptionId(
+  listId: string,
+  commandName: StoryChatSlashCommandName,
+) {
+  return `${listId}-${commandName}`;
+}
+
 type ChatMessageProps = {
   canRegenerate: boolean;
   isBusy: boolean;
@@ -578,16 +846,24 @@ function ChatMessage({
   onRegenerate,
 }: ChatMessageProps) {
   const isAssistant = message.role === "assistant";
+  const hasContent = message.content.trim().length > 0;
+  const isWaitingForAssistant =
+    message.streamStatus === "waiting" ||
+    (message.streamStatus === "streaming" && message.content.length === 0);
 
   if (isAssistant) {
     return (
       <li className="grid gap-1.5">
-        <div className="whitespace-pre-wrap break-words font-content text-[0.875rem] leading-6 text-foreground">
-          {message.content || (message.isStreaming ? " " : "")}
-        </div>
+        {isWaitingForAssistant ? (
+          <AssistantWaitingMessage />
+        ) : (
+          <div className="whitespace-pre-wrap break-words font-content text-[0.875rem] leading-6 text-foreground">
+            {message.content}
+          </div>
+        )}
         <div className="flex items-center gap-1 text-muted-foreground">
           <MessageActionButton
-            disabled={!message.content}
+            disabled={!hasContent}
             icon={<Copy aria-hidden="true" className="size-3" />}
             label="Copy assistant message"
             onClick={() => void onCopy(message)}
@@ -595,7 +871,7 @@ function ChatMessage({
           />
           {canRegenerate ? (
             <MessageActionButton
-              disabled={isBusy}
+              disabled={isBusy || !hasContent}
               icon={<RefreshCcw aria-hidden="true" className="size-3" />}
               label="Regenerate assistant message"
               onClick={() => void onRegenerate(message)}
@@ -624,6 +900,21 @@ function ChatMessage({
         />
       </div>
     </li>
+  );
+}
+
+function AssistantWaitingMessage() {
+  return (
+    <output
+      aria-label="Waiting for assistant reply"
+      className="flex h-6 items-center gap-1.5 text-muted-foreground"
+    >
+      <span aria-hidden="true" className="inline-flex items-center gap-1.5">
+        <span className="size-1.5 animate-pulse rounded-full bg-primary/70" />
+        <span className="size-1.5 animate-pulse rounded-full bg-primary/50 [animation-delay:150ms]" />
+        <span className="size-1.5 animate-pulse rounded-full bg-primary/35 [animation-delay:300ms]" />
+      </span>
+    </output>
   );
 }
 

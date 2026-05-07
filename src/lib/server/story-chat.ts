@@ -20,6 +20,8 @@ import {
   storyChats,
 } from "@/lib/drizzle/schema";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
+import { buildStoryChatSlashCommandPrompt } from "@/lib/server/story-chat-slash-command-prompts";
+import { parseStoryChatSlashCommand } from "@/lib/story-chat-slash-commands";
 import { generateId } from "@/lib/util";
 
 const MAX_CONTEXT_SNAPSHOT_CHARS = 80_000;
@@ -94,6 +96,15 @@ export function buildStoryChatSystemPrompt(systemInstructions = ""): string {
         "For critique, name the actual weakness and propose fixes.",
         "Avoid apologies, hedging, disclaimers, content warnings, and meta talk unless the writer asks for them.",
         "Keep replies concise by default, but go deep when the question calls for it.",
+      ].join("\n"),
+    ),
+    chatSection(
+      "Plain Text Output",
+      [
+        "Write chat replies as plain text only.",
+        "Use normal paragraphs and whitespace. Simple hyphen-prefixed lists are allowed when useful.",
+        "Do not use Markdown headings, bold, italics, tables, blockquotes, code fences, or links-as-formatting.",
+        "Only use code formatting or code fences when the writer explicitly asks for code.",
       ].join("\n"),
     ),
     trimmedSystemInstructions
@@ -373,8 +384,27 @@ export async function buildStoryChatGenerationMessages({
       role: "system",
       content: contextMessage.content,
     },
-    ...visibleMessages.map(toModelMessage),
+    ...buildStoryChatVisibleModelMessages(visibleMessages),
   ];
+}
+
+export function buildStoryChatVisibleModelMessages(
+  messages: StoryChatVisibleMessage[],
+): ModelMessage[] {
+  const latestMessage = messages.at(-1);
+  const latestSlashCommand =
+    latestMessage?.role === "user"
+      ? parseStoryChatSlashCommand(latestMessage.content)
+      : null;
+
+  return messages.map((message, index) =>
+    toModelMessage(
+      message,
+      latestSlashCommand && index === messages.length - 1
+        ? buildStoryChatSlashCommandPrompt(latestSlashCommand)
+        : undefined,
+    ),
+  );
 }
 
 export async function buildStoryChatContextSnapshot(
@@ -768,10 +798,13 @@ function toVisibleMessage(message: {
   };
 }
 
-function toModelMessage(message: StoryChatVisibleMessage): ModelMessage {
+function toModelMessage(
+  message: StoryChatVisibleMessage,
+  expandedContent?: string,
+): ModelMessage {
   return {
     role: message.role,
-    content: message.content,
+    content: expandedContent ?? message.content,
   };
 }
 

@@ -1,6 +1,7 @@
 // @ts-expect-error Bun provides this module at test runtime.
 import { describe, expect, mock, test } from "bun:test";
 
+import type { StoryChatVisibleMessage } from "@/actions/story-chats/_types";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
 
 mock.module("server-only", () => ({}));
@@ -63,6 +64,31 @@ describe("story AI system prompts", () => {
     expect(buildStoryChatSystemPrompt(systemInstructions)).toContain(
       "durable writer preferences",
     );
+  });
+
+  test("chat system prompt requires plain text without changing prose prompts", async () => {
+    const { buildStoryProseSystemPrompt } = await import(
+      "./story-prose-generation"
+    );
+    const { buildStoryChatSystemPrompt } = await import("./story-chat");
+    const prosePrompt = buildStoryProseSystemPrompt();
+    const chatPrompt = buildStoryChatSystemPrompt();
+
+    expect(chatPrompt).toContain("<PLAIN_TEXT_OUTPUT>");
+    expect(getSection(chatPrompt, "PLAIN_TEXT_OUTPUT")).toContain(
+      "Write chat replies as plain text only.",
+    );
+    expect(getSection(chatPrompt, "PLAIN_TEXT_OUTPUT")).toContain(
+      "Simple hyphen-prefixed lists are allowed",
+    );
+    expect(getSection(chatPrompt, "PLAIN_TEXT_OUTPUT")).toContain(
+      "Do not use Markdown headings, bold, italics, tables, blockquotes, code fences, or links-as-formatting.",
+    );
+    expect(getSection(chatPrompt, "PLAIN_TEXT_OUTPUT")).toContain(
+      "Only use code formatting or code fences when the writer explicitly asks for code.",
+    );
+    expect(prosePrompt).not.toContain("<PLAIN_TEXT_OUTPUT>");
+    expect(prosePrompt).toContain("Use Markdown italic only");
   });
 
   test("escapes XML-like global prose system instructions", async () => {
@@ -185,6 +211,130 @@ describe("story chat context prompt", () => {
       "<NAME>\nElena\n</NAME>",
     );
     expect(prompt).not.toContain("No description provided.");
+  });
+});
+
+describe("story chat slash commands", () => {
+  test("parses exact first-token commands with optional extra instructions", async () => {
+    const { parseStoryChatSlashCommand } = await import(
+      "@/lib/story-chat-slash-commands"
+    );
+
+    const styleCommand = parseStoryChatSlashCommand("/style");
+    const characterCommand = parseStoryChatSlashCommand(
+      "/character Jen she's a fiery teenager with a soft interior",
+    );
+
+    expect(styleCommand?.command.name).toBe("style");
+    expect(styleCommand?.extraInstructions).toBe("");
+    expect(characterCommand?.command.name).toBe("character");
+    expect(characterCommand?.extraInstructions).toBe(
+      "Jen she's a fiery teenager with a soft interior",
+    );
+  });
+
+  test("treats unknown slash text and slash prose as normal messages", async () => {
+    const { parseStoryChatSlashCommand } = await import(
+      "@/lib/story-chat-slash-commands"
+    );
+
+    expect(parseStoryChatSlashCommand("/styleguide")).toBeNull();
+    expect(parseStoryChatSlashCommand("/unknown")).toBeNull();
+    expect(parseStoryChatSlashCommand("hello /style")).toBeNull();
+    expect(parseStoryChatSlashCommand(" /style")).toBeNull();
+  });
+
+  test("builds escaped paste-ready style command prompts", async () => {
+    const { parseStoryChatSlashCommand } = await import(
+      "@/lib/story-chat-slash-commands"
+    );
+    const { buildStoryChatSlashCommandPrompt } = await import(
+      "./story-chat-slash-command-prompts"
+    );
+    const parsedCommand = parseStoryChatSlashCommand(
+      "/style emphasize <grounded realism> & close POV",
+    );
+
+    if (!parsedCommand) {
+      throw new Error("Expected /style to parse as a slash command.");
+    }
+
+    const prompt = buildStoryChatSlashCommandPrompt(parsedCommand);
+
+    expect(prompt.startsWith("<STYLE_GUIDE_COMMAND>")).toBe(true);
+    expect(getSection(prompt, "OUTPUT_CONTRACT")).toContain(
+      "Return only the paste-ready style guide text.",
+    );
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain(
+      "Point of view, psychic distance",
+    );
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Dialogue");
+    expect(getSection(prompt, "USER_EXTRA_INSTRUCTIONS")).toContain(
+      "emphasize &lt;grounded realism&gt; &amp; close POV",
+    );
+    expect(prompt).not.toContain("<grounded realism>");
+    expect(prompt).not.toMatch(/<([A-Z_]+)>\s*<\/\1>/);
+  });
+
+  test("builds character command prompts without blank placeholder sections", async () => {
+    const { parseStoryChatSlashCommand } = await import(
+      "@/lib/story-chat-slash-commands"
+    );
+    const { buildStoryChatSlashCommandPrompt } = await import(
+      "./story-chat-slash-command-prompts"
+    );
+    const parsedCommand = parseStoryChatSlashCommand("/character");
+
+    if (!parsedCommand) {
+      throw new Error("Expected /character to parse as a slash command.");
+    }
+
+    const prompt = buildStoryChatSlashCommandPrompt(parsedCommand);
+
+    expect(prompt.startsWith("<CHARACTER_DESCRIPTION_COMMAND>")).toBe(true);
+    expect(getSection(prompt, "OUTPUT_CONTRACT")).toContain(
+      "Return only one paste-ready character description.",
+    );
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain(
+      "Behavior under stress",
+    );
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Relationships");
+    expect(prompt).not.toContain("<USER_EXTRA_INSTRUCTIONS>");
+    expect(prompt).not.toMatch(/<([A-Z_]+)>\s*<\/\1>/);
+  });
+
+  test("expands only the latest visible user command into model messages", async () => {
+    const { buildStoryChatVisibleModelMessages } = await import("./story-chat");
+    const messages = buildStoryChatVisibleModelMessages([
+      createChatMessage("message-1", "user", "/style older instruction"),
+      createChatMessage("message-2", "assistant", "Older style guidance."),
+      createChatMessage(
+        "message-3",
+        "user",
+        "/character Jen <fiery> & soft interior",
+      ),
+    ]);
+
+    expect(messages[0]?.content).toBe("/style older instruction");
+    expect(messages[1]?.content).toBe("Older style guidance.");
+    expect(`${messages[2]?.content}`).toContain(
+      "<CHARACTER_DESCRIPTION_COMMAND>",
+    );
+    expect(`${messages[2]?.content}`).toContain(
+      "Jen &lt;fiery&gt; &amp; soft interior",
+    );
+    expect(`${messages[2]?.content}`).not.toContain("<fiery>");
+
+    const unknownSlashMessages = buildStoryChatVisibleModelMessages([
+      createChatMessage("message-4", "user", "/styleguide"),
+    ]);
+    const trailingAssistantMessages = buildStoryChatVisibleModelMessages([
+      createChatMessage("message-5", "user", "/style"),
+      createChatMessage("message-6", "assistant", "Prior reply."),
+    ]);
+
+    expect(unknownSlashMessages[0]?.content).toBe("/styleguide");
+    expect(trailingAssistantMessages[0]?.content).toBe("/style");
   });
 });
 
@@ -592,6 +742,20 @@ type ProseRequestOverrides = Partial<
 > & {
   insertion?: Partial<StoryProseGenerationRequest["insertion"]>;
 };
+
+function createChatMessage(
+  id: string,
+  role: StoryChatVisibleMessage["role"],
+  content: string,
+): StoryChatVisibleMessage {
+  return {
+    content,
+    createdAt: "2026-05-07T00:00:00.000Z",
+    id,
+    role,
+    updatedAt: "2026-05-07T00:00:00.000Z",
+  };
+}
 
 function createProseRequest(
   overrides: ProseRequestOverrides = {},
