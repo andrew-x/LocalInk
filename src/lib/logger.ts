@@ -64,7 +64,7 @@ function normalizeLogValue(value: unknown, seen: WeakSet<object>): unknown {
 
   if (value instanceof Error) {
     seen.add(value);
-    return normalizeError(value, seen);
+    return normalizeError(value);
   }
 
   if (Array.isArray(value)) {
@@ -86,19 +86,10 @@ function normalizeLogValue(value: unknown, seen: WeakSet<object>): unknown {
   return value;
 }
 
-function normalizeError(error: Error, seen: WeakSet<object>) {
+function normalizeError(error: Error) {
   const normalizedError: LogDetails = {
-    message: error.message,
     name: error.name,
   };
-
-  if (error.stack) {
-    normalizedError.stack = error.stack;
-  }
-
-  if ("cause" in error) {
-    normalizedError.cause = normalizeLogValue(error.cause, seen);
-  }
 
   return normalizedError;
 }

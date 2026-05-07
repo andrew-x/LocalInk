@@ -23,6 +23,7 @@ import type {
   ChapterAiDraftSnapshot,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { AI_DRAFT_INLINE_ACTION_EVENT as DRAFT_INLINE_ACTION_EVENT } from "@/components/story-editor/chapter-ai-draft-plugin";
+import { readLocalinkTextStream } from "@/lib/ai-text-stream";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
 
 type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
@@ -171,39 +172,25 @@ export function AiProseGenerationWidget({
           throw new Error(await readGenerationError(response));
         }
 
-        if (!response.body) {
-          throw new Error("The prose stream could not be opened.");
-        }
-
         promptSnapshotId =
           response.headers.get(PROMPT_SNAPSHOT_ID_HEADER)?.trim() || undefined;
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
 
-        while (true) {
-          const { done, value } = await reader.read();
-
-          if (done) {
-            break;
-          }
-
-          streamedText += decoder.decode(value, { stream: true });
-          draftTextRef.current = streamedText;
-          handle.updateDraft(
-            draft.draftId,
-            streamedText,
-            "streaming",
-            promptSnapshotId,
-          );
-          onDraftStreamUpdate(draft.draftId);
-        }
-
-        const finalChunk = decoder.decode();
-
-        if (finalChunk) {
-          streamedText += finalChunk;
-          draftTextRef.current = streamedText;
-        }
+        await readLocalinkTextStream(response, {
+          incompleteMessage:
+            "The prose stream ended before generation completed.",
+          unavailableMessage: "The prose stream could not be opened.",
+          onDelta(text) {
+            streamedText += text;
+            draftTextRef.current = streamedText;
+            handle.updateDraft(
+              draft.draftId,
+              streamedText,
+              "streaming",
+              promptSnapshotId,
+            );
+            onDraftStreamUpdate(draft.draftId);
+          },
+        });
 
         handle.updateDraft(
           draft.draftId,
@@ -502,7 +489,6 @@ function toChapterContext(
     id: chapter.id,
     name: chapter.name,
     position: chapter.position,
-    summary: chapter.summary,
     content,
   };
 }

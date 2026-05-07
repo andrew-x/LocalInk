@@ -3,7 +3,6 @@ import "server-only";
 import { mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as sqliteVec from "sqlite-vec";
 
 import { getDatabaseInfo } from "./paths";
 import * as schema from "./schema";
@@ -11,6 +10,9 @@ import * as schema from "./schema";
 const createDb = (client: Database.Database) => drizzle(client, { schema });
 
 export type LocalinkDb = ReturnType<typeof createDb>;
+export type LocalinkTx = Parameters<
+  Parameters<LocalinkDb["transaction"]>[0]
+>[0];
 
 const globalForDrizzle = globalThis as typeof globalThis & {
   __localinkDb?: LocalinkDb;
@@ -24,8 +26,6 @@ export function getSqliteClient(): Database.Database {
     mkdirSync(dataDirectory, { recursive: true });
 
     const client = new Database(databasePath);
-
-    sqliteVec.load(client);
 
     client.pragma("journal_mode = WAL");
     client.pragma("foreign_keys = ON");

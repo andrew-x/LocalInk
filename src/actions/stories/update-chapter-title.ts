@@ -1,17 +1,13 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 
 import { publicActionClient } from "@/lib/action";
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
-import {
-  loadStoryChapterById,
-  storyChapterSelectFields,
-} from "@/lib/server/story-chapters";
+import { storyChapterSelectFields } from "@/lib/server/story-chapters";
 
 import { updateChapterTitleActionSchema } from "./_schemas";
 import type { StoryChapterItem } from "./_types";
@@ -45,13 +41,5 @@ export const updateChapterTitle = publicActionClient
       .set({ updatedAt: now })
       .where(eq(stories.id, parsedInput.storyId));
 
-    revalidatePath("/");
-    revalidatePath(`/story/${parsedInput.storyId}`);
-
-    return (
-      (await loadStoryChapterById(db, parsedInput.storyId, chapter.id)) ?? {
-        ...chapter,
-        chunks: [],
-      }
-    );
+    return chapter;
   });

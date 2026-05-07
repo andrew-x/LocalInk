@@ -2,6 +2,7 @@ import { ActionError } from "@/lib/action-error";
 import { streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
+import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
 import { getAppSettings } from "@/lib/server/app-settings";
 import {
   buildStoryChatGenerationMessages,
@@ -68,12 +69,19 @@ export async function POST(request: Request): Promise<Response> {
       messages,
       abortSignal: request.signal,
       temperature: 0.72,
+    });
+
+    return toLocalinkTextStreamResponse({
+      stream,
+      requestSignal: request.signal,
+      toRouteError,
       onAbort: () => {
         logEnd(startedAt, parsedInput, "aborted");
       },
-      onError: ({ error }) => {
-        const routeError = toRouteError(error);
-
+      onComplete: () => {
+        logEnd(startedAt, parsedInput, "complete");
+      },
+      onError: (error, routeError) => {
         storyChatLogger.error("error", {
           action: ACTION_NAME,
           storyId: parsedInput?.storyId,
@@ -84,15 +92,6 @@ export async function POST(request: Request): Promise<Response> {
           durationMs: day().diff(startedAt),
         });
         logEnd(startedAt, parsedInput, "error", routeError.code);
-      },
-      onFinish: () => {
-        logEnd(startedAt, parsedInput, "complete");
-      },
-    });
-
-    return stream.toTextStreamResponse({
-      headers: {
-        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

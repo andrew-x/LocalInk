@@ -1,7 +1,6 @@
 "use server";
 
 import { and, eq, gt, sql } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 
 import { publicActionClient } from "@/lib/action";
 import { ActionError } from "@/lib/action-error";
@@ -66,9 +65,6 @@ export const deleteChapter = publicActionClient
     if (!deletedChapter) {
       throw new ActionError("BAD_REQUEST", "The chapter could not be found.");
     }
-
-    revalidatePath("/");
-    revalidatePath(`/story/${parsedInput.storyId}`);
 
     return {
       id: deletedChapter.id,

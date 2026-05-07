@@ -43,6 +43,7 @@ import {
 } from "@/components/common/popover";
 import { Textarea } from "@/components/common/textarea";
 import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
+import { readLocalinkTextStream } from "@/lib/ai-text-stream";
 import day from "@/lib/dayjs";
 import type { StoryChatStreamRequest } from "@/lib/story-chat-contract";
 import {
@@ -343,30 +344,14 @@ export function StoryEditorChatPane({
         throw new Error(await readStoryChatStreamError(response));
       }
 
-      if (!response.body) {
-        throw new Error("The chat stream could not be opened.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        streamedText += decoder.decode(value, { stream: true });
-        updateStreamingMessage(draftMessageId, streamedText);
-      }
-
-      const finalChunk = decoder.decode();
-
-      if (finalChunk) {
-        streamedText += finalChunk;
-        updateStreamingMessage(draftMessageId, streamedText);
-      }
+      await readLocalinkTextStream(response, {
+        incompleteMessage: "The chat stream ended before the reply completed.",
+        unavailableMessage: "The chat stream could not be opened.",
+        onDelta(text) {
+          streamedText += text;
+          updateStreamingMessage(draftMessageId, streamedText);
+        },
+      });
 
       const savedOutput = await saveAssistantOutput(generation, streamedText);
 

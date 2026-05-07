@@ -24,7 +24,6 @@ type ActionLogEndDetails = {
 
 type ActionLogErrorDetails = {
   code: ActionErrorCode;
-  errorMessage: string;
 };
 
 const actionLogger = createLogger("action");
@@ -44,8 +43,7 @@ const baseActionClient = createSafeActionClient({
     actionLogger.error("error", {
       action: utils.metadata?.action,
       code: serverError.code,
-      error,
-      errorMessage: getErrorMessage(error),
+      errorName: getErrorName(error),
     });
 
     return serverError;
@@ -129,7 +127,7 @@ function startActionLog(action: string) {
       actionLogger.error("error", {
         action,
         ...details,
-        error,
+        errorName: getErrorName(error),
         durationMs: day().diff(startedAt),
       });
     },
@@ -144,7 +142,6 @@ function logActionError(
 
   actionLog.error(error, {
     code: serverError.code,
-    errorMessage: getErrorMessage(error),
   });
   actionLog.end({
     errorCode: serverError.code,
@@ -166,10 +163,10 @@ function toActionServerError(error: unknown): ActionServerError {
   };
 }
 
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+function getErrorName(error: unknown): string {
+  if (error instanceof Error && error.name.trim()) {
+    return error.name;
   }
 
-  return "A non-Error value was thrown.";
+  return "UnknownError";
 }

@@ -1,14 +1,12 @@
 import { relations, sql } from "drizzle-orm";
 import {
-  blob,
   check,
   index,
   integer,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-
-import { EMPTY_CHAPTER_CONTENT_HASH } from "../chapter-content-hash";
 
 const currentTimestampSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -74,7 +72,7 @@ export const storyChatMessages = sqliteTable(
     updatedAt: text("updated_at").notNull().default(currentTimestampSql),
   },
   (table) => [
-    index("story_chat_messages_chat_position_idx").on(
+    uniqueIndex("story_chat_messages_chat_position_unique").on(
       table.chatId,
       table.position,
     ),
@@ -106,11 +104,6 @@ export const chapters = sqliteTable(
     name: text("name").notNull(),
     position: integer("position").notNull(),
     content: text("content").notNull(),
-    indexedHash: text("indexed_hash")
-      .notNull()
-      .default(EMPTY_CHAPTER_CONTENT_HASH),
-    indexedAt: text("indexed_at"),
-    summary: text("summary").notNull(),
     updatedAt: text("updated_at").notNull().default(currentTimestampSql),
   },
   (table) => [
@@ -118,43 +111,8 @@ export const chapters = sqliteTable(
   ],
 );
 
-export const chunks = sqliteTable(
-  "chunks",
-  {
-    id: text("id").primaryKey(),
-    storyId: text("story_id")
-      .notNull()
-      .references(() => stories.id, { onDelete: "cascade" }),
-    chapterId: text("chapter_id")
-      .notNull()
-      .references(() => chapters.id, { onDelete: "cascade" }),
-    text: text("text").notNull(),
-    startPosition: integer("start_position").notNull(),
-    endPosition: integer("end_position").notNull(),
-    embedding: blob("embedding", { mode: "buffer" }),
-  },
-  (table) => [
-    index("chunks_story_idx").on(table.storyId),
-    index("chunks_chapter_position_idx").on(
-      table.chapterId,
-      table.startPosition,
-    ),
-    check(
-      "chunks_embedding_float32_vec_check",
-      sql`
-        CASE
-          WHEN ${table.embedding} IS NULL THEN 1
-          ELSE typeof(${table.embedding}) = 'blob'
-            AND vec_type(${table.embedding}) = 'float32'
-        END
-      `,
-    ),
-  ],
-);
-
 export const storiesRelations = relations(stories, ({ many }) => ({
   chapters: many(chapters),
-  chunks: many(chunks),
   storyChatMessages: many(storyChatMessages),
   storyChats: many(storyChats),
 }));
@@ -181,21 +139,9 @@ export const storyChatMessagesRelations = relations(
   }),
 );
 
-export const chaptersRelations = relations(chapters, ({ many, one }) => ({
+export const chaptersRelations = relations(chapters, ({ one }) => ({
   story: one(stories, {
     fields: [chapters.storyId],
     references: [stories.id],
-  }),
-  chunks: many(chunks),
-}));
-
-export const chunksRelations = relations(chunks, ({ one }) => ({
-  story: one(stories, {
-    fields: [chunks.storyId],
-    references: [stories.id],
-  }),
-  chapter: one(chapters, {
-    fields: [chunks.chapterId],
-    references: [chapters.id],
   }),
 }));

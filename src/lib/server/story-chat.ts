@@ -12,7 +12,7 @@ import type {
 } from "@/actions/story-chats/_types";
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
-import { getDb, type LocalinkDb } from "@/lib/drizzle/db";
+import { getDb, type LocalinkDb, type LocalinkTx } from "@/lib/drizzle/db";
 import {
   type StoryChatMessageRole,
   stories,
@@ -166,58 +166,71 @@ export async function prepareStoryChatTurn({
   const snapshot = await buildStoryChatContextSnapshot(storyId);
   const generationId = generateId("story-chat-generation");
   const contextMessageId = generateId("story-chat-message");
-  let chat = chatId ? await findStoryChat(db, storyId, chatId) : null;
+  const userMessageId = generateId("story-chat-message");
 
-  if (chatId && !chat) {
-    throw new ActionError("BAD_REQUEST", "The chat could not be found.");
-  }
+  const chat = db.transaction((tx) => {
+    let resolvedChat = chatId ? findStoryChatSync(tx, storyId, chatId) : null;
 
-  if (!chat) {
-    const newChat = {
-      id: generateId("story-chat"),
-      storyId,
-      title: deriveChatTitle(content),
-      createdAt: now,
-      updatedAt: now,
-    } satisfies typeof storyChats.$inferInsert;
+    if (chatId && !resolvedChat) {
+      throw new ActionError("BAD_REQUEST", "The chat could not be found.");
+    }
 
-    await db.insert(storyChats).values(newChat);
-    chat = toStoryChatListItem(newChat);
-  }
+    if (!resolvedChat) {
+      const newChat = {
+        id: generateId("story-chat"),
+        storyId,
+        title: deriveChatTitle(content),
+        createdAt: now,
+        updatedAt: now,
+      } satisfies typeof storyChats.$inferInsert;
 
-  const contextPosition = await getNextMessagePosition(db, chat.id);
+      tx.insert(storyChats).values(newChat).run();
+      resolvedChat = toStoryChatListItem(newChat);
+    }
 
-  await db.insert(storyChatMessages).values([
-    {
-      id: contextMessageId,
-      storyId,
-      chatId: chat.id,
-      role: "system",
-      isVisible: false,
-      position: contextPosition,
-      content: snapshot,
-      generationId,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: generateId("story-chat-message"),
-      storyId,
-      chatId: chat.id,
-      role: "user",
-      isVisible: true,
-      position: contextPosition + 1,
-      content,
-      generationId,
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]);
+    const contextPosition = getNextMessagePositionSync(tx, resolvedChat.id);
 
-  await db
-    .update(storyChats)
-    .set({ updatedAt: now })
-    .where(and(eq(storyChats.id, chat.id), eq(storyChats.storyId, storyId)));
+    tx.insert(storyChatMessages)
+      .values([
+        {
+          id: contextMessageId,
+          storyId,
+          chatId: resolvedChat.id,
+          role: "system",
+          isVisible: false,
+          position: contextPosition,
+          content: snapshot,
+          generationId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: userMessageId,
+          storyId,
+          chatId: resolvedChat.id,
+          role: "user",
+          isVisible: true,
+          position: contextPosition + 1,
+          content,
+          generationId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ])
+      .run();
+
+    tx.update(storyChats)
+      .set({ updatedAt: now })
+      .where(
+        and(
+          eq(storyChats.id, resolvedChat.id),
+          eq(storyChats.storyId, storyId),
+        ),
+      )
+      .run();
+
+    return resolvedChat;
+  });
 
   const detail = await loadRequiredStoryChat(db, storyId, chat.id);
 
@@ -235,44 +248,51 @@ export async function prepareStoryChatRegeneration({
   assistantMessageId,
 }: PrepareStoryChatRegenerationInput): Promise<PreparedStoryChatGeneration> {
   const db = getDb();
-  const chat = await findStoryChat(db, storyId, chatId);
-
-  if (!chat) {
-    throw new ActionError("BAD_REQUEST", "The chat could not be found.");
-  }
-
-  const latestMessage = await getLatestVisibleStoryChatMessage(
-    db,
-    storyId,
-    chatId,
-  );
-
-  if (
-    !latestMessage ||
-    latestMessage.role !== "assistant" ||
-    latestMessage.id !== assistantMessageId
-  ) {
-    throw new ActionError(
-      "BAD_REQUEST",
-      "Only the latest assistant reply can be regenerated.",
-    );
-  }
-
+  const snapshot = await buildStoryChatContextSnapshot(storyId);
   const now = day().toISOString();
   const generationId = generateId("story-chat-generation");
   const contextMessageId = generateId("story-chat-message");
 
-  await db.insert(storyChatMessages).values({
-    id: contextMessageId,
-    storyId,
-    chatId,
-    role: "system",
-    isVisible: false,
-    position: await getNextMessagePosition(db, chatId),
-    content: await buildStoryChatContextSnapshot(storyId),
-    generationId,
-    createdAt: now,
-    updatedAt: now,
+  const chat = db.transaction((tx) => {
+    const resolvedChat = findStoryChatSync(tx, storyId, chatId);
+
+    if (!resolvedChat) {
+      throw new ActionError("BAD_REQUEST", "The chat could not be found.");
+    }
+
+    const latestMessage = getLatestVisibleStoryChatMessageSync(
+      tx,
+      storyId,
+      chatId,
+    );
+
+    if (
+      !latestMessage ||
+      latestMessage.role !== "assistant" ||
+      latestMessage.id !== assistantMessageId
+    ) {
+      throw new ActionError(
+        "BAD_REQUEST",
+        "Only the latest assistant reply can be regenerated.",
+      );
+    }
+
+    tx.insert(storyChatMessages)
+      .values({
+        id: contextMessageId,
+        storyId,
+        chatId,
+        role: "system",
+        isVisible: false,
+        position: getNextMessagePositionSync(tx, chatId),
+        content: snapshot,
+        generationId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    return resolvedChat;
   });
 
   return {
@@ -294,52 +314,57 @@ export async function saveStoryChatAssistantOutput({
 }: SaveStoryChatAssistantOutputInput): Promise<SavedStoryChatAssistantOutput> {
   const db = getDb();
   const now = day().toISOString();
-  const hasPreparedGeneration = await findGenerationContextMessage(db, {
-    storyId,
-    chatId,
-    generationId,
-    contextMessageId,
+
+  const result = db.transaction((tx) => {
+    const hasPreparedGeneration = findGenerationContextMessageSync(tx, {
+      storyId,
+      chatId,
+      generationId,
+      contextMessageId,
+    });
+
+    if (!hasPreparedGeneration) {
+      throw new ActionError(
+        "BAD_REQUEST",
+        "The prepared chat generation could not be found.",
+      );
+    }
+
+    const message = replaceAssistantMessageId
+      ? replaceAssistantOutputSync(tx, {
+          storyId,
+          chatId,
+          assistantMessageId: replaceAssistantMessageId,
+          generationId,
+          content,
+          now,
+        })
+      : createAssistantOutputSync(tx, {
+          storyId,
+          chatId,
+          generationId,
+          content,
+          now,
+        });
+
+    tx.update(storyChats)
+      .set({ updatedAt: now })
+      .where(and(eq(storyChats.id, chatId), eq(storyChats.storyId, storyId)))
+      .run();
+
+    const chat = findStoryChatSync(tx, storyId, chatId);
+
+    if (!chat) {
+      throw new ActionError("BAD_REQUEST", "The chat could not be found.");
+    }
+
+    return {
+      chat: { ...chat, updatedAt: now },
+      message,
+    };
   });
 
-  if (!hasPreparedGeneration) {
-    throw new ActionError(
-      "BAD_REQUEST",
-      "The prepared chat generation could not be found.",
-    );
-  }
-
-  const message = replaceAssistantMessageId
-    ? await replaceAssistantOutput(db, {
-        storyId,
-        chatId,
-        assistantMessageId: replaceAssistantMessageId,
-        generationId,
-        content,
-        now,
-      })
-    : await createAssistantOutput(db, {
-        storyId,
-        chatId,
-        generationId,
-        content,
-        now,
-      });
-
-  await db
-    .update(storyChats)
-    .set({ updatedAt: now })
-    .where(and(eq(storyChats.id, chatId), eq(storyChats.storyId, storyId)));
-
-  const chat = await findStoryChat(db, storyId, chatId);
-
-  if (!chat) {
-    throw new ActionError("BAD_REQUEST", "The chat could not be found.");
-  }
-
-  return {
-    chat: { ...chat, updatedAt: now },
-    message,
-  };
+  return result;
 }
 
 export async function buildStoryChatGenerationMessages({
@@ -492,6 +517,26 @@ async function findStoryChat(
   return chat ?? null;
 }
 
+function findStoryChatSync(
+  tx: LocalinkTx,
+  storyId: string,
+  chatId: string,
+): StoryChatListItem | null {
+  const chat = tx
+    .select({
+      id: storyChats.id,
+      title: storyChats.title,
+      createdAt: storyChats.createdAt,
+      updatedAt: storyChats.updatedAt,
+    })
+    .from(storyChats)
+    .where(and(eq(storyChats.id, chatId), eq(storyChats.storyId, storyId)))
+    .limit(1)
+    .get();
+
+  return chat ?? null;
+}
+
 async function getVisibleStoryChatMessages(
   db: LocalinkDb,
   storyId: string,
@@ -523,12 +568,12 @@ async function getVisibleStoryChatMessages(
   return rows.map(toVisibleMessage);
 }
 
-async function getLatestVisibleStoryChatMessage(
-  db: LocalinkDb,
+function getLatestVisibleStoryChatMessageSync(
+  tx: LocalinkTx,
   storyId: string,
   chatId: string,
-): Promise<StoryChatVisibleMessage | null> {
-  const [message] = await db
+): StoryChatVisibleMessage | null {
+  const message = tx
     .select({
       id: storyChatMessages.id,
       role: storyChatMessages.role,
@@ -545,7 +590,8 @@ async function getLatestVisibleStoryChatMessage(
       ),
     )
     .orderBy(desc(storyChatMessages.position))
-    .limit(1);
+    .limit(1)
+    .get();
 
   return message ? toVisibleMessage(message) : null;
 }
@@ -585,6 +631,42 @@ async function findGenerationContextMessage(
   return message ?? null;
 }
 
+function findGenerationContextMessageSync(
+  tx: LocalinkTx,
+  {
+    storyId,
+    chatId,
+    generationId,
+    contextMessageId,
+  }: {
+    storyId: string;
+    chatId: string;
+    generationId: string;
+    contextMessageId: string;
+  },
+) {
+  const message = tx
+    .select({
+      id: storyChatMessages.id,
+      content: storyChatMessages.content,
+    })
+    .from(storyChatMessages)
+    .where(
+      and(
+        eq(storyChatMessages.id, contextMessageId),
+        eq(storyChatMessages.storyId, storyId),
+        eq(storyChatMessages.chatId, chatId),
+        eq(storyChatMessages.generationId, generationId),
+        eq(storyChatMessages.role, "system"),
+        eq(storyChatMessages.isVisible, false),
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return message ?? null;
+}
+
 async function getRegenerationHistoryCutoffPosition(
   db: LocalinkDb,
   storyId: string,
@@ -618,8 +700,8 @@ async function getRegenerationHistoryCutoffPosition(
   return message.position;
 }
 
-async function replaceAssistantOutput(
-  db: LocalinkDb,
+function replaceAssistantOutputSync(
+  tx: LocalinkTx,
   {
     storyId,
     chatId,
@@ -635,9 +717,9 @@ async function replaceAssistantOutput(
     content: string;
     now: string;
   },
-): Promise<StoryChatVisibleMessage> {
-  const latestMessage = await getLatestVisibleStoryChatMessage(
-    db,
+): StoryChatVisibleMessage {
+  const latestMessage = getLatestVisibleStoryChatMessageSync(
+    tx,
     storyId,
     chatId,
   );
@@ -649,7 +731,7 @@ async function replaceAssistantOutput(
     );
   }
 
-  const [message] = await db
+  const [message] = tx
     .update(storyChatMessages)
     .set({
       content,
@@ -671,7 +753,8 @@ async function replaceAssistantOutput(
       content: storyChatMessages.content,
       createdAt: storyChatMessages.createdAt,
       updatedAt: storyChatMessages.updatedAt,
-    });
+    })
+    .all();
 
   if (!message) {
     throw new ActionError(
@@ -683,8 +766,8 @@ async function replaceAssistantOutput(
   return toVisibleMessage(message);
 }
 
-async function createAssistantOutput(
-  db: LocalinkDb,
+function createAssistantOutputSync(
+  tx: LocalinkTx,
   {
     storyId,
     chatId,
@@ -698,8 +781,8 @@ async function createAssistantOutput(
     content: string;
     now: string;
   },
-): Promise<StoryChatVisibleMessage> {
-  const [existingMessage] = await db
+): StoryChatVisibleMessage {
+  const existingMessage = tx
     .select({
       id: storyChatMessages.id,
       role: storyChatMessages.role,
@@ -717,13 +800,14 @@ async function createAssistantOutput(
         eq(storyChatMessages.isVisible, true),
       ),
     )
-    .limit(1);
+    .limit(1)
+    .get();
 
   if (existingMessage) {
     return toVisibleMessage(existingMessage);
   }
 
-  const [message] = await db
+  const [message] = tx
     .insert(storyChatMessages)
     .values({
       id: generateId("story-chat-message"),
@@ -731,7 +815,7 @@ async function createAssistantOutput(
       chatId,
       role: "assistant",
       isVisible: true,
-      position: await getNextMessagePosition(db, chatId),
+      position: getNextMessagePositionSync(tx, chatId),
       content,
       generationId,
       createdAt: now,
@@ -743,7 +827,8 @@ async function createAssistantOutput(
       content: storyChatMessages.content,
       createdAt: storyChatMessages.createdAt,
       updatedAt: storyChatMessages.updatedAt,
-    });
+    })
+    .all();
 
   if (!message) {
     throw new ActionError(
@@ -755,16 +840,14 @@ async function createAssistantOutput(
   return toVisibleMessage(message);
 }
 
-async function getNextMessagePosition(
-  db: LocalinkDb,
-  chatId: string,
-): Promise<number> {
-  const [row] = await db
+function getNextMessagePositionSync(tx: LocalinkTx, chatId: string): number {
+  const row = tx
     .select({
       nextPosition: sql<number>`coalesce(max(${storyChatMessages.position}), 0) + 1`,
     })
     .from(storyChatMessages)
-    .where(eq(storyChatMessages.chatId, chatId));
+    .where(eq(storyChatMessages.chatId, chatId))
+    .get();
 
   return row?.nextPosition ?? 1;
 }

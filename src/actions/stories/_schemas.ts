@@ -68,15 +68,5 @@ export const deleteChapterActionSchema = z.object({
   chapterId: z.string().min(1, "Chapter id is required."),
 });
 
-export const indexChapterActionSchema = z.object({
-  storyId: z.string().min(1, "Story id is required."),
-  chapterId: z.string().min(1, "Chapter id is required."),
-  triggerReason: z.enum([
-    "autosave-debounce",
-    "chapter-switch",
-    "editor-unmount",
-  ]),
-});
-
 export type CreateStoryFormValues = z.infer<typeof createStoryFormSchema>;
 export type UpdateStoryFormValues = z.infer<typeof updateStoryFormSchema>;

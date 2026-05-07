@@ -18,7 +18,6 @@ const storyProseChapterSchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1).max(120),
   position: z.number().int().positive(),
-  summary: z.string().max(8_000),
   content: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
 });
 

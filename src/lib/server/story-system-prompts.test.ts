@@ -646,13 +646,11 @@ describe("story prose request prompt", () => {
             id: "chapter-2",
             name: "The Locked Office",
             position: 2,
-            summary: "",
             content: "",
           },
         ],
         focusedChapter: {
           ...createProseRequest().focusedChapter,
-          summary: "",
         },
         insertion: {
           afterText: "",
@@ -780,14 +778,12 @@ function createProseRequest(
         id: "chapter-1",
         name: "Arrival",
         position: 1,
-        summary: "Elena enters the abandoned station and finds a brass key.",
         content: "Rain silvered the platform while Elena crossed the tracks.",
       },
       {
         id: "chapter-2",
         name: "The Locked Office",
         position: 2,
-        summary: "She searches the station office while rain hits the glass.",
         content:
           "Elena stood in the office doorway. The clock above the desk had stopped.",
       },
@@ -795,14 +791,12 @@ function createProseRequest(
         id: "chapter-3",
         name: "Departure",
         position: 3,
-        summary: "The hidden platform begins to move.",
         content: "The platform shuddered under her shoes.",
       },
       {
         id: "chapter-4",
         name: "The Signal Room",
         position: 4,
-        summary: "A distant signal room still carries power.",
         content: "The signal room hummed with old fluorescent light.",
       },
     ],
@@ -810,7 +804,6 @@ function createProseRequest(
       id: "chapter-2",
       name: "The Locked Office",
       position: 2,
-      summary: "She searches the station office while rain hits the glass.",
       content:
         "Elena touched the brass key.The door answered with three soft knocks.",
     },

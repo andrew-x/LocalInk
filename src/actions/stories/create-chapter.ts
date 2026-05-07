@@ -1,11 +1,9 @@
 "use server";
 
 import { desc, eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 
 import { publicActionClient } from "@/lib/action";
 import { ActionError } from "@/lib/action-error";
-import { EMPTY_CHAPTER_CONTENT_HASH } from "@/lib/chapter-content-hash";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
@@ -44,9 +42,6 @@ export const createChapter = publicActionClient
       name: `Chapter ${position}`,
       position,
       content: "",
-      indexedHash: EMPTY_CHAPTER_CONTENT_HASH,
-      indexedAt: null,
-      summary: "",
       updatedAt: now,
     } satisfies typeof chapters.$inferInsert;
 
@@ -56,18 +51,11 @@ export const createChapter = publicActionClient
       .set({ updatedAt: now })
       .where(eq(stories.id, parsedInput.storyId));
 
-    revalidatePath("/");
-    revalidatePath(`/story/${parsedInput.storyId}`);
-
     return {
       id: chapter.id,
       name: chapter.name,
       position: chapter.position,
       content: chapter.content,
-      indexedHash: chapter.indexedHash,
-      indexedAt: chapter.indexedAt,
-      summary: chapter.summary,
-      chunks: [],
       updatedAt: chapter.updatedAt,
     };
   });

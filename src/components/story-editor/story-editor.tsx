@@ -151,7 +151,6 @@ export function StoryEditor({ story }: StoryEditorProps) {
       style={columnStyle}
     >
       <StoryEditorContextPane
-        chapters={chapters}
         characters={storyContext.characters}
         isOpen={isContextOpen}
         onContextSaved={handleStoryContextSaved}

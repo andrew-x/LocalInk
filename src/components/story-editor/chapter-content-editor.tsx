@@ -25,6 +25,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import type { StoryChapterItem } from "@/actions/stories/_types";
 import { deleteChapter } from "@/actions/stories/delete-chapter";
 import { updateChapterContent } from "@/actions/stories/update-chapter-content";
@@ -52,6 +53,14 @@ const EDITOR_THEME: InitialConfigType["theme"] = {
 };
 
 type SaveState = "saved" | "pending" | "saving" | "error";
+type ActionFailureResult = {
+  serverError?: {
+    message?: string;
+  };
+  validationErrors?: {
+    formErrors?: string[];
+  };
+};
 
 const SAVE_STATE_LABELS = {
   saved: "Saved",
@@ -202,6 +211,7 @@ function ChapterTitleInput({
   const latestTitleRef = useRef(chapter.name);
   const changeVersionRef = useRef(0);
   const isMountedRef = useRef(true);
+  const lastFailureToastVersionRef = useRef<number | null>(null);
 
   const clearSaveTimer = useCallback(() => {
     if (timerRef.current) {
@@ -223,31 +233,45 @@ function ChapterTitleInput({
     async (name: string, version: number) => {
       onSaveStateChange("saving");
 
-      const result = await executeAsync({
-        storyId,
-        chapterId: chapter.id,
-        name,
-      });
+      let result: Awaited<ReturnType<typeof executeAsync>> | null = null;
+
+      try {
+        result = await executeAsync({
+          storyId,
+          chapterId: chapter.id,
+          name,
+        });
+      } catch {
+        result = null;
+      }
 
       if (!isMountedRef.current) {
         return;
       }
 
-      if (!result.data) {
+      if (!result?.data) {
         if (version === changeVersionRef.current) {
           onSaveStateChange("error");
+          showAutosaveError(
+            lastFailureToastVersionRef,
+            version,
+            result,
+            "The chapter title could not be saved.",
+          );
         }
         return;
       }
+
+      const savedChapter = result.data;
 
       if (version !== changeVersionRef.current) {
         return;
       }
 
-      lastSavedTitleRef.current = result.data.name;
-      latestTitleRef.current = result.data.name;
-      setTitle(result.data.name);
-      onSaved(result.data);
+      lastSavedTitleRef.current = savedChapter.name;
+      latestTitleRef.current = savedChapter.name;
+      setTitle(savedChapter.name);
+      onSaved(savedChapter);
       onSaveStateChange("saved");
     },
     [chapter.id, executeAsync, onSaveStateChange, onSaved, storyId],
@@ -529,6 +553,7 @@ function ChapterAutosavePlugin({
   const isMountedRef = useRef(true);
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const wasActiveRef = useRef(isActive);
+  const lastFailureToastVersionRef = useRef<number | null>(null);
 
   const clearSaveTimer = useCallback(() => {
     if (saveTimerRef.current) {
@@ -550,15 +575,19 @@ function ChapterAutosavePlugin({
         onSaveStateChange("saving");
       }
 
-      const result = await executeAsync({
-        storyId,
-        chapterId,
-        content,
-      })
-        .catch(() => null)
-        .finally(() => {
-          inFlightSavesRef.current -= 1;
+      let result: Awaited<ReturnType<typeof executeAsync>> | null = null;
+
+      try {
+        result = await executeAsync({
+          storyId,
+          chapterId,
+          content,
         });
+      } catch {
+        result = null;
+      } finally {
+        inFlightSavesRef.current -= 1;
+      }
 
       if (!result?.data) {
         if (
@@ -567,6 +596,12 @@ function ChapterAutosavePlugin({
           version === changeVersionRef.current
         ) {
           onSaveStateChange("error");
+          showAutosaveError(
+            lastFailureToastVersionRef,
+            version,
+            result,
+            "The chapter content could not be saved.",
+          );
         }
         return false;
       }
@@ -692,4 +727,31 @@ function ChapterAutosavePlugin({
   );
 
   return <OnChangePlugin ignoreSelectionChange onChange={handleChange} />;
+}
+
+function showAutosaveError(
+  lastFailureToastVersionRef: {
+    current: number | null;
+  },
+  version: number,
+  result: ActionFailureResult | null,
+  fallbackMessage: string,
+) {
+  if (lastFailureToastVersionRef.current === version) {
+    return;
+  }
+
+  lastFailureToastVersionRef.current = version;
+  toast.error(getActionFailureMessage(result, fallbackMessage));
+}
+
+function getActionFailureMessage(
+  result: ActionFailureResult | null,
+  fallbackMessage: string,
+) {
+  return (
+    result?.validationErrors?.formErrors?.[0] ??
+    result?.serverError?.message ??
+    fallbackMessage
+  );
 }

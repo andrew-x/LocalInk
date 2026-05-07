@@ -1,6 +1,7 @@
 import { type LocalinkProviderOptions, streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
+import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
 import { getAppSettings } from "@/lib/server/app-settings";
 import {
   buildStoryProsePrompt,
@@ -121,12 +122,19 @@ export async function POST(request: Request): Promise<Response> {
         PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[parsedInput.approximateLength],
       providerOptions: PROSE_PROVIDER_OPTIONS,
       temperature: 0.82,
+    });
+
+    return toLocalinkTextStreamResponse({
+      stream,
+      requestSignal: request.signal,
+      toRouteError,
       onAbort: () => {
         logEnd(startedAt, parsedInput, "aborted");
       },
-      onError: ({ error }) => {
-        const routeError = toRouteError(error);
-
+      onComplete: () => {
+        logEnd(startedAt, parsedInput, "complete");
+      },
+      onError: (error, routeError) => {
         storyProseLogger.error("error", {
           action: ACTION_NAME,
           storyId: parsedInput?.story.id,
@@ -138,14 +146,7 @@ export async function POST(request: Request): Promise<Response> {
         });
         logEnd(startedAt, parsedInput, "error", routeError.code);
       },
-      onFinish: () => {
-        logEnd(startedAt, parsedInput, "complete");
-      },
-    });
-
-    return stream.toTextStreamResponse({
       headers: {
-        "Cache-Control": "no-store",
         [PROMPT_SNAPSHOT_ID_HEADER]: promptSnapshot.id,
       },
     });

@@ -38,7 +38,7 @@ Generation context should be ordered by authority and usefulness:
 4. Explicit story premise, character notes, and style guide.
 5. Full manuscript content across the story's chapters, ordered by chapter position, with each chapter labeled as before, focused, or after the insertion point.
 
-For now, prose generation should not depend on indexed chapter summaries or retrieved chunks. The request prompt should include the story's chapter manuscript text directly, with the focused chapter snapshot reflecting the current editor content at generation time. Full-manuscript generation has a hard aggregate chapter-text size guard; if the story crosses it, the app should return a clear prompt-size error instead of sending an oversized request to the model.
+Prose generation uses full chapter manuscript content directly. The request prompt includes each chapter's text, with the focused chapter snapshot reflecting the current editor content at generation time. There is no indexing, embedding, or chunk-retrieval pipeline. Full-manuscript generation has a hard aggregate chapter-text size guard; if the story crosses it, the app returns a clear prompt-size error instead of sending an oversized request to the model.
 
 For insertion tasks, use distinct insertion reminders at different scopes instead of repeating large overlapping windows: a tight top anchor with the last local paragraph before insertion and first sentence after insertion, an `<INSERTION_POINT/>` marker inside the focused chapter's `<CHAPTER_TEXT>` in `<FULL_STORY_MANUSCRIPT>`, and a short `<CLOSING_BEFORE_INSERTION>` snippet near the final request. This helps preserve continuity at the exact edit point and reduces drift when the prompt contains many references without making duplicated anchor sections load-bearing.
 
@@ -58,7 +58,7 @@ For insertion tasks, use distinct insertion reminders at different scopes instea
 
 ## Prompt Inspection
 
-Each generated draft version can reference an ephemeral server-side snapshot of the exact system and request prompts used for that version. The inline draft review UI may fetch that snapshot on demand for inspection. Prompt snapshots are for manual debugging and prompt iteration; do not log prompt bodies, manuscript text, or generated prose.
+Each generated draft version can reference an ephemeral server-side snapshot of the exact system and request prompts used for that version. The inline draft review UI may fetch that snapshot on demand for inspection. Snapshots are stored in an in-process LRU cache (capacity 50, TTL 4 hours) and do not survive server restarts. Prompt snapshots are for manual debugging and prompt iteration; do not log prompt bodies, manuscript text, or generated prose.
 
 ## Provider Notes
 

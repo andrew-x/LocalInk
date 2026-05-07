@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Brush,
-  ChevronDown,
-  FileText,
-  Plus,
-  Save,
-  Trash2,
-  UsersRound,
-} from "lucide-react";
+import { Brush, Plus, Save, Trash2, UsersRound } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import {
   type ComponentPropsWithoutRef,
@@ -21,11 +13,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import type {
-  StoryChapterItem,
-  StoryContext,
-  StoryEditorData,
-} from "@/actions/stories/_types";
+import type { StoryContext, StoryEditorData } from "@/actions/stories/_types";
 import { updateStory } from "@/actions/stories/update-story";
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
@@ -46,7 +34,6 @@ type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
 type StoryContextSave = StoryContext & { updatedAt: string };
 
 type StoryEditorContextPaneProps = {
-  chapters: StoryChapterItem[];
   characters: StoryCharacter[];
   isOpen: boolean;
   onContextSaved: (context: StoryContextSave) => void;
@@ -56,7 +43,6 @@ type StoryEditorContextPaneProps = {
 };
 
 export function StoryEditorContextPane({
-  chapters,
   characters,
   isOpen,
   onContextSaved,
@@ -75,196 +61,24 @@ export function StoryEditorContextPane({
 
       {isOpen ? (
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="flex min-h-full flex-col">
-            <div className="grid gap-3">
-              <StyleContextSection
-                characters={characters}
-                onSaved={onContextSaved}
-                story={story}
-                style={style}
-              />
-              <CharacterContextSection
-                characters={characters}
-                onSaved={onContextSaved}
-                story={story}
-                style={style}
-              />
-            </div>
-
-            <div className="mt-auto pt-3">
-              <InspectContextSection chapters={chapters} />
-            </div>
+          <div className="grid gap-3">
+            <StyleContextSection
+              characters={characters}
+              onSaved={onContextSaved}
+              story={story}
+              style={style}
+            />
+            <CharacterContextSection
+              characters={characters}
+              onSaved={onContextSaved}
+              story={story}
+              style={style}
+            />
           </div>
         </div>
       ) : null}
     </aside>
   );
-}
-
-type InspectContextSectionProps = {
-  chapters: StoryChapterItem[];
-};
-
-function InspectContextSection({ chapters }: InspectContextSectionProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const contentId = useId();
-  const hasChapters = chapters.length > 0;
-
-  return (
-    <section className="rounded-md border border-border/70 bg-card/45 p-3">
-      <button
-        aria-controls={contentId}
-        aria-expanded={isOpen}
-        className="flex w-full items-center justify-between gap-2 text-left text-label transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none"
-        onClick={() => setIsOpen((open) => !open)}
-        type="button"
-      >
-        <span className="flex min-w-0 items-center gap-2">
-          <FileText aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="truncate">Inspect</span>
-        </span>
-        <ChevronDown
-          aria-hidden="true"
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform",
-            !isOpen && "rotate-180",
-          )}
-        />
-      </button>
-
-      {isOpen ? (
-        <div className="mt-3 max-h-80 overflow-auto pr-1" id={contentId}>
-          {hasChapters ? (
-            <ul className="grid gap-2">
-              {chapters.map((chapter) => (
-                <li key={chapter.id}>
-                  <ChapterInspectPopover chapter={chapter} />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="rounded-md border border-dashed border-border/70 px-3 py-6 text-center text-body text-muted-foreground">
-              No chapters yet
-            </p>
-          )}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-type ChapterInspectPopoverProps = {
-  chapter: StoryChapterItem;
-};
-
-function ChapterInspectPopover({ chapter }: ChapterInspectPopoverProps) {
-  const summary = chapter.summary.trim();
-  const chunks = chapter.chunks;
-  const hasSummary = summary.length > 0;
-  const hasChunks = chunks.length > 0;
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          aria-label={`Inspect ${chapter.name}`}
-          className="w-full rounded-md border border-border/70 bg-background/55 px-3 py-2.5 text-left transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted"
-          type="button"
-        >
-          <span className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate text-label-sm text-foreground">
-              {chapter.name}
-            </span>
-            <span className="shrink-0 text-caption text-muted-foreground">
-              {getChunkCountLabel(chunks.length)}
-            </span>
-          </span>
-          <span
-            className={cn(
-              "mt-1 block text-caption leading-5",
-              hasSummary
-                ? "line-clamp-3 whitespace-pre-line text-muted-foreground"
-                : "text-muted-foreground/70",
-            )}
-          >
-            {hasSummary ? summary : "No summary extracted yet"}
-          </span>
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="max-h-[calc(100vh-2rem)] w-[40rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
-        collisionPadding={12}
-        side="right"
-      >
-        <div className="flex max-h-[calc(100vh-2rem)] flex-col">
-          <div className="border-border/70 border-b p-4">
-            <h3 className="truncate text-label text-popover-foreground">
-              {chapter.name}
-            </h3>
-            <p className="mt-1 text-caption text-muted-foreground">
-              Chapter {chapter.position} - {getChunkCountLabel(chunks.length)}
-            </p>
-          </div>
-
-          <div className="min-h-0 overflow-auto p-4">
-            <section>
-              <h4 className="text-label-sm text-popover-foreground">Summary</h4>
-              <p
-                className={cn(
-                  "mt-2 whitespace-pre-line text-body leading-6",
-                  hasSummary
-                    ? "text-popover-foreground/90"
-                    : "text-muted-foreground",
-                )}
-              >
-                {hasSummary ? summary : "No summary extracted yet."}
-              </p>
-            </section>
-
-            <section className="mt-5">
-              <h4 className="text-label-sm text-popover-foreground">
-                Extracted chunks
-              </h4>
-
-              {hasChunks ? (
-                <ol className="mt-2 grid gap-3">
-                  {chunks.map((chunk, index) => (
-                    <li
-                      className="rounded-md border border-border/60 bg-background/45 p-3"
-                      key={chunk.id}
-                    >
-                      <div className="mb-2 flex items-center justify-between gap-2 text-caption text-muted-foreground">
-                        <span>Chunk {index + 1}</span>
-                        <span className="shrink-0">
-                          {chunk.startPosition}-{chunk.endPosition}
-                        </span>
-                      </div>
-                      <p className="whitespace-pre-line font-content text-body leading-6 text-popover-foreground/90">
-                        {chunk.text}
-                      </p>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-2 rounded-md border border-dashed border-border/70 px-3 py-6 text-center text-body text-muted-foreground">
-                  No chunks extracted yet.
-                </p>
-              )}
-            </section>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function getChunkCountLabel(chunkCount: number) {
-  if (chunkCount === 1) {
-    return "1 chunk";
-  }
-
-  return `${chunkCount} chunks`;
 }
 
 type StyleContextSectionProps = {
