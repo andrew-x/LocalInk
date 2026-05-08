@@ -1,3 +1,30 @@
+CREATE TABLE `chapters` (
+	`id` text PRIMARY KEY NOT NULL,
+	`story_id` text NOT NULL,
+	`name` text NOT NULL,
+	`position` integer NOT NULL,
+	`content` text NOT NULL,
+	`updated_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
+	FOREIGN KEY (`story_id`) REFERENCES `stories`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `chapters_story_position_idx` ON `chapters` (`story_id`,`position`);--> statement-breakpoint
+CREATE TABLE `metadata` (
+	`key` text PRIMARY KEY NOT NULL,
+	`value` text NOT NULL,
+	`updated_at` text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `stories` (
+	`id` text PRIMARY KEY NOT NULL,
+	`name` text NOT NULL,
+	`description` text NOT NULL,
+	`characters` text DEFAULT '[]' NOT NULL,
+	`style` text DEFAULT '' NOT NULL,
+	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
+	`updated_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `story_chat_messages` (
 	`id` text PRIMARY KEY NOT NULL,
 	`story_id` text NOT NULL,
@@ -20,7 +47,7 @@ CREATE TABLE `story_chat_messages` (
       )
 );
 --> statement-breakpoint
-CREATE INDEX `story_chat_messages_chat_position_idx` ON `story_chat_messages` (`chat_id`,`position`);--> statement-breakpoint
+CREATE UNIQUE INDEX `story_chat_messages_chat_position_unique` ON `story_chat_messages` (`chat_id`,`position`);--> statement-breakpoint
 CREATE INDEX `story_chat_messages_generation_idx` ON `story_chat_messages` (`generation_id`);--> statement-breakpoint
 CREATE INDEX `story_chat_messages_story_idx` ON `story_chat_messages` (`story_id`);--> statement-breakpoint
 CREATE TABLE `story_chats` (

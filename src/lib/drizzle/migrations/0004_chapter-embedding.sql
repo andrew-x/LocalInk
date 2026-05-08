@@ -1,1 +1,0 @@
-ALTER TABLE `chapters` ADD `embedding` blob;

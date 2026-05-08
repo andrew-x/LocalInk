@@ -5,78 +5,8 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1777945299819,
-      "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1777975904283,
-      "tag": "0001_initial-data-model",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1777981616150,
-      "tag": "0002_story-context-fields",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1778025222359,
-      "tag": "0003_chapter-hash",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1778025436941,
-      "tag": "0004_chapter-embedding",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1778025738406,
-      "tag": "0005_chunks",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1778026147444,
-      "tag": "0006_sqlite-vec-chunk-embeddings",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1778027819186,
-      "tag": "0007_chapter-indexing",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1778028207686,
-      "tag": "0008_story-chats",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1778066381391,
-      "tag": "0009_rename-metadata-table",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1778157297524,
-      "tag": "0010_remove-indexing",
+      "when": 1778203593332,
+      "tag": "0000_wet_catseye",
       "breakpoints": true
     }
   ]
