@@ -11,8 +11,6 @@ const MAX_PRIOR_DRAFT_CHARS = 16_000;
 const OMITTED_CONTEXT_MARKER =
   "[Earlier and later context preserved; middle omitted to fit the model context.]";
 const DEFAULT_WRITER_INSTRUCTIONS = "Continue the story naturally.";
-const OPEN_ENDED_CONTINUATION_INSTRUCTION =
-  "Leave the passage open for the next generation: preserve forward motion, unresolved tension, or an actionable next moment unless the current writer instructions explicitly request an ending.";
 
 const HARD_OUTPUT_RULES = [
   "Return prose only.",
@@ -26,18 +24,36 @@ const PRECEDENCE_RULES = [
   "Insertion boundaries and immediate manuscript continuity",
   "Current generation or regeneration instructions",
   "Writer global system instructions",
-  "Generation scope discipline",
+  "Full-story continuity and current story state",
+  "Generation discipline",
   "Story style guide and established chapter voice",
   "Style and line discipline",
   "Craft defaults",
 ] as const;
 
-const GENERATION_SCOPE_RULES = [
-  "Follow the current beat instructions closely; do not invent extra beats, outcomes, reversals, endings, or aftermath beyond what the request asks for.",
-  "Never conclude the scene, chapter, story, or current dramatic beat on your own. Only write closure when the current writer instructions explicitly ask for closure.",
-  "Never end with foreshadowing, teaser lines, ominous setup, or promises of future consequences unless the current writer instructions explicitly request that move.",
-  "Do not write farther than the prompt asks. Stop as soon as the continuation has satisfied the required beat, even when the soft word target leaves unused room.",
-  "Avoid imagining possible endings or steering toward an ending; preserve the requested moment and hand control back to the writer.",
+const STORY_CONTINUITY_RULES = [
+  "Read the full manuscript as a chronological story timeline, not a flat list of facts. Track what has happened so far, what each relevant character knows, and how events have changed the story state by the insertion point.",
+  "Continue from the latest established state at the insertion point. When an early detail has been revised, resolved, contradicted, transformed, or made obsolete by later chapters, follow the later development unless the current instructions explicitly ask for memory, flashback, rumor, or mistaken belief.",
+  "Carry forward continuity that matters to the current moment: unresolved promises, injuries, locations, objects, resources, relationships, emotional states, plans, consequences, mysteries, and constraints.",
+  "Do not forget or reset established details, but do not treat outdated earlier information as still true when the manuscript has moved past it.",
+] as const;
+
+const DYNAMIC_REQUEST_RULES = [
+  "The system prompt contains static generation rules. Treat the user prompt as dynamic request data: task metadata, writer brief, insertion anchors, story metadata, style guide, character notes, manuscript chapters, prior draft text, and final insertion reminders.",
+  "Use dynamic request data in this order when details compete: immediate insertion anchors and final insertion data; current writer instructions and regeneration edit instructions; explicit story premise, character notes, and style guide; full story manuscript across chapters, especially the focused chapter around the insertion point.",
+  "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location.",
+  "Read the chapters in order to follow the full cause-and-effect flow, and prefer explicit style and character notes when they are more specific than diffuse manuscript cues.",
+  "When <PRIOR_DRAFT_TEXT> is present, it is editable material from a selected generated draft, not canon. Use it only as the draft to revise, and output full replacement prose.",
+  "Field value conventions: <GENERATION_MODE> is one of `first-generation`, `fresh-alternative`, `revise-prior-draft`. <INSERTION_MODE> is one of `append-to-focused-chapter-end`, `between-before-and-after-anchors`. <TARGET_WORD_COUNT> is a single integer word count.",
+] as const;
+
+const GENERATION_DISCIPLINE = [
+  "Write new prose for the insertion point in the focused chapter. Leave existing story context as is.",
+  "Follow the request's <INSERTION_MODE>: append at the focused chapter end when requested, otherwise write prose that fits between the before-text and after-text anchors and leads cleanly into the after-text without recap or contradiction.",
+  "Treat <TARGET_WORD_COUNT> as a soft target, usually within about 20 percent, unless the current writer or regeneration instructions explicitly ask for a different length.",
+  "Follow the current beat instructions closely. Do not invent extra beats, outcomes, reversals, endings, aftermath, foreshadowing, teaser lines, or ominous setup. Write closure or foreshadowing only when the writer instructions explicitly ask for that move.",
+  "Stop as soon as the continuation has satisfied the requested beat, even when the soft word target leaves unused room. Finish on a complete sentence and hand control back to the writer with forward motion or unresolved tension intact.",
+  "Output only the new prose for the insertion point or replacement draft. Skip recap, filler, ornate padding, transitions, explanations of choices, or descriptions of what changed.",
 ] as const;
 
 const CRAFT_DEFAULTS = [
@@ -46,7 +62,6 @@ const CRAFT_DEFAULTS = [
   "Keep characters driven by clear goals, pressure, authentic reactions, and distinct voices.",
   "Use subtext where it fits; let emotion surface through choices, physicality, dialogue, and implication.",
   "Write dialogue as natural edited speech: purposeful, character-specific, and shaped by tension rather than exposition.",
-  "Default to continuation, not closure: leave story, chapter, and scene arcs open unless the current instructions explicitly ask for an ending.",
 ] as const;
 
 const STYLE_AND_LINE_DISCIPLINE = [
@@ -85,9 +100,11 @@ export function buildStoryProseSystemPrompt(systemInstructions = ""): string {
         )
       : null,
     proseSection(
-      "Generation Scope Discipline",
-      GENERATION_SCOPE_RULES.join("\n"),
+      "Story Continuity Discipline",
+      STORY_CONTINUITY_RULES.join("\n"),
     ),
+    proseSection("Dynamic Request Use", DYNAMIC_REQUEST_RULES.join("\n")),
+    proseSection("Generation Discipline", GENERATION_DISCIPLINE.join("\n")),
     proseSection(
       "Style And Line Discipline",
       STYLE_AND_LINE_DISCIPLINE.join("\n"),
@@ -109,26 +126,28 @@ export function buildStoryProsePrompt(
   const styleSection = buildStyleGuideSection(request);
   const charactersSection = buildCharactersSection(request);
   const fullStorySection = buildFullStoryManuscriptSection(request);
+  const immediateInsertionAnchorSection =
+    buildImmediateInsertionAnchorSection(request);
+  const priorDraftSection = buildPriorDraftSection(request);
   const sections = [
     proseSection("Task Capsule", buildTaskCapsuleSection(request)),
     proseSection(
       "Current Writer Instructions",
-      buildCurrentWriterInstructionsSection(request),
+      buildActiveGenerationInstructionsXml(request),
     ),
-    proseSection(
-      "Immediate Insertion Anchor",
-      buildImmediateInsertionAnchorSection(request),
-    ),
-    proseSection("Context Priority", buildContextPrioritySection()),
+    immediateInsertionAnchorSection
+      ? proseSection(
+          "Immediate Insertion Anchor",
+          immediateInsertionAnchorSection,
+        )
+      : null,
     proseSection("Story", buildStorySection(request)),
     styleSection ? proseSection("Style Guide", styleSection) : null,
     charactersSection ? proseSection("Characters", charactersSection) : null,
     fullStorySection
       ? proseSection("Full Story Manuscript", fullStorySection)
       : null,
-    request.regeneration?.mode === "revise-prior-draft"
-      ? proseSection("Prior Draft", buildPriorDraftSection(request))
-      : null,
+    priorDraftSection ? proseSection("Prior Draft", priorDraftSection) : null,
     proseSection(
       "Final Generation Request",
       buildFinalGenerationRequest(request),
@@ -149,28 +168,12 @@ export function getStoryProseManuscriptContextCharCount(
 
 function buildTaskCapsuleSection(request: StoryProseGenerationRequest): string {
   return joinXmlFields([
-    xmlElement(
-      "TASK_GOAL",
-      `Write about ${request.approximateLength} words of new prose for the insertion point in the focused chapter.`,
-    ),
-    xmlElement("GENERATION_MODE", describeGenerationMode(request)),
+    xmlElement("TARGET_WORD_COUNT", String(request.approximateLength)),
     xmlElement(
       "INSERTION_MODE",
       request.insertion.atChapterEnd
-        ? "Append to the end of the focused chapter."
-        : "Write prose that fits between the before-text and after-text anchors.",
-    ),
-    xmlElement(
-      "OUTPUT_SCOPE",
-      "Do not rewrite existing story context. Return only the new prose for the insertion point or replacement draft.",
-    ),
-    xmlElement(
-      "LENGTH_TARGET",
-      `Treat the ${request.approximateLength}-word target as a real soft target, usually within about 20 percent, unless current instructions explicitly ask for a different length.`,
-    ),
-    xmlElement(
-      "OPEN_ENDED_CONTINUATION",
-      "Do not conclude the story, chapter, scene, or current dramatic beat unless the current writer instructions explicitly ask for that ending.",
+        ? "append-to-focused-chapter-end"
+        : "between-before-and-after-anchors",
     ),
   ]);
 }
@@ -187,41 +190,11 @@ function buildImmediateInsertionAnchorSection(
     MAX_IMMEDIATE_AFTER_ANCHOR_CHARS,
   );
 
-  return [
-    "Highest-priority manuscript continuity. The generated prose must attach cleanly after the tight before-text and, when after-text exists, lead into it without recap or contradiction.",
-    "",
-    buildInsertionAnchors({
-      afterText,
-      beforeText,
-      tagName: "INSERTION_ANCHORS",
-    }),
-  ].join("\n");
-}
-
-function buildContextPrioritySection(): string {
-  return [
-    "Use context in this order when details compete:",
-    "1. Immediate insertion anchor and final generation request.",
-    "2. Current writer instructions, including regeneration edit instructions when provided.",
-    "3. Explicit story premise, character notes, and style guide.",
-    "4. Full story manuscript across chapters, especially the focused chapter around the insertion point.",
-    "",
-    "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location.",
-    "",
-    "Use the chapter manuscript text as direct continuity, but prefer explicit style and character notes when they are more specific than diffuse manuscript cues.",
-  ].join("\n");
-}
-
-function buildCurrentWriterInstructionsSection(
-  request: StoryProseGenerationRequest,
-): string {
-  return joinXmlFields([
-    xmlElement(
-      "INSTRUCTION_AUTHORITY",
-      "High-priority creative instructions for this generation. Follow these over broad manuscript context, style defaults, and general craft defaults.",
-    ),
-    buildActiveGenerationInstructionsXml(request),
-  ]);
+  return buildInsertionAnchors({
+    afterText,
+    beforeText,
+    tagName: "INSERTION_ANCHORS",
+  });
 }
 
 function buildStorySection(request: StoryProseGenerationRequest): string {
@@ -279,11 +252,7 @@ function buildFullStoryManuscriptSection(
     return null;
   }
 
-  return [
-    "Full manuscript context ordered by chapter position. Treat this as direct continuity across the story.",
-    "",
-    chapterSections.join("\n\n"),
-  ].join("\n");
+  return chapterSections.join("\n\n");
 }
 
 function getStoryManuscriptChapters(
@@ -341,16 +310,20 @@ function buildPriorDraftSection(request: StoryProseGenerationRequest): string {
     return "";
   }
 
+  const priorDraftElement = optionalXmlTextElement(
+    "PRIOR_DRAFT_TEXT",
+    trimPromptSection(regeneration.priorDraft, MAX_PRIOR_DRAFT_CHARS),
+  );
+
+  if (!priorDraftElement) {
+    return "";
+  }
+
   return [
-    "Editable material from the selected generated draft. It is not canon. Output the full replacement prose, not a patch or explanation.",
+    "Editable material from the selected prior draft. Output full replacement prose, not a patch.",
     "",
-    optionalXmlTextElement(
-      "PRIOR_DRAFT_TEXT",
-      trimPromptSection(regeneration.priorDraft, MAX_PRIOR_DRAFT_CHARS),
-    ),
-  ]
-    .filter(isNonEmptyString)
-    .join("\n");
+    priorDraftElement,
+  ].join("\n");
 }
 
 function buildFinalGenerationRequest(
@@ -365,31 +338,12 @@ function buildFinalGenerationRequest(
     xmlElement(
       "INSERTION_MODE",
       request.insertion.atChapterEnd
-        ? "Append to the end of the focused chapter."
-        : "Write prose that fits at <INSERTION_POINT/> between the before-text and after-text.",
+        ? "append-to-focused-chapter-end"
+        : "between-before-and-after-anchors",
     ),
-    xmlElement(
-      "LENGTH_TARGET",
-      `About ${request.approximateLength} words, usually within about 20 percent, unless current writer or regeneration instructions explicitly ask for a different length.`,
-    ),
+    xmlElement("TARGET_WORD_COUNT", String(request.approximateLength)),
     buildActiveGenerationInstructionsXml(request),
     optionalXmlTextElement("CLOSING_BEFORE_INSERTION", closingBeforeInsertion),
-    xmlElement(
-      "CONTINUATION_POLICY",
-      [
-        OPEN_ENDED_CONTINUATION_INSTRUCTION,
-        "Do not force closure, wrap up the scene, summarize consequences, or make the passage feel like the end of a chapter or story unless asked.",
-      ].join("\n"),
-    ),
-    xmlElement(
-      "OUTPUT_DISCIPLINE",
-      [
-        "Return only the new prose.",
-        "Stop once the requested continuation has satisfied the current instructions, even if the result is shorter than the soft word target.",
-        "Do not pad with recap, filler, ornate description, or exposition. Do not cut off in the middle of a sentence or action.",
-        "Do not summarize previous context, announce transitions, explain your choices, or describe what changed.",
-      ].join("\n"),
-    ),
   ]);
 }
 
@@ -407,33 +361,15 @@ function buildActiveGenerationInstructionFields(
 ): string {
   const regeneration = request.regeneration;
   const fields: Array<string | null> = [
+    xmlElement("GENERATION_MODE", describeGenerationMode(request)),
     xmlTextElement("CREATIVE_BRIEF", getWriterInstructions(request)),
-    xmlElement(
-      "CONTINUATION_BIAS",
-      "Continue the manuscript one generation at a time. Leave room for the writer's next generation unless the brief explicitly asks for an ending.",
-    ),
   ];
-
-  if (regeneration?.mode === "fresh-alternative") {
-    fields.push(
-      xmlElement("REGENERATION_MODE", "Fresh alternative draft."),
-      xmlElement(
-        "PRIOR_DRAFT_POLICY",
-        "No prior draft is included or canonical. Use the same creative brief to produce a meaningfully different option.",
-      ),
-    );
-  }
 
   if (regeneration?.mode === "revise-prior-draft") {
     fields.push(
-      xmlElement("REGENERATION_MODE", "Revision of the selected prior draft."),
       optionalXmlTextElement(
         "REGENERATION_EDIT_INSTRUCTIONS",
         regeneration.editInstructions,
-      ),
-      xmlElement(
-        "PRIOR_DRAFT_POLICY",
-        "The prior draft is editable material, not canon. Use it only as the draft to revise, and output the full replacement prose only.",
       ),
     );
   }
@@ -530,14 +466,14 @@ function isNonEmptyString(value: string | null | undefined): value is string {
 
 function describeGenerationMode(request: StoryProseGenerationRequest): string {
   if (request.regeneration?.mode === "fresh-alternative") {
-    return "fresh alternative regeneration";
+    return "fresh-alternative";
   }
 
   if (request.regeneration?.mode === "revise-prior-draft") {
-    return "revision of the selected prior draft";
+    return "revise-prior-draft";
   }
 
-  return "first generation";
+  return "first-generation";
 }
 
 function getWriterInstructions(request: StoryProseGenerationRequest): string {

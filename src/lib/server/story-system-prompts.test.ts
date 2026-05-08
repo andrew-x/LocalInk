@@ -128,11 +128,37 @@ describe("story AI system prompts", () => {
     expect(prompt).toContain("Current generation or regeneration instructions");
     expect(prompt).toContain("Writer global system instructions");
     expect(prompt).toContain("immediate manuscript continuity");
-    expect(prompt).toContain("<GENERATION_SCOPE_DISCIPLINE>");
-    expect(prompt).toContain("Never end with foreshadowing");
+    expect(prompt).toContain("Full-story continuity and current story state");
+    expect(prompt).toContain("<STORY_CONTINUITY_DISCIPLINE>");
     expect(prompt).toContain(
-      "Stop as soon as the continuation has satisfied the required beat",
+      "Read the full manuscript as a chronological story timeline",
     );
+    expect(prompt).toContain("Continue from the latest established state");
+    expect(prompt).toContain("<DYNAMIC_REQUEST_USE>");
+    expect(prompt).toContain(
+      "The system prompt contains static generation rules",
+    );
+    expect(prompt).toContain("Use dynamic request data in this order");
+    expect(prompt).toContain(
+      "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location",
+    );
+    expect(prompt).toContain("Field value conventions");
+    expect(prompt).toContain("`first-generation`");
+    expect(prompt).toContain("<GENERATION_DISCIPLINE>");
+    expect(prompt).toContain("Leave existing story context as is");
+    expect(prompt).toContain(
+      "leads cleanly into the after-text without recap or contradiction",
+    );
+    expect(prompt).toContain("foreshadowing, teaser lines, or ominous setup");
+    expect(prompt).toContain(
+      "Stop as soon as the continuation has satisfied the requested beat",
+    );
+    expect(prompt).toContain(
+      "Output only the new prose for the insertion point",
+    );
+    expect(prompt).not.toContain("<GENERATION_SCOPE_DISCIPLINE>");
+    expect(prompt).not.toContain("<TASK_EXECUTION>");
+    expect(prompt).not.toContain("<FINAL_OUTPUT_DISCIPLINE>");
     expect(prompt).toContain("<STYLE_AND_LINE_DISCIPLINE>");
     expect(prompt).toContain(
       "Match the surrounding manuscript's tense, POV, person, language variety",
@@ -143,7 +169,7 @@ describe("story AI system prompts", () => {
     expect(prompt).toContain("Reduce hedging and weak uncertainty indicators");
     expect(prompt).toContain("<CRAFT_DEFAULTS>");
     expect(prompt).toContain("concrete action");
-    expect(prompt).toContain("Default to continuation, not closure");
+    expect(prompt).not.toContain("Default to continuation, not closure");
     expect(prompt).toContain("<MATURE_FICTION_DEFAULT>");
     expect(prompt).toContain("write directly and vividly");
   });
@@ -347,7 +373,6 @@ describe("story prose request prompt", () => {
       "TASK_CAPSULE",
       "CURRENT_WRITER_INSTRUCTIONS",
       "IMMEDIATE_INSERTION_ANCHOR",
-      "CONTEXT_PRIORITY",
       "STORY",
       "STYLE_GUIDE",
       "CHARACTERS",
@@ -357,13 +382,24 @@ describe("story prose request prompt", () => {
     expect(prompt).not.toContain("<PRIOR_DRAFT>");
     expect(prompt).not.toContain("<FOCUSED_CHAPTER>");
     expect(prompt).not.toContain("<REPEATED_INSERTION_ANCHORS>");
-    expect(getSection(prompt, "TASK_CAPSULE")).toContain("<TASK_GOAL>");
-    expect(getSection(prompt, "TASK_CAPSULE")).toContain("<INSERTION_MODE>");
-    expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
-      "<INSTRUCTION_AUTHORITY>",
+    expect(getSection(prompt, "TASK_CAPSULE")).toContain(
+      "<TARGET_WORD_COUNT>\n600\n</TARGET_WORD_COUNT>",
     );
+    expect(getSection(prompt, "TASK_CAPSULE")).toContain("<INSERTION_MODE>");
+    expect(getSection(prompt, "TASK_CAPSULE")).not.toContain(
+      "<GENERATION_MODE>",
+    );
+    expect(prompt).not.toContain("<CONTEXT_PRIORITY>");
+    expect(prompt).not.toContain("<INSTRUCTION_AUTHORITY>");
+    expect(prompt).not.toContain("<OUTPUT_DISCIPLINE>");
+    expect(prompt).not.toContain("<CONTINUATION_POLICY>");
+    expect(prompt).not.toContain("<REGENERATION_MODE>");
+    expect(prompt).not.toContain("Use dynamic request data in this order");
     expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
       "<ACTIVE_GENERATION_INSTRUCTIONS>",
+    );
+    expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
+      "<GENERATION_MODE>\nfirst-generation\n</GENERATION_MODE>",
     );
     expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
       "<CREATIVE_BRIEF>\nReveal the office secret through action, not exposition.\n</CREATIVE_BRIEF>",
@@ -402,43 +438,42 @@ describe("story prose request prompt", () => {
       "<CLOSING_BEFORE_INSERTION>\nElena touched the brass key.\n</CLOSING_BEFORE_INSERTION>",
     );
     expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
-      "<OUTPUT_DISCIPLINE>",
-    );
-    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
-      "Stop once the requested continuation has satisfied the current instructions",
-    );
-    expect(getSection(prompt, "TASK_CAPSULE")).toContain(
-      "Do not conclude the story, chapter, scene, or current dramatic beat",
-    );
-    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
-      "Leave the passage open for the next generation",
-    );
-    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
-      "Do not force closure",
+      "<TARGET_WORD_COUNT>\n600\n</TARGET_WORD_COUNT>",
     );
     expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).not.toContain(
       "<OUTPUT_FORMAT>",
     );
   });
 
-  test("states context hierarchy and full manuscript policy", async () => {
-    const { buildStoryProsePrompt } = await import("./story-prose-generation");
+  test("keeps static context policy in the system prompt", async () => {
+    const { buildStoryProsePrompt, buildStoryProseSystemPrompt } = await import(
+      "./story-prose-generation"
+    );
+    const systemPrompt = buildStoryProseSystemPrompt();
     const prompt = buildStoryProsePrompt(createProseRequest());
 
-    expect(getSection(prompt, "CONTEXT_PRIORITY")).toContain(
-      "Full story manuscript across chapters",
+    expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
+      "full story manuscript across chapters",
     );
-    expect(getSection(prompt, "CONTEXT_PRIORITY")).toContain(
-      "Explicit story premise, character notes, and style guide.",
+    expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
+      "story premise, character notes, and style guide",
     );
-    expect(getSection(prompt, "CONTEXT_PRIORITY")).toContain(
+    expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
       "prefer explicit style and character notes",
     );
-    expect(getSection(prompt, "CONTEXT_PRIORITY")).toContain(
+    expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
       "<INSERTION_POINT/> marks the exact insertion location",
+    );
+    expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
+      "Read the chapters in order to follow the full cause-and-effect flow",
+    );
+    expect(getSection(systemPrompt, "STORY_CONTINUITY_DISCIPLINE")).toContain(
+      "Continue from the latest established state at the insertion point",
     );
     const manuscript = getSection(prompt, "FULL_STORY_MANUSCRIPT");
 
+    expect(prompt).not.toContain("<CONTEXT_PRIORITY>");
+    expect(manuscript).not.toContain("later changes in the story state");
     expect(manuscript).toContain("<STORY_CHAPTER>");
     expect(manuscript).toContain("<TITLE>\nThe Signal Room\n</TITLE>");
     expect(manuscript).toContain(
@@ -618,13 +653,13 @@ describe("story prose request prompt", () => {
     );
 
     expect(getSection(prompt, "TASK_CAPSULE")).toContain(
-      "usually within about 20 percent",
+      "<TARGET_WORD_COUNT>\n600\n</TARGET_WORD_COUNT>",
     );
     expect(getSection(prompt, "TASK_CAPSULE")).toContain(
-      "<INSERTION_MODE>\nAppend to the end of the focused chapter.\n</INSERTION_MODE>",
+      "<INSERTION_MODE>\nappend-to-focused-chapter-end\n</INSERTION_MODE>",
     );
     expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
-      "<INSERTION_MODE>\nAppend to the end of the focused chapter.\n</INSERTION_MODE>",
+      "<INSERTION_MODE>\nappend-to-focused-chapter-end\n</INSERTION_MODE>",
     );
     expect(prompt).not.toContain("<CHAPTER_CONTINUITY_MAP>");
     expect(prompt).not.toContain("<AFTER_INSERTION>");
@@ -689,15 +724,17 @@ describe("story prose request prompt", () => {
       }),
     );
 
-    expect(getSection(prompt, "TASK_CAPSULE")).toContain(
-      "fresh alternative regeneration",
+    expect(getSection(prompt, "TASK_CAPSULE")).not.toContain(
+      "<GENERATION_MODE>",
     );
     expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
-      "No prior draft is included or canonical.",
+      "<GENERATION_MODE>\nfresh-alternative\n</GENERATION_MODE>",
     );
-    expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
-      "<REGENERATION_MODE>\nFresh alternative draft.\n</REGENERATION_MODE>",
+    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
+      "<GENERATION_MODE>\nfresh-alternative\n</GENERATION_MODE>",
     );
+    expect(prompt).not.toContain("<REGENERATION_MODE>");
+    expect(prompt).not.toContain("No prior draft is included or canonical.");
     expect(prompt).not.toContain("<PRIOR_DRAFT>");
   });
 
@@ -725,11 +762,18 @@ describe("story prose request prompt", () => {
     expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
       "<REGENERATION_EDIT_INSTRUCTIONS>\nMake the exchange colder and more restrained.\n</REGENERATION_EDIT_INSTRUCTIONS>",
     );
+    expect(getSection(prompt, "CURRENT_WRITER_INSTRUCTIONS")).toContain(
+      "<GENERATION_MODE>\nrevise-prior-draft\n</GENERATION_MODE>",
+    );
+    expect(prompt).not.toContain("<REGENERATION_MODE>");
     expect(getSection(prompt, "PRIOR_DRAFT")).toContain(
       "Elena smiled and explained everything at once.",
     );
-    expect(getSection(prompt, "PRIOR_DRAFT")).toContain("not canon");
-    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
+    expect(getSection(prompt, "PRIOR_DRAFT")).toContain(
+      "Editable material from the selected prior draft. Output full replacement prose, not a patch.",
+    );
+    expect(getSection(prompt, "PRIOR_DRAFT")).not.toContain("not canon");
+    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).not.toContain(
       "output the full replacement prose only",
     );
   });
