@@ -5,6 +5,7 @@ Recurring sources for implementation decisions that depend on current framework,
 | Source | URL or Path | Why It Matters | Last Checked |
 | --- | --- | --- | --- |
 | Codex AGENTS.md guide | https://developers.openai.com/codex/guides/agents-md | Project instruction discovery, precedence, and verification. | 2026-05-05 |
+| Codex config basics | https://developers.openai.com/codex/config-basic#feature-flags | Config precedence, project `.codex/config.toml` loading, and feature flag placement. | 2026-05-08 |
 | Codex hooks command runner source | https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/command_runner.rs | Hook command execution cwd, shell behavior, stdin, stdout, and timeout behavior. | 2026-05-05 |
 | Codex hooks discovery source | https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/discovery.rs | Project `.codex/hooks.json` discovery and config-layer hook loading behavior. | 2026-05-05 |
 | Codex llms.txt | https://developers.openai.com/codex/llms.txt | LLM-readable index for current Codex documentation. | 2026-05-05 |

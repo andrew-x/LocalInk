@@ -76,6 +76,15 @@ type ActionFailureResult = {
   };
 };
 
+type LatestMessageScrollMode = "force" | "follow";
+
+type LatestMessageScrollRequest = {
+  count: number;
+  mode: LatestMessageScrollMode;
+};
+
+const LATEST_MESSAGE_SCROLL_THRESHOLD_PX = 48;
+
 export function StoryEditorChatPane({
   isOpen,
   onToggleOpen,
@@ -89,7 +98,8 @@ export function StoryEditorChatPane({
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [scrollRequestCount, setScrollRequestCount] = useState(0);
+  const [scrollRequest, setScrollRequest] =
+    useState<LatestMessageScrollRequest>({ count: 0, mode: "force" });
   const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
   const [dismissedSlashCommandPrefix, setDismissedSlashCommandPrefix] =
     useState<string | null>(null);
@@ -98,7 +108,9 @@ export function StoryEditorChatPane({
   const saveAssistantOutputAction = useAction(saveStoryChatAssistantOutput);
   const slashCommandListId = useId();
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesScrollPaneRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const shouldFollowLatestMessageRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeChatId = activeChat?.id ?? null;
   const latestAssistantMessageId = getLatestAssistantMessageId(messages);
@@ -124,15 +136,67 @@ export function StoryEditorChatPane({
       dismissedSlashCommandPrefix !== slashCommandPrefix,
   );
 
-  const scrollToLatestMessage = useCallback(() => {
-    window.requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ block: "end" });
-    });
+  const isScrolledToLatestMessage = useCallback(() => {
+    const scrollPane = messagesScrollPaneRef.current;
+
+    if (!scrollPane) {
+      return true;
+    }
+
+    return (
+      scrollPane.scrollHeight -
+        scrollPane.scrollTop -
+        scrollPane.clientHeight <=
+      LATEST_MESSAGE_SCROLL_THRESHOLD_PX
+    );
   }, []);
 
-  const requestScrollToLatestMessage = useCallback(() => {
-    setScrollRequestCount((currentCount) => currentCount + 1);
-  }, []);
+  const scrollToLatestMessage = useCallback(
+    (mode: LatestMessageScrollMode = "force") => {
+      window.requestAnimationFrame(() => {
+        if (mode === "follow" && !shouldFollowLatestMessageRef.current) {
+          return;
+        }
+
+        const scrollPane = messagesScrollPaneRef.current;
+
+        if (scrollPane) {
+          scrollPane.scrollTop = scrollPane.scrollHeight;
+        } else {
+          messagesEndRef.current?.scrollIntoView({ block: "end" });
+        }
+
+        shouldFollowLatestMessageRef.current = true;
+      });
+    },
+    [],
+  );
+
+  const requestScrollToLatestMessage = useCallback(
+    (mode: LatestMessageScrollMode = "force") => {
+      if (mode === "follow" && !shouldFollowLatestMessageRef.current) {
+        return;
+      }
+
+      setScrollRequest((currentRequest) => ({
+        count: currentRequest.count + 1,
+        mode,
+      }));
+    },
+    [],
+  );
+
+  const handleMessagesScroll = useCallback(() => {
+    shouldFollowLatestMessageRef.current = isScrolledToLatestMessage();
+  }, [isScrolledToLatestMessage]);
+
+  const requestFollowedScrollToLatestMessage = useCallback(() => {
+    requestScrollToLatestMessage("follow");
+  }, [requestScrollToLatestMessage]);
+
+  const requestForcedScrollToLatestMessage = useCallback(() => {
+    requestScrollToLatestMessage();
+  }, [requestScrollToLatestMessage]);
 
   const refreshChats = useCallback(async () => {
     setIsLoadingChats(true);
@@ -150,13 +214,13 @@ export function StoryEditorChatPane({
     setActiveChat(null);
     setMessages([]);
     setDraftContent("");
-    requestScrollToLatestMessage();
+    requestForcedScrollToLatestMessage();
     void refreshChats();
 
     return () => {
       abortControllerRef.current?.abort();
     };
-  }, [refreshChats, requestScrollToLatestMessage]);
+  }, [refreshChats, requestForcedScrollToLatestMessage]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -167,12 +231,19 @@ export function StoryEditorChatPane({
   }, [isOpen, scrollToLatestMessage]);
 
   useEffect(() => {
-    if (!isOpen || scrollRequestCount === 0) {
+    if (!isOpen || scrollRequest.count === 0) {
       return;
     }
 
-    scrollToLatestMessage();
-  }, [isOpen, scrollRequestCount, scrollToLatestMessage]);
+    if (
+      scrollRequest.mode === "follow" &&
+      !shouldFollowLatestMessageRef.current
+    ) {
+      return;
+    }
+
+    scrollToLatestMessage(scrollRequest.mode);
+  }, [isOpen, scrollRequest.count, scrollRequest.mode, scrollToLatestMessage]);
 
   useEffect(() => {
     if (activeSlashCommandIndex >= slashCommandMatches.length) {
@@ -195,7 +266,7 @@ export function StoryEditorChatPane({
     setMessages([]);
     setDraftContent("");
     setIsHistoryOpen(false);
-    requestScrollToLatestMessage();
+    requestForcedScrollToLatestMessage();
   }
 
   async function handleLoadChat(chatId: string) {
@@ -217,7 +288,7 @@ export function StoryEditorChatPane({
       setMessages(chat.messages);
       setDraftContent("");
       setIsHistoryOpen(false);
-      requestScrollToLatestMessage();
+      requestForcedScrollToLatestMessage();
     } catch {
       toast.error("The chat could not be loaded.");
     } finally {
@@ -279,7 +350,7 @@ export function StoryEditorChatPane({
     setActiveChat(generation.chat);
     setMessages(generation.messages);
     upsertChat(generation.chat);
-    requestScrollToLatestMessage();
+    requestFollowedScrollToLatestMessage();
   }
 
   async function streamAssistantReply(generation: PreparedStoryChatGeneration) {
@@ -296,7 +367,7 @@ export function StoryEditorChatPane({
     abortControllerRef.current?.abort();
     abortControllerRef.current = controller;
     setIsStreaming(true);
-    requestScrollToLatestMessage();
+    requestFollowedScrollToLatestMessage();
     setMessages((currentMessages) => {
       if (replaceAssistantMessageId) {
         return currentMessages.map((message) =>
@@ -360,7 +431,7 @@ export function StoryEditorChatPane({
         return;
       }
 
-      requestScrollToLatestMessage();
+      requestFollowedScrollToLatestMessage();
       setMessages((currentMessages) =>
         replaceAssistantMessageId
           ? currentMessages.map((message) =>
@@ -419,7 +490,7 @@ export function StoryEditorChatPane({
     const updatedAt = day().toISOString();
     const streamStatus = content.length > 0 ? "streaming" : "waiting";
 
-    requestScrollToLatestMessage();
+    requestFollowedScrollToLatestMessage();
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
         message.id === messageId
@@ -622,7 +693,11 @@ export function StoryEditorChatPane({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-3 py-4">
+          <div
+            className="min-h-0 flex-1 overflow-auto px-3 py-4"
+            onScroll={handleMessagesScroll}
+            ref={messagesScrollPaneRef}
+          >
             {messages.length ? (
               <ol className="grid gap-4">
                 {messages.map((message) => (
@@ -677,7 +752,7 @@ export function StoryEditorChatPane({
                     aria-expanded={isSlashCommandMenuOpen}
                     aria-haspopup="listbox"
                     aria-label="Story chat message"
-                    className="max-h-32 min-h-16 resize-none px-2.5 py-1.5 text-label-sm"
+                    className="max-h-48 min-h-24 resize-none px-2.5 py-1.5 text-label-sm"
                     disabled={isBusy}
                     maxLength={4000}
                     onChange={(event) =>

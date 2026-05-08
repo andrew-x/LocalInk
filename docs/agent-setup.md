@@ -19,11 +19,13 @@ This project keeps Codex setup project-bound. No user-level Codex files are requ
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
+multi_agent = true
 
 [agents]
-max_threads = 6
-max_depth = 1
+max_threads = 12
+max_depth = 3
+job_max_runtime_seconds = 3600
 ```
 
 This enables project-bound Codex hooks and favors broad first-level delegation while avoiding deep recursive subagent chains.
@@ -57,9 +59,10 @@ The setup is self-improving: when a recurring agent/setup issue appears, suggest
 
 ## Current Vendor References
 
-Checked on 2026-05-05:
+Checked on 2026-05-05 unless noted:
 
 - Codex AGENTS.md discovery: https://developers.openai.com/codex/guides/agents-md
+- Codex config basics and feature flags: https://developers.openai.com/codex/config-basic#feature-flags (checked 2026-05-08)
 - Codex skills: https://developers.openai.com/codex/skills
 - Codex subagents: https://developers.openai.com/codex/subagents
 - Codex hooks discovery source: https://github.com/openai/codex/blob/main/codex-rs/hooks/src/engine/discovery.rs
