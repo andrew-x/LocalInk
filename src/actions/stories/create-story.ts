@@ -7,6 +7,7 @@ import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { stories } from "@/lib/drizzle/schema";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
+import { normalizeStoryLocations } from "@/lib/server/story-locations";
 import { generateId } from "@/lib/util";
 
 import { createStoryActionSchema } from "./_schemas";
@@ -22,6 +23,7 @@ export const createStory = publicActionClient
       name: parsedInput.name,
       description: parsedInput.description,
       characters: normalizeStoryCharacters(parsedInput.characters ?? []),
+      locations: normalizeStoryLocations(parsedInput.locations ?? []),
       style: parsedInput.style ?? "",
       createdAt: now,
       updatedAt: now,

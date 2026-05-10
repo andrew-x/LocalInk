@@ -10,6 +10,8 @@ export function buildStoryChatSlashCommandPrompt(
       return buildStyleGuideCommandPrompt(parsedCommand);
     case "character":
       return buildCharacterCommandPrompt(parsedCommand);
+    case "location":
+      return buildLocationCommandPrompt(parsedCommand);
   }
 }
 
@@ -56,7 +58,7 @@ function buildStyleGuideCommandPrompt(
       commandTextElement(
         "SOURCE_DISCIPLINE",
         [
-          "Use the visible conversation plus hidden style and character notes as source material.",
+          "Use the visible conversation plus hidden style, character, and location notes as source material.",
           "Do not invent story canon, plot events, relationship facts, or manuscript details not present in that context.",
           "When context is thin, produce broadly usable style guidance instead of fabricated story specifics.",
           "Apply compatible extra instructions over the default task and focus areas.",
@@ -111,7 +113,60 @@ function buildCharacterCommandPrompt(
       commandTextElement(
         "SOURCE_DISCIPLINE",
         [
-          "Use the visible conversation plus hidden style and character notes as source material.",
+          "Use the visible conversation plus hidden style, character, and location notes as source material.",
+          "Do not invent story canon, plot events, relationship facts, or manuscript details not present in that context.",
+          "When context is thin, keep claims conditional and craft-focused instead of fabricating specifics.",
+          "Apply compatible extra instructions over the default task and focus areas.",
+        ].join("\n"),
+      ),
+    ]),
+  );
+}
+
+function buildLocationCommandPrompt(
+  parsedCommand: ParsedStoryChatSlashCommand,
+): string {
+  return commandElement(
+    "LOCATION_DESCRIPTION_COMMAND",
+    joinCommandFields([
+      commandTextElement("VISIBLE_USER_MESSAGE", parsedCommand.rawContent),
+      optionalCommandTextElement(
+        "USER_EXTRA_INSTRUCTIONS",
+        parsedCommand.extraInstructions,
+      ),
+      commandTextElement(
+        "OUTPUT_CONTRACT",
+        [
+          "Return only one paste-ready location description.",
+          "Do not add greetings, summaries, caveats, command explanations, or introductory lines.",
+          "Do not mention the slash command, XML sections, hidden context, snapshots, or implementation details.",
+          "Use plain text with concise labels or short paragraphs when useful.",
+        ].join("\n"),
+      ),
+      commandTextElement(
+        "DEFAULT_TASK",
+        [
+          "Create a location description the writer can paste into a location notes field.",
+          "If the writer names or describes a place, build around those details.",
+          "If no target location is clear, create a compact reusable location-description frame without inventing a canon place name or plot role.",
+          "Prefer playable scene guidance over encyclopedia facts.",
+        ].join("\n"),
+      ),
+      commandTextElement(
+        "FOCUS_AREAS",
+        [
+          "Physical layout, scale, boundaries, entrances, exits, and movement paths.",
+          "Sensory identity: light, sound, smell, texture, temperature, weather, and atmosphere.",
+          "Social function, ownership, power dynamics, public/private zones, and who belongs there.",
+          "Rules, hazards, routines, resources, constraints, and practical logistics.",
+          "History, secrets, visible scars, contradictions, and what the place reveals under pressure.",
+          "Scene-use guidance for blocking, tension, discovery, conflict, intimacy, and escalation.",
+        ].join("\n"),
+      ),
+      commandTextElement(
+        "SOURCE_DISCIPLINE",
+        [
+          "Use the visible conversation plus hidden style, character, and location notes as source material.",
           "Do not invent story canon, plot events, relationship facts, or manuscript details not present in that context.",
           "When context is thin, keep claims conditional and craft-focused instead of fabricating specifics.",
           "Apply compatible extra instructions over the default task and focus areas.",

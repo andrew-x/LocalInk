@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ceb82b2f-e98e-4cbb-866e-4b09644b25fb",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "cb4da2ec-37e5-4d72-a907-d516062d4dc0",
+  "prevId": "ceb82b2f-e98e-4cbb-866e-4b09644b25fb",
   "tables": {
     "chapters": {
       "name": "chapters",
@@ -130,6 +130,14 @@
         },
         "characters": {
           "name": "characters",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "locations": {
+          "name": "locations",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

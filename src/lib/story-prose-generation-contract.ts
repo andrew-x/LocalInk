@@ -8,6 +8,12 @@ const storyProseCharacterSchema = z.object({
   description: z.string().trim(),
 });
 
+const storyProseLocationSchema = z.object({
+  id: z.string().trim().max(128).optional(),
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim(),
+});
+
 const storyProseStorySchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1).max(120),
@@ -36,6 +42,7 @@ export const storyProseGenerationRequestSchema = z.object({
   story: storyProseStorySchema,
   style: z.string(),
   characters: z.array(storyProseCharacterSchema).max(100),
+  locations: z.array(storyProseLocationSchema).max(100),
   chapters: z.array(storyProseChapterSchema).max(500),
   focusedChapter: storyProseChapterSchema,
   insertion: z.object({

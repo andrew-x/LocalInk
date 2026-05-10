@@ -23,6 +23,7 @@ type StoryEditorContentPaneProps = {
   characters: StoryContext["characters"];
   focusedChapterId: string | null;
   isCreatingChapter: boolean;
+  locations: StoryContext["locations"];
   onAddChapter: () => void;
   onChapterDeleted: (chapterId: string, updatedAt: string) => void;
   onChapterFocus: (chapterId: string) => void;
@@ -37,6 +38,7 @@ export function StoryEditorContentPane({
   characters,
   focusedChapterId,
   isCreatingChapter,
+  locations,
   onAddChapter,
   onChapterDeleted,
   onChapterFocus,
@@ -317,6 +319,7 @@ export function StoryEditorContentPane({
           chapters={chapters}
           focusedChapterId={focusedChapterId}
           getAiDraftHandle={getAiDraftHandle}
+          locations={locations}
           onDraftStreamUpdate={handleDraftStreamUpdate}
           story={story}
           style={style}

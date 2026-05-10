@@ -8,6 +8,13 @@
       "when": 1778203593332,
       "tag": "0000_wet_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1778376848536,
+      "tag": "0001_story-locations",
+      "breakpoints": true
     }
   ]
 }

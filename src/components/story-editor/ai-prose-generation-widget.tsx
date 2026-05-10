@@ -46,6 +46,7 @@ type AiProseGenerationWidgetProps = {
   chapters: StoryChapterItem[];
   focusedChapterId: string | null;
   getAiDraftHandle: (chapterId: string) => ChapterAiDraftHandle | null;
+  locations: StoryContext["locations"];
   onDraftStreamUpdate: (
     draftId: string,
     options?: { resetFollow?: boolean },
@@ -62,6 +63,7 @@ export function AiProseGenerationWidget({
   chapters,
   focusedChapterId,
   getAiDraftHandle,
+  locations,
   onDraftStreamUpdate,
   story,
   style,
@@ -276,6 +278,7 @@ export function AiProseGenerationWidget({
       characters,
       chapters,
       focusedChapter,
+      locations,
       snapshot,
       story,
       style,
@@ -451,6 +454,7 @@ function buildContextBase({
   characters,
   chapters,
   focusedChapter,
+  locations,
   snapshot,
   story,
   style,
@@ -458,6 +462,7 @@ function buildContextBase({
   characters: StoryContext["characters"];
   chapters: StoryChapterItem[];
   focusedChapter: StoryChapterItem;
+  locations: StoryContext["locations"];
   snapshot: ChapterAiDraftSnapshot;
   story: StoryIdentity;
   style: string;
@@ -466,6 +471,7 @@ function buildContextBase({
     story,
     style,
     characters,
+    locations,
     focusedChapter: toChapterContext(focusedChapter, snapshot.content),
     chapters: chapters.map((chapter) =>
       toChapterContext(

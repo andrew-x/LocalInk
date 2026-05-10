@@ -24,6 +24,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
   const [chapters, setChapters] = useState(story.chapters);
   const [storyContext, setStoryContext] = useState<StoryContext>({
     characters: story.characters,
+    locations: story.locations,
     style: story.style,
   });
   const [activeChapterId, setActiveChapterId] = useState<string | null>(
@@ -48,6 +49,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
     setChapters(story.chapters);
     setStoryContext({
       characters: story.characters,
+      locations: story.locations,
       style: story.style,
     });
     setActiveChapterId((currentChapterId) =>
@@ -56,12 +58,13 @@ export function StoryEditor({ story }: StoryEditorProps) {
         ? currentChapterId
         : (story.chapters[0]?.id ?? null),
     );
-  }, [story.chapters, story.characters, story.style]);
+  }, [story.chapters, story.characters, story.locations, story.style]);
 
   const handleStoryContextSaved = useCallback(
     (context: StoryContext & { updatedAt: string }) => {
       setStoryContext({
         characters: context.characters,
+        locations: context.locations,
         style: context.style,
       });
     },
@@ -153,6 +156,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
       <StoryEditorContextPane
         characters={storyContext.characters}
         isOpen={isContextOpen}
+        locations={storyContext.locations}
         onContextSaved={handleStoryContextSaved}
         onToggleOpen={() => setIsContextOpen((isOpen) => !isOpen)}
         story={{
@@ -169,6 +173,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
         characters={storyContext.characters}
         focusedChapterId={focusedChapter?.id ?? null}
         isCreatingChapter={createChapterAction.isPending}
+        locations={storyContext.locations}
         onAddChapter={handleAddChapter}
         onChapterDeleted={handleChapterDeleted}
         onChapterFocus={setActiveChapterId}

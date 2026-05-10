@@ -16,6 +16,12 @@ export type StoryCharacter = {
   description: string;
 };
 
+export type StoryLocation = {
+  id: string;
+  name: string;
+  description: string;
+};
+
 export type StoryChatMessageRole = "system" | "user" | "assistant";
 
 export const metadata = sqliteTable("metadata", {
@@ -30,6 +36,10 @@ export const stories = sqliteTable("stories", {
   description: text("description").notNull(),
   characters: text("characters", { mode: "json" })
     .$type<StoryCharacter[]>()
+    .notNull()
+    .default(sql`'[]'`),
+  locations: text("locations", { mode: "json" })
+    .$type<StoryLocation[]>()
     .notNull()
     .default(sql`'[]'`),
   style: text("style").notNull().default(""),

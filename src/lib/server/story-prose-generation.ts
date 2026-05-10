@@ -26,7 +26,7 @@ const PRECEDENCE_RULES = [
   "Writer global system instructions",
   "Full-story continuity and current story state",
   "Generation discipline",
-  "Story style guide and established chapter voice",
+  "Story style guide, character/location notes, and established chapter voice",
   "Style and line discipline",
   "Craft defaults",
 ] as const;
@@ -39,10 +39,10 @@ const STORY_CONTINUITY_RULES = [
 ] as const;
 
 const DYNAMIC_REQUEST_RULES = [
-  "The system prompt contains static generation rules. Treat the user prompt as dynamic request data: task metadata, writer brief, insertion anchors, story metadata, style guide, character notes, manuscript chapters, prior draft text, and final insertion reminders.",
-  "Use dynamic request data in this order when details compete: immediate insertion anchors and final insertion data; current writer instructions and regeneration edit instructions; explicit story premise, character notes, and style guide; full story manuscript across chapters, especially the focused chapter around the insertion point.",
+  "The system prompt contains static generation rules. Treat the user prompt as dynamic request data: task metadata, writer brief, insertion anchors, story metadata, style guide, character notes, location notes, manuscript chapters, prior draft text, and final insertion reminders.",
+  "Use dynamic request data in this order when details compete: immediate insertion anchors and final insertion data; current writer instructions and regeneration edit instructions; full story manuscript across chapters, especially the focused chapter around the insertion point; explicit story premise, character notes, location notes, and style guide as supporting defaults when they do not contradict current manuscript state.",
   "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location.",
-  "Read the chapters in order to follow the full cause-and-effect flow, and prefer explicit style and character notes when they are more specific than diffuse manuscript cues.",
+  "Read the chapters in order to follow the full cause-and-effect flow. For canon and continuity, prefer the current manuscript state over notes; for voice, description style, and reusable craft guidance, prefer explicit style, character, and location notes when they are more specific than diffuse manuscript cues.",
   "When <PRIOR_DRAFT_TEXT> is present, it is editable material from a selected generated draft, not canon. Use it only as the draft to revise, and output full replacement prose.",
   "Field value conventions: <GENERATION_MODE> is one of `first-generation`, `fresh-alternative`, `revise-prior-draft`. <INSERTION_MODE> is one of `append-to-focused-chapter-end`, `between-before-and-after-anchors`. <TARGET_WORD_COUNT> is a single integer word count.",
 ] as const;
@@ -125,6 +125,7 @@ export function buildStoryProsePrompt(
 ): string {
   const styleSection = buildStyleGuideSection(request);
   const charactersSection = buildCharactersSection(request);
+  const locationsSection = buildLocationsSection(request);
   const fullStorySection = buildFullStoryManuscriptSection(request);
   const immediateInsertionAnchorSection =
     buildImmediateInsertionAnchorSection(request);
@@ -144,6 +145,7 @@ export function buildStoryProsePrompt(
     proseSection("Story", buildStorySection(request)),
     styleSection ? proseSection("Style Guide", styleSection) : null,
     charactersSection ? proseSection("Characters", charactersSection) : null,
+    locationsSection ? proseSection("Locations", locationsSection) : null,
     fullStorySection
       ? proseSection("Full Story Manuscript", fullStorySection)
       : null,
@@ -233,6 +235,28 @@ function buildCharactersSection(
   }
 
   return xmlElement("CHARACTER_NOTES", characterSections.join("\n"));
+}
+
+function buildLocationsSection(
+  request: StoryProseGenerationRequest,
+): string | null {
+  const locationSections = request.locations
+    .map((location) =>
+      xmlElement(
+        "LOCATION",
+        joinXmlFields([
+          xmlTextElement("NAME", location.name),
+          optionalXmlTextElement("DESCRIPTION", location.description),
+        ]),
+      ),
+    )
+    .filter(isNonEmptyString);
+
+  if (!locationSections.length) {
+    return null;
+  }
+
+  return xmlElement("LOCATION_NOTES", locationSections.join("\n"));
 }
 
 function buildFullStoryManuscriptSection(

@@ -3,6 +3,7 @@
 import {
   Copy,
   History,
+  MapPin,
   MessageSquare,
   PenLine,
   Plus,
@@ -880,6 +881,8 @@ function SlashCommandIcon({
       return <PenLine aria-hidden="true" className="size-3.5" />;
     case "character":
       return <UserRound aria-hidden="true" className="size-3.5" />;
+    case "location":
+      return <MapPin aria-hidden="true" className="size-3.5" />;
   }
 }
 

@@ -1,4 +1,4 @@
-import type { StoryCharacter } from "@/lib/drizzle/schema";
+import type { StoryCharacter, StoryLocation } from "@/lib/drizzle/schema";
 
 export type StoryListItem = {
   id: string;
@@ -9,6 +9,7 @@ export type StoryListItem = {
 
 export type StoryContext = {
   characters: StoryCharacter[];
+  locations: StoryLocation[];
   style: string;
 };
 

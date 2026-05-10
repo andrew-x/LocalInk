@@ -11,6 +11,12 @@ export const STORY_CHAT_SLASH_COMMANDS = [
     title: "Character",
     token: "/character",
   },
+  {
+    description: "Draft a paste-ready location description",
+    name: "location",
+    title: "Location",
+    token: "/location",
+  },
 ] as const;
 
 export type StoryChatSlashCommandMetadata =

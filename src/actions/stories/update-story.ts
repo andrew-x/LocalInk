@@ -9,6 +9,7 @@ import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import { stories } from "@/lib/drizzle/schema";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
+import { normalizeStoryLocations } from "@/lib/server/story-locations";
 
 import { updateStoryActionSchema } from "./_schemas";
 import type { StoryUpdateResult } from "./_types";
@@ -30,6 +31,10 @@ export const updateStory = publicActionClient
       );
     }
 
+    if (parsedInput.locations !== undefined) {
+      storyUpdates.locations = normalizeStoryLocations(parsedInput.locations);
+    }
+
     if (parsedInput.style !== undefined) {
       storyUpdates.style = parsedInput.style;
     }
@@ -43,6 +48,7 @@ export const updateStory = publicActionClient
         name: stories.name,
         description: stories.description,
         characters: stories.characters,
+        locations: stories.locations,
         style: stories.style,
         updatedAt: stories.updatedAt,
       });
@@ -57,5 +63,6 @@ export const updateStory = publicActionClient
     return {
       ...story,
       characters: normalizeStoryCharacters(story.characters),
+      locations: normalizeStoryLocations(story.locations),
     };
   });

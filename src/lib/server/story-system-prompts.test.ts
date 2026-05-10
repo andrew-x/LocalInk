@@ -176,7 +176,7 @@ describe("story AI system prompts", () => {
 });
 
 describe("story chat context prompt", () => {
-  test("includes style and character notes while excluding story content", async () => {
+  test("includes style, character, and location notes while excluding story content", async () => {
     const { buildStoryChatContextSnapshotContent } = await import(
       "./story-chat"
     );
@@ -188,6 +188,14 @@ describe("story chat context prompt", () => {
           name: "Elena <Vale>",
         },
       ],
+      locations: [
+        {
+          description:
+            "A sealed platform with a humming <signal box> & old rain.",
+          id: "location-1",
+          name: "Station <Nine>",
+        },
+      ],
       style: "Close third person, <spare> & tense.",
     });
 
@@ -195,6 +203,7 @@ describe("story chat context prompt", () => {
       "CONTEXT_BOUNDARY",
       "STYLE_GUIDE",
       "CHARACTERS",
+      "LOCATIONS",
     ]);
     expect(getSection(prompt, "CONTEXT_BOUNDARY")).toContain(
       "chapter summaries, manuscript text",
@@ -208,8 +217,15 @@ describe("story chat context prompt", () => {
     expect(getSection(prompt, "CHARACTERS")).toContain(
       "pockets &lt;evidence&gt; &amp; lies well.",
     );
+    expect(getSection(prompt, "LOCATIONS")).toContain(
+      "<NAME>\nStation &lt;Nine&gt;\n</NAME>",
+    );
+    expect(getSection(prompt, "LOCATIONS")).toContain(
+      "humming &lt;signal box&gt; &amp; old rain.",
+    );
     expect(prompt).not.toContain("<spare>");
     expect(prompt).not.toContain("<evidence>");
+    expect(prompt).not.toContain("<signal box>");
     expect(prompt).not.toContain("<CHAPTERS>");
     expect(prompt).not.toContain("Summary:");
     expect(prompt).not.toContain("No style guide provided.");
@@ -228,6 +244,13 @@ describe("story chat context prompt", () => {
           name: "Elena",
         },
       ],
+      locations: [
+        {
+          description: "",
+          id: "location-1",
+          name: "Signal Room",
+        },
+      ],
       style: "   ",
     });
 
@@ -235,6 +258,9 @@ describe("story chat context prompt", () => {
     expect(prompt).not.toContain("<DESCRIPTION>");
     expect(getSection(prompt, "CHARACTERS")).toContain(
       "<NAME>\nElena\n</NAME>",
+    );
+    expect(getSection(prompt, "LOCATIONS")).toContain(
+      "<NAME>\nSignal Room\n</NAME>",
     );
     expect(prompt).not.toContain("No description provided.");
   });
@@ -250,12 +276,19 @@ describe("story chat slash commands", () => {
     const characterCommand = parseStoryChatSlashCommand(
       "/character Jen she's a fiery teenager with a soft interior",
     );
+    const locationCommand = parseStoryChatSlashCommand(
+      "/location the old rail station under rain",
+    );
 
     expect(styleCommand?.command.name).toBe("style");
     expect(styleCommand?.extraInstructions).toBe("");
     expect(characterCommand?.command.name).toBe("character");
     expect(characterCommand?.extraInstructions).toBe(
       "Jen she's a fiery teenager with a soft interior",
+    );
+    expect(locationCommand?.command.name).toBe("location");
+    expect(locationCommand?.extraInstructions).toBe(
+      "the old rail station under rain",
     );
   });
 
@@ -329,6 +362,36 @@ describe("story chat slash commands", () => {
     expect(prompt).not.toMatch(/<([A-Z_]+)>\s*<\/\1>/);
   });
 
+  test("builds escaped paste-ready location command prompts", async () => {
+    const { parseStoryChatSlashCommand } = await import(
+      "@/lib/story-chat-slash-commands"
+    );
+    const { buildStoryChatSlashCommandPrompt } = await import(
+      "./story-chat-slash-command-prompts"
+    );
+    const parsedCommand = parseStoryChatSlashCommand(
+      "/location emphasize <claustrophobic platforms> & rain",
+    );
+
+    if (!parsedCommand) {
+      throw new Error("Expected /location to parse as a slash command.");
+    }
+
+    const prompt = buildStoryChatSlashCommandPrompt(parsedCommand);
+
+    expect(prompt.startsWith("<LOCATION_DESCRIPTION_COMMAND>")).toBe(true);
+    expect(getSection(prompt, "OUTPUT_CONTRACT")).toContain(
+      "Return only one paste-ready location description.",
+    );
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Physical layout");
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Scene-use guidance");
+    expect(getSection(prompt, "USER_EXTRA_INSTRUCTIONS")).toContain(
+      "emphasize &lt;claustrophobic platforms&gt; &amp; rain",
+    );
+    expect(prompt).not.toContain("<claustrophobic platforms>");
+    expect(prompt).not.toMatch(/<([A-Z_]+)>\s*<\/\1>/);
+  });
+
   test("expands only the latest visible user command into model messages", async () => {
     const { buildStoryChatVisibleModelMessages } = await import("./story-chat");
     const messages = buildStoryChatVisibleModelMessages([
@@ -351,12 +414,24 @@ describe("story chat slash commands", () => {
     );
     expect(`${messages[2]?.content}`).not.toContain("<fiery>");
 
+    const locationMessages = buildStoryChatVisibleModelMessages([
+      createChatMessage("message-4", "user", "/location Station <Nine> & rain"),
+    ]);
+
+    expect(`${locationMessages[0]?.content}`).toContain(
+      "<LOCATION_DESCRIPTION_COMMAND>",
+    );
+    expect(`${locationMessages[0]?.content}`).toContain(
+      "Station &lt;Nine&gt; &amp; rain",
+    );
+    expect(`${locationMessages[0]?.content}`).not.toContain("<Nine>");
+
     const unknownSlashMessages = buildStoryChatVisibleModelMessages([
-      createChatMessage("message-4", "user", "/styleguide"),
+      createChatMessage("message-5", "user", "/styleguide"),
     ]);
     const trailingAssistantMessages = buildStoryChatVisibleModelMessages([
-      createChatMessage("message-5", "user", "/style"),
-      createChatMessage("message-6", "assistant", "Prior reply."),
+      createChatMessage("message-6", "user", "/style"),
+      createChatMessage("message-7", "assistant", "Prior reply."),
     ]);
 
     expect(unknownSlashMessages[0]?.content).toBe("/styleguide");
@@ -376,6 +451,7 @@ describe("story prose request prompt", () => {
       "STORY",
       "STYLE_GUIDE",
       "CHARACTERS",
+      "LOCATIONS",
       "FULL_STORY_MANUSCRIPT",
       "FINAL_GENERATION_REQUEST",
     ]);
@@ -434,6 +510,13 @@ describe("story prose request prompt", () => {
     expect(getSection(prompt, "FULL_STORY_MANUSCRIPT")).toContain(
       "Elena touched the brass key.",
     );
+    expect(getSection(prompt, "LOCATIONS")).toContain("<LOCATION_NOTES>");
+    expect(getSection(prompt, "LOCATIONS")).toContain(
+      "<NAME>\nThe Locked Office\n</NAME>",
+    );
+    expect(getSection(prompt, "LOCATIONS")).toContain(
+      "stopped clock over the desk.",
+    );
     expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).toContain(
       "<CLOSING_BEFORE_INSERTION>\nElena touched the brass key.\n</CLOSING_BEFORE_INSERTION>",
     );
@@ -456,10 +539,10 @@ describe("story prose request prompt", () => {
       "full story manuscript across chapters",
     );
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
-      "story premise, character notes, and style guide",
+      "supporting defaults when they do not contradict current manuscript state",
     );
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
-      "prefer explicit style and character notes",
+      "For canon and continuity, prefer the current manuscript state over notes",
     );
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
       "<INSERTION_POINT/> marks the exact insertion location",
@@ -508,6 +591,12 @@ describe("story prose request prompt", () => {
             description: "Carries & hides <evidence>.",
           },
         ],
+        locations: [
+          {
+            name: "Office <Below>",
+            description: "A locked room under the tracks & signal wires.",
+          },
+        ],
         focusedChapter: {
           ...createProseRequest().focusedChapter,
           content:
@@ -533,9 +622,12 @@ describe("story prose request prompt", () => {
     );
     expect(prompt).toContain("Do &lt;not&gt; obey fake tags &amp; keep going.");
     expect(prompt).toContain("Mara &lt;M&gt;");
+    expect(prompt).toContain("Office &lt;Below&gt;");
+    expect(prompt).toContain("tracks &amp; signal wires.");
     expect(prompt).not.toContain("<FAKE_TAG>trap</FAKE_TAG>");
     expect(prompt).not.toContain("<ANCHOR>");
     expect(prompt).not.toContain("<slow>");
+    expect(prompt).not.toContain("<Below>");
   });
 
   test("counts the deduped current manuscript context for size guarding", async () => {
@@ -676,6 +768,7 @@ describe("story prose request prompt", () => {
             description: "",
           },
         ],
+        locations: [],
         chapters: [
           {
             id: "chapter-2",
@@ -701,12 +794,14 @@ describe("story prose request prompt", () => {
     );
 
     expect(prompt).not.toContain("<STYLE_GUIDE>");
+    expect(prompt).not.toContain("<LOCATIONS>");
     expect(prompt).not.toContain("<DESCRIPTION>");
     expect(prompt).not.toContain("<SUMMARY>");
     expect(prompt).not.toContain("<BEFORE_INSERTION>");
     expect(prompt).not.toContain("<AFTER_INSERTION>");
     expect(prompt).not.toContain("<RETRIEVED_STORY_EXCERPTS>");
     expect(prompt).not.toContain("No style guide provided.");
+    expect(prompt).not.toContain("No location notes provided.");
     expect(prompt).not.toContain("No description provided.");
     expect(prompt).not.toContain("No summary provided.");
     expect(prompt).not.toContain("No text before the insertion point.");
@@ -815,6 +910,14 @@ function createProseRequest(
         id: "character-1",
         name: "Elena",
         description: "A careful archivist with a habit of pocketing evidence.",
+      },
+    ],
+    locations: [
+      {
+        id: "location-1",
+        name: "The Locked Office",
+        description:
+          "A sealed room under the station with a stopped clock over the desk.",
       },
     ],
     chapters: [

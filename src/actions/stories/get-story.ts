@@ -7,6 +7,7 @@ import { getDb } from "@/lib/drizzle/db";
 import { chapters, stories } from "@/lib/drizzle/schema";
 import { storyChapterSelectFields } from "@/lib/server/story-chapters";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
+import { normalizeStoryLocations } from "@/lib/server/story-locations";
 
 import type { StoryEditorData } from "./_types";
 
@@ -21,6 +22,7 @@ export async function getStory(
         name: stories.name,
         description: stories.description,
         characters: stories.characters,
+        locations: stories.locations,
         style: stories.style,
         updatedAt: stories.updatedAt,
       })
@@ -41,6 +43,7 @@ export async function getStory(
     return {
       ...story,
       characters: normalizeStoryCharacters(story.characters),
+      locations: normalizeStoryLocations(story.locations),
       chapters: storyChapters,
     };
   });

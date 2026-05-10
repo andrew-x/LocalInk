@@ -27,7 +27,7 @@ Use explicit XML-style tags around major prompt sections and structured values s
 
 The active generation instructions should be XML data fields, not prose labels. Put dynamic values such as the generation mode, creative brief, regeneration edit instructions, insertion mode, length target, and final before-text reminder in explicit tags such as `<ACTIVE_GENERATION_INSTRUCTIONS>`, `<GENERATION_MODE>`, `<CREATIVE_BRIEF>`, `<REGENERATION_EDIT_INSTRUCTIONS>`, `<TARGET_WORD_COUNT>`, and `<CLOSING_BEFORE_INSERTION>`. Repeat the active generation instructions near the beginning of the request and again inside the final request so the current brief and mode stay salient after long manuscript context; this duplication is intentional bookending, while the system prompt remains the source for durable instruction authority. Do not duplicate the same value under different tags (for example, do not emit both `<GENERATION_MODE>` and a parallel `<REGENERATION_MODE>` carrying the same value).
 
-Do not emit blank optional values into prompts. Omit absent descriptions, style guides, character notes, chapter text, and insertion anchors instead of adding placeholder text like "No text after insertion point." Insertion anchors and metadata should be represented as XML-style fields such as `<BEFORE_INSERTION>`, `<AFTER_INSERTION>`, and `<CHAPTER_METADATA>` so they are not mistaken for prose to continue.
+Do not emit blank optional values into prompts. Omit absent descriptions, style guides, character notes, location notes, chapter text, and insertion anchors instead of adding placeholder text like "No text after insertion point." Insertion anchors and metadata should be represented as XML-style fields such as `<BEFORE_INSERTION>`, `<AFTER_INSERTION>`, and `<CHAPTER_METADATA>` so they are not mistaken for prose to continue.
 
 The request prompt should repeat the highest-priority dynamic data when the request is long. This is intentional attention-aware design for long-context behavior: models often weight the start and end of context more reliably than the middle.
 
@@ -38,14 +38,22 @@ The system prompt should define how dynamic request context is ordered by author
 1. Stable output discipline and prose-quality constraints.
 2. The current user request and explicit writing goal, repeated in XML near the beginning and end of the request prompt.
 3. Insertion anchors and immediate manuscript surroundings.
-4. Explicit story premise, character notes, and style guide.
-5. Full manuscript content across the story's chapters, ordered by chapter position, with each chapter labeled as before, focused, or after the insertion point.
+4. Full manuscript content across the story's chapters, ordered by chapter position, with each chapter labeled as before, focused, or after the insertion point.
+5. Explicit story premise, character notes, location notes, and style guide as supporting context when they do not contradict the current manuscript state.
 
-Prose generation uses full chapter manuscript content directly. The request prompt includes each chapter's text as dynamic data, with the focused chapter snapshot reflecting the current editor content at generation time. There is no indexing, embedding, or chunk-retrieval pipeline. Full-manuscript generation has a hard aggregate chapter-text size guard; if the story crosses it, the app returns a clear prompt-size error instead of sending an oversized request to the model.
+Prose generation uses full chapter manuscript content directly. The request prompt includes each chapter's text as dynamic data, with the focused chapter snapshot reflecting the current editor content at generation time. Story-level style, character, and location context are included as structured XML sections before the manuscript. There is no indexing, embedding, or chunk-retrieval pipeline. Full-manuscript generation has a hard aggregate chapter-text size guard; if the story crosses it, the app returns a clear prompt-size error instead of sending an oversized request to the model.
 
 The model-facing prompt should tell the model to read the full manuscript as a timeline, not as isolated facts. Details from early chapters may have been revised, resolved, contradicted, transformed, or made obsolete by later chapters, so continuation should use the current story state at the insertion point while still remembering unresolved promises, injuries, objects, relationships, plans, mysteries, and consequences that remain active.
 
+When notes conflict with manuscript content, the manuscript wins for canon and continuity. Notes can still win for reusable craft guidance such as voice, descriptive priorities, character handling, and location texture when they are more specific than diffuse manuscript cues and do not contradict current story state.
+
 For insertion tasks, the request prompt should include distinct dynamic insertion reminders at different scopes instead of repeating large overlapping windows: a tight top anchor with the last local paragraph before insertion and first sentence after insertion, an `<INSERTION_POINT/>` marker inside the focused chapter's `<CHAPTER_TEXT>` in `<FULL_STORY_MANUSCRIPT>`, and a short `<CLOSING_BEFORE_INSERTION>` snippet near the final request. Static instructions for interpreting those fields belong in the system prompt. This helps preserve continuity at the exact edit point and reduces drift when the prompt contains many references without making duplicated anchor sections load-bearing.
+
+## Chat Context
+
+Story chat does not include story description, manuscript text, chapter summaries, or retrieved excerpts in its hidden context snapshot. It includes only story-level style guidance, character notes, and location notes, all escaped in XML-style sections. The chat system prompt and slash-command prompts tell the model to use those notes without inventing missing canon from them.
+
+Slash commands expand only when the latest visible user message starts with a known command. `/style` drafts paste-ready style guidance, `/character` drafts one paste-ready character description, and `/location` drafts one paste-ready location description.
 
 ## Drafting Behavior
 

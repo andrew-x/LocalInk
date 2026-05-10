@@ -1,6 +1,6 @@
 "use client";
 
-import { Brush, Plus, Save, Trash2, UsersRound } from "lucide-react";
+import { Brush, MapPin, Plus, Save, Trash2, UsersRound } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import {
   type ComponentPropsWithoutRef,
@@ -30,12 +30,16 @@ import { cn } from "@/lib/util";
 type StoryCharacter = StoryContext["characters"][number];
 type StoryCharacterDraft = Pick<StoryCharacter, "description" | "name"> &
   Partial<Pick<StoryCharacter, "id">>;
+type StoryLocation = StoryContext["locations"][number];
+type StoryLocationDraft = Pick<StoryLocation, "description" | "name"> &
+  Partial<Pick<StoryLocation, "id">>;
 type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
 type StoryContextSave = StoryContext & { updatedAt: string };
 
 type StoryEditorContextPaneProps = {
   characters: StoryCharacter[];
   isOpen: boolean;
+  locations: StoryLocation[];
   onContextSaved: (context: StoryContextSave) => void;
   onToggleOpen: () => void;
   story: StoryIdentity;
@@ -45,6 +49,7 @@ type StoryEditorContextPaneProps = {
 export function StoryEditorContextPane({
   characters,
   isOpen,
+  locations,
   onContextSaved,
   onToggleOpen,
   story,
@@ -64,12 +69,21 @@ export function StoryEditorContextPane({
           <div className="grid gap-3">
             <StyleContextSection
               characters={characters}
+              locations={locations}
               onSaved={onContextSaved}
               story={story}
               style={style}
             />
             <CharacterContextSection
               characters={characters}
+              locations={locations}
+              onSaved={onContextSaved}
+              story={story}
+              style={style}
+            />
+            <LocationContextSection
+              characters={characters}
+              locations={locations}
               onSaved={onContextSaved}
               story={story}
               style={style}
@@ -83,6 +97,7 @@ export function StoryEditorContextPane({
 
 type StyleContextSectionProps = {
   characters: StoryCharacter[];
+  locations: StoryLocation[];
   onSaved: (context: StoryContextSave) => void;
   story: StoryIdentity;
   style: string;
@@ -90,6 +105,7 @@ type StyleContextSectionProps = {
 
 function StyleContextSection({
   characters,
+  locations,
   onSaved,
   story,
   style,
@@ -130,6 +146,7 @@ function StyleContextSection({
       characters,
       description: story.description,
       id: story.id,
+      locations,
       name: story.name,
       style: nextStyle,
     });
@@ -137,6 +154,7 @@ function StyleContextSection({
     if (result.data) {
       onSaved({
         characters: result.data.characters,
+        locations: result.data.locations,
         style: result.data.style,
         updatedAt: result.data.updatedAt,
       });
@@ -226,6 +244,7 @@ function StyleContextSection({
 
 type CharacterContextSectionProps = {
   characters: StoryCharacter[];
+  locations: StoryLocation[];
   onSaved: (context: StoryContextSave) => void;
   story: StoryIdentity;
   style: string;
@@ -233,6 +252,7 @@ type CharacterContextSectionProps = {
 
 function CharacterContextSection({
   characters,
+  locations,
   onSaved,
   story,
   style,
@@ -250,6 +270,7 @@ function CharacterContextSection({
         {hasCharacters ? (
           <CharacterPopover
             characters={characters}
+            locations={locations}
             mode="create"
             onSaved={onSaved}
             story={story}
@@ -276,6 +297,7 @@ function CharacterContextSection({
                 character={character}
                 characterIndex={index}
                 characters={characters}
+                locations={locations}
                 mode="edit"
                 onSaved={onSaved}
                 story={story}
@@ -288,6 +310,7 @@ function CharacterContextSection({
       ) : (
         <CharacterPopover
           characters={characters}
+          locations={locations}
           mode="create"
           onSaved={onSaved}
           story={story}
@@ -347,6 +370,7 @@ type CharacterPopoverProps = {
   character?: StoryCharacter;
   characterIndex?: number;
   characters: StoryCharacter[];
+  locations: StoryLocation[];
   mode: "create" | "edit";
   onSaved: (context: StoryContextSave) => void;
   story: StoryIdentity;
@@ -358,6 +382,7 @@ function CharacterPopover({
   character,
   characterIndex,
   characters,
+  locations,
   mode,
   onSaved,
   story,
@@ -431,6 +456,7 @@ function CharacterPopover({
       characters: nextCharacters,
       description: story.description,
       id: story.id,
+      locations,
       name: story.name,
       style,
     });
@@ -438,6 +464,7 @@ function CharacterPopover({
     if (result.data) {
       onSaved({
         characters: result.data.characters,
+        locations: result.data.locations,
         style: result.data.style,
         updatedAt: result.data.updatedAt,
       });
@@ -470,6 +497,7 @@ function CharacterPopover({
       characters: nextCharacters,
       description: story.description,
       id: story.id,
+      locations,
       name: story.name,
       style,
     });
@@ -477,6 +505,7 @@ function CharacterPopover({
     if (result.data) {
       onSaved({
         characters: result.data.characters,
+        locations: result.data.locations,
         style: result.data.style,
         updatedAt: result.data.updatedAt,
       });
@@ -638,6 +667,431 @@ function CharacterPopover({
   );
 }
 
+type LocationContextSectionProps = {
+  characters: StoryCharacter[];
+  locations: StoryLocation[];
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+  style: string;
+};
+
+function LocationContextSection({
+  characters,
+  locations,
+  onSaved,
+  story,
+  style,
+}: LocationContextSectionProps) {
+  const hasLocations = locations.length > 0;
+
+  return (
+    <section className="rounded-md border border-border/70 bg-card/45 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-label">
+          <MapPin aria-hidden="true" className="size-3.5" />
+          Locations
+        </h2>
+
+        {hasLocations ? (
+          <LocationPopover
+            characters={characters}
+            locations={locations}
+            mode="create"
+            onSaved={onSaved}
+            story={story}
+            style={style}
+            trigger={
+              <button
+                aria-label="Add location"
+                className="-my-1 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:bg-muted data-[state=open]:text-foreground"
+                title="Add location"
+                type="button"
+              >
+                <Plus aria-hidden="true" className="size-3.5" />
+              </button>
+            }
+          />
+        ) : null}
+      </div>
+
+      {hasLocations ? (
+        <ul className="mt-3 grid gap-2">
+          {locations.map((location, index) => (
+            <li key={location.id}>
+              <LocationPopover
+                characters={characters}
+                location={location}
+                locationIndex={index}
+                locations={locations}
+                mode="edit"
+                onSaved={onSaved}
+                story={story}
+                style={style}
+                trigger={<LocationWidget location={location} />}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <LocationPopover
+          characters={characters}
+          locations={locations}
+          mode="create"
+          onSaved={onSaved}
+          story={story}
+          style={style}
+          trigger={
+            <button
+              className="mt-3 w-full rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-body text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/60 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted data-[state=open]:text-foreground"
+              type="button"
+            >
+              Add a location
+            </button>
+          }
+        />
+      )}
+    </section>
+  );
+}
+
+type LocationWidgetProps = ComponentPropsWithoutRef<"button"> & {
+  location: StoryLocation;
+};
+
+const LocationWidget = forwardRef<HTMLButtonElement, LocationWidgetProps>(
+  ({ location, className, type = "button", ...props }, ref) => {
+    const description = location.description.trim();
+
+    return (
+      <button
+        className={cn(
+          "w-full rounded-md border border-border/70 bg-background/55 px-3 py-2.5 text-left transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted",
+          className,
+        )}
+        ref={ref}
+        type={type}
+        {...props}
+      >
+        <span className="block truncate text-label-sm text-foreground">
+          {location.name}
+        </span>
+        <span
+          className={cn(
+            "mt-1 block text-body leading-5",
+            description
+              ? "line-clamp-3 whitespace-pre-line text-muted-foreground"
+              : "text-muted-foreground/70",
+          )}
+        >
+          {description || "Add a description"}
+        </span>
+      </button>
+    );
+  },
+);
+LocationWidget.displayName = "LocationWidget";
+
+type LocationPopoverProps = {
+  characters: StoryCharacter[];
+  location?: StoryLocation;
+  locationIndex?: number;
+  locations: StoryLocation[];
+  mode: "create" | "edit";
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+  style: string;
+  trigger: ReactNode;
+};
+
+function LocationPopover({
+  characters,
+  location,
+  locationIndex,
+  locations,
+  mode,
+  onSaved,
+  story,
+  style,
+  trigger,
+}: LocationPopoverProps) {
+  const updateStoryAction = useAction(updateStory);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftName, setDraftName] = useState(location?.name ?? "");
+  const [draftDescription, setDraftDescription] = useState(
+    location?.description ?? "",
+  );
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [rootError, setRootError] = useState<string | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const nameFieldId = useId();
+  const descriptionFieldId = useId();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDraftName(location?.name ?? "");
+      setDraftDescription(location?.description ?? "");
+      setIsConfirmingDelete(false);
+    }
+  }, [isOpen, location?.description, location?.name]);
+
+  function resetErrors() {
+    setNameError(null);
+    setRootError(null);
+  }
+
+  function handleOpenChange(open: boolean) {
+    if (updateStoryAction.isPending) {
+      return;
+    }
+
+    setIsOpen(open);
+    resetErrors();
+    setIsConfirmingDelete(false);
+
+    if (open) {
+      setDraftName(location?.name ?? "");
+      setDraftDescription(location?.description ?? "");
+    }
+  }
+
+  async function handleSaveLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    resetErrors();
+
+    const nextLocation = {
+      description: draftDescription.trim(),
+      id: location?.id,
+      name: draftName.trim(),
+    };
+
+    const hasValidationError = validateLocation(nextLocation, setNameError);
+
+    if (hasValidationError) {
+      return;
+    }
+
+    const nextLocations =
+      mode === "create"
+        ? [...locations, nextLocation]
+        : locations.map((currentLocation, index) =>
+            index === locationIndex ? nextLocation : currentLocation,
+          );
+
+    const result = await updateStoryAction.executeAsync({
+      characters,
+      description: story.description,
+      id: story.id,
+      locations: nextLocations,
+      name: story.name,
+      style,
+    });
+
+    if (result.data) {
+      onSaved({
+        characters: result.data.characters,
+        locations: result.data.locations,
+        style: result.data.style,
+        updatedAt: result.data.updatedAt,
+      });
+      setIsOpen(false);
+      return;
+    }
+
+    const message = getUpdateFailureMessage(
+      result,
+      mode === "create"
+        ? "The location could not be added."
+        : "The location could not be saved.",
+    );
+    setRootError(message);
+    toast.error(message);
+  }
+
+  async function handleDeleteLocation() {
+    if (mode !== "edit" || locationIndex === undefined) {
+      return;
+    }
+
+    resetErrors();
+
+    const nextLocations = locations.filter(
+      (_, index) => index !== locationIndex,
+    );
+
+    const result = await updateStoryAction.executeAsync({
+      characters,
+      description: story.description,
+      id: story.id,
+      locations: nextLocations,
+      name: story.name,
+      style,
+    });
+
+    if (result.data) {
+      onSaved({
+        characters: result.data.characters,
+        locations: result.data.locations,
+        style: result.data.style,
+        updatedAt: result.data.updatedAt,
+      });
+      setIsOpen(false);
+      return;
+    }
+
+    const message = getUpdateFailureMessage(
+      result,
+      "The location could not be deleted.",
+    );
+    setRootError(message);
+    setIsConfirmingDelete(true);
+    toast.error(message);
+  }
+
+  return (
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
+        collisionPadding={12}
+        side="right"
+      >
+        <form
+          autoComplete="off"
+          className="grid gap-3 p-3"
+          onSubmit={handleSaveLocation}
+        >
+          <div className="grid gap-2">
+            <Label className="text-label-sm" htmlFor={nameFieldId}>
+              Name
+            </Label>
+            <Input
+              aria-describedby={nameError ? `${nameFieldId}-error` : undefined}
+              aria-invalid={!!nameError || undefined}
+              autoComplete="off"
+              className="h-8 px-2 text-caption"
+              id={nameFieldId}
+              maxLength={120}
+              onChange={(event) => setDraftName(event.target.value)}
+              spellCheck={false}
+              value={draftName}
+            />
+            {nameError ? (
+              <p
+                className="text-caption text-destructive"
+                id={`${nameFieldId}-error`}
+              >
+                {nameError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-label-sm" htmlFor={descriptionFieldId}>
+              Description
+            </Label>
+            <Textarea
+              className="max-h-60 min-h-40 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
+              id={descriptionFieldId}
+              onChange={(event) => setDraftDescription(event.target.value)}
+              value={draftDescription}
+            />
+          </div>
+
+          {rootError ? <ContextFormError message={rootError} /> : null}
+
+          {isConfirmingDelete ? (
+            <div
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2"
+              role="alert"
+            >
+              <p className="text-label-sm text-destructive">
+                Delete this location?
+              </p>
+              <p className="mt-1 text-caption text-destructive/90">
+                This will remove {location?.name ?? "this location"} from the
+                story context.
+              </p>
+            </div>
+          ) : null}
+
+          {isConfirmingDelete ? (
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+              <Button
+                className="justify-self-start text-caption"
+                leftSection={<Trash2 aria-hidden="true" />}
+                loading={updateStoryAction.isPending}
+                onClick={handleDeleteLocation}
+                size="sm"
+                type="button"
+                variant="destructive"
+              >
+                Delete
+              </Button>
+              <Button
+                className="justify-self-start text-caption sm:justify-self-end"
+                disabled={updateStoryAction.isPending}
+                onClick={() => setIsConfirmingDelete(false)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Keep
+              </Button>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "grid gap-2 sm:items-center",
+                mode === "edit" ? "sm:grid-cols-[1fr_auto]" : "sm:justify-end",
+              )}
+            >
+              {mode === "edit" ? (
+                <Button
+                  className="justify-self-start text-caption"
+                  disabled={updateStoryAction.isPending}
+                  leftSection={<Trash2 aria-hidden="true" />}
+                  onClick={() => {
+                    resetErrors();
+                    setIsConfirmingDelete(true);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="destructive"
+                >
+                  Delete
+                </Button>
+              ) : null}
+
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  className="text-caption"
+                  disabled={updateStoryAction.isPending}
+                  onClick={() => handleOpenChange(false)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="text-caption"
+                  leftSection={<Save aria-hidden="true" />}
+                  loading={updateStoryAction.isPending}
+                  size="sm"
+                  type="submit"
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          )}
+        </form>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function validateCharacter(
   character: StoryCharacterDraft,
   setNameError: (message: string) => void,
@@ -649,6 +1103,23 @@ function validateCharacter(
     hasError = true;
   } else if (character.name.length > 120) {
     setNameError("Character name must be 120 characters or fewer.");
+    hasError = true;
+  }
+
+  return hasError;
+}
+
+function validateLocation(
+  location: StoryLocationDraft,
+  setNameError: (message: string) => void,
+) {
+  let hasError = false;
+
+  if (!location.name) {
+    setNameError("Location name is required.");
+    hasError = true;
+  } else if (location.name.length > 120) {
+    setNameError("Location name must be 120 characters or fewer.");
     hasError = true;
   }
 
