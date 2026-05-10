@@ -758,6 +758,27 @@ describe("story prose request prompt", () => {
     expect(prompt).not.toContain("No text after the insertion point.");
   });
 
+  test("omits the length target for unbounded prose requests", async () => {
+    const { buildStoryProsePrompt, buildStoryProseSystemPrompt } = await import(
+      "./story-prose-generation"
+    );
+    const prompt = buildStoryProsePrompt(
+      createProseRequest({
+        approximateLength: "unlimited",
+      }),
+    );
+
+    expect(getSection(prompt, "TASK_CAPSULE")).not.toContain(
+      "<TARGET_WORD_COUNT>",
+    );
+    expect(getSection(prompt, "FINAL_GENERATION_REQUEST")).not.toContain(
+      "<TARGET_WORD_COUNT>",
+    );
+    expect(buildStoryProseSystemPrompt()).toContain(
+      "<TARGET_WORD_COUNT> is omitted for unbounded generation",
+    );
+  });
+
   test("omits blank optional prompt values instead of inserting placeholders", async () => {
     const { buildStoryProsePrompt } = await import("./story-prose-generation");
     const prompt = buildStoryProsePrompt(

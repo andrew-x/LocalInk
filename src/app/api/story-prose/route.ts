@@ -24,7 +24,11 @@ const PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH = {
   200: 700,
   400: 1_200,
   600: 1_700,
-} satisfies Record<StoryProseGenerationRequest["approximateLength"], number>;
+  1000: 2_700,
+} satisfies Record<
+  Exclude<StoryProseGenerationRequest["approximateLength"], "unlimited">,
+  number
+>;
 const PROSE_PROVIDER_OPTIONS = {
   openrouter: {
     reasoning: {
@@ -112,14 +116,16 @@ export async function POST(request: Request): Promise<Response> {
       regeneration: parsedInput.regeneration,
       system: systemPrompt,
     });
+    const maxOutputTokens = getProseMaxOutputTokens(
+      parsedInput.approximateLength,
+    );
 
     const stream = streamLocalinkText({
       model: "main",
       system: systemPrompt,
       prompt: prosePrompt,
       abortSignal: request.signal,
-      maxOutputTokens:
-        PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[parsedInput.approximateLength],
+      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
       providerOptions: PROSE_PROVIDER_OPTIONS,
       temperature: 0.82,
     });
@@ -213,6 +219,16 @@ function getErrorName(error: unknown) {
 
 function buildManuscriptContextTooLargeMessage(): string {
   return `The prose was not generated because this story is too large for full-manuscript context. This is a prompt-size guard, not a model failure. Full-manuscript generation currently supports about ${formatCharacterLimit(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT)} characters of chapter text; reduce or split the manuscript before trying again.`;
+}
+
+function getProseMaxOutputTokens(
+  approximateLength: StoryProseGenerationRequest["approximateLength"],
+): number | undefined {
+  if (approximateLength === "unlimited") {
+    return undefined;
+  }
+
+  return PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[approximateLength];
 }
 
 function formatCharacterLimit(limit: number): string {

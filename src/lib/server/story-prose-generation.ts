@@ -44,13 +44,13 @@ const DYNAMIC_REQUEST_RULES = [
   "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location.",
   "Read the chapters in order to follow the full cause-and-effect flow. For canon and continuity, prefer the current manuscript state over notes; for voice, description style, and reusable craft guidance, prefer explicit style, character, and location notes when they are more specific than diffuse manuscript cues.",
   "When <PRIOR_DRAFT_TEXT> is present, it is editable material from a selected generated draft, not canon. Use it only as the draft to revise, and output full replacement prose.",
-  "Field value conventions: <GENERATION_MODE> is one of `first-generation`, `fresh-alternative`, `revise-prior-draft`. <INSERTION_MODE> is one of `append-to-focused-chapter-end`, `between-before-and-after-anchors`. <TARGET_WORD_COUNT> is a single integer word count.",
+  "Field value conventions: <GENERATION_MODE> is one of `first-generation`, `fresh-alternative`, `revise-prior-draft`. <INSERTION_MODE> is one of `append-to-focused-chapter-end`, `between-before-and-after-anchors`. <TARGET_WORD_COUNT> is omitted for unbounded generation; when present, it is a single integer word count.",
 ] as const;
 
 const GENERATION_DISCIPLINE = [
   "Write new prose for the insertion point in the focused chapter. Leave existing story context as is.",
   "Follow the request's <INSERTION_MODE>: append at the focused chapter end when requested, otherwise write prose that fits between the before-text and after-text anchors and leads cleanly into the after-text without recap or contradiction.",
-  "Treat <TARGET_WORD_COUNT> as a soft target, usually within about 20 percent, unless the current writer or regeneration instructions explicitly ask for a different length.",
+  "When <TARGET_WORD_COUNT> is present, treat it as a soft target, usually within about 20 percent, unless the current writer or regeneration instructions explicitly ask for a different length. When no <TARGET_WORD_COUNT> is present, do not impose a length target; continue only until the requested beat is satisfied.",
   "Follow the current beat instructions closely. Do not invent extra beats, outcomes, reversals, endings, aftermath, foreshadowing, teaser lines, or ominous setup. Write closure or foreshadowing only when the writer instructions explicitly ask for that move.",
   "Stop as soon as the continuation has satisfied the requested beat, even when the soft word target leaves unused room. Finish on a complete sentence and hand control back to the writer with forward motion or unresolved tension intact.",
   "Output only the new prose for the insertion point or replacement draft. Skip recap, filler, ornate padding, transitions, explanations of choices, or descriptions of what changed.",
@@ -170,7 +170,7 @@ export function getStoryProseManuscriptContextCharCount(
 
 function buildTaskCapsuleSection(request: StoryProseGenerationRequest): string {
   return joinXmlFields([
-    xmlElement("TARGET_WORD_COUNT", String(request.approximateLength)),
+    buildTargetWordCountElement(request),
     xmlElement(
       "INSERTION_MODE",
       request.insertion.atChapterEnd
@@ -365,7 +365,7 @@ function buildFinalGenerationRequest(
         ? "append-to-focused-chapter-end"
         : "between-before-and-after-anchors",
     ),
-    xmlElement("TARGET_WORD_COUNT", String(request.approximateLength)),
+    buildTargetWordCountElement(request),
     buildActiveGenerationInstructionsXml(request),
     optionalXmlTextElement("CLOSING_BEFORE_INSERTION", closingBeforeInsertion),
   ]);
@@ -378,6 +378,16 @@ function buildActiveGenerationInstructionsXml(
     "ACTIVE_GENERATION_INSTRUCTIONS",
     buildActiveGenerationInstructionFields(request),
   );
+}
+
+function buildTargetWordCountElement(
+  request: StoryProseGenerationRequest,
+): string | null {
+  if (request.approximateLength === "unlimited") {
+    return null;
+  }
+
+  return xmlElement("TARGET_WORD_COUNT", String(request.approximateLength));
 }
 
 function buildActiveGenerationInstructionFields(

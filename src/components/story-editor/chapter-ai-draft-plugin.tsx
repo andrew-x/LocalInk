@@ -125,7 +125,7 @@ type MarkdownSegment = {
 type MarkdownFormat = Pick<MarkdownSegment, "bold" | "italic">;
 
 type StoryProsePromptSnapshot = {
-  approximateLength: 200 | 400 | 600;
+  approximateLength: 200 | 400 | 600 | 1000 | "unlimited";
   createdAt: string;
   id: string;
   mode: "first-generation" | "fresh-alternative" | "revise-prior-draft";

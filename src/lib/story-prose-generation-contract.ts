@@ -51,7 +51,13 @@ export const storyProseGenerationRequestSchema = z.object({
     atChapterEnd: z.boolean(),
   }),
   instructions: z.string().trim().max(2_000),
-  approximateLength: z.union([z.literal(200), z.literal(400), z.literal(600)]),
+  approximateLength: z.union([
+    z.literal(200),
+    z.literal(400),
+    z.literal(600),
+    z.literal(1_000),
+    z.literal("unlimited"),
+  ]),
   regeneration: storyProseRegenerationSchema.optional(),
 });
 

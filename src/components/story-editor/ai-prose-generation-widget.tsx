@@ -55,7 +55,13 @@ type AiProseGenerationWidgetProps = {
   style: string;
 };
 
-const LENGTH_OPTIONS: LengthOption[] = [200, 400, 600];
+const LENGTH_OPTIONS = [
+  { label: "200", value: 200 },
+  { label: "400", value: 400 },
+  { label: "600", value: 600 },
+  { label: "1,000", value: 1_000 },
+  { label: "Unlimited", value: "unlimited" },
+] as const satisfies ReadonlyArray<{ label: string; value: LengthOption }>;
 const PROMPT_SNAPSHOT_ID_HEADER = "X-Prose-Prompt-Snapshot-Id";
 
 export function AiProseGenerationWidget({
@@ -402,13 +408,13 @@ export function AiProseGenerationWidget({
             className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
             disabled={isGenerationWidgetDisabled}
             onChange={(event) =>
-              setApproximateLength(Number(event.target.value) as LengthOption)
+              setApproximateLength(parseLengthOption(event.target.value))
             }
-            value={approximateLength}
+            value={String(approximateLength)}
           >
-            {LENGTH_OPTIONS.map((length) => (
-              <option key={length} value={length}>
-                {length}
+            {LENGTH_OPTIONS.map((option) => (
+              <option key={option.value} value={String(option.value)}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -497,6 +503,12 @@ function toChapterContext(
     position: chapter.position,
     content,
   };
+}
+
+function parseLengthOption(value: string): LengthOption {
+  const option = LENGTH_OPTIONS.find((item) => String(item.value) === value);
+
+  return option?.value ?? 400;
 }
 
 function buildRegenerationRequest(
