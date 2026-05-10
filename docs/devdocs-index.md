@@ -14,8 +14,15 @@ Recurring sources for implementation decisions that depend on current framework,
 | Codex subagents guide | https://developers.openai.com/codex/subagents | `.codex/agents/*.toml` format and delegation config. | 2026-05-05 |
 | Claude Code llms.txt | https://code.claude.com/llms.txt | LLM-readable index for Claude Code behavior when maintaining runtime parity. | 2026-05-05 |
 | AI SDK llms.txt | https://ai-sdk.dev/llms.txt | LLM-readable index for AI SDK APIs and provider integration guidance. | 2026-05-05 |
+| AI SDK generateText local types | `node_modules/ai/dist/index.d.ts` | Installed AI SDK 6 `generateText` options for one-shot text calls, including `prompt`, `system`, `providerOptions`, and token settings. | 2026-05-10 |
 | AI SDK streamText local types | `node_modules/ai/dist/index.d.ts` | Installed AI SDK 6 `streamText` options, `abortSignal`, callbacks, `textStream` deltas, and `fullStream` finish/error parts. | 2026-05-07 |
 | AI SDK OpenRouter provider | https://ai-sdk.dev/providers/community-providers/openrouter | Current OpenRouter provider package, `createOpenRouter`, chat model, and text generation examples. | 2026-05-05 |
+| DeepSeek API model list | https://api-docs.deepseek.com/api/list-models | Current official DeepSeek V4 model IDs for direct API references and compatibility checks. | 2026-05-10 |
+| DeepSeek models and pricing | https://api-docs.deepseek.com/quick_start/pricing | Current DeepSeek V4 Flash/Pro model details, context, output limits, and thinking-mode behavior. | 2026-05-10 |
+| OpenRouter image generation guide | https://openrouter.ai/docs/guides/overview/multimodal/image-generation | Chat completions image generation payloads, output modalities, image config, and `message.images` response shape. | 2026-05-10 |
+| OpenRouter image models collection | https://openrouter.ai/collections/image-models | Current OpenRouter image model names and IDs for Nano Banana Pro, Nano Banana 2, and Seedream. | 2026-05-10 |
+| WaveSpeed GPT Image 2 text-to-image | https://wavespeed.ai/docs/docs-api/openai/openai-gpt-image-2-text-to-image | GPT Image 2 endpoint, request parameters, prediction response shape, status values, and result polling URL. | 2026-05-10 |
+| WaveSpeed base64 output | https://wavespeed.ai/docs/base64-output | Base64 output behavior for sync and polled predictions, including naked base64 strings without data URI prefixes. | 2026-05-10 |
 | Bun llms.txt | https://bun.com/llms.txt | LLM-readable index for Bun runtime, package manager, and lockfile behavior. | 2026-05-05 |
 | Drizzle ORM llms.txt | https://orm.drizzle.team/llms.txt | LLM-readable index for Drizzle ORM schema, query, and migration guidance. | 2026-05-05 |
 | React Hook Form standard schema resolver | `node_modules/@hookform/resolvers/standard-schema/dist/standard-schema.d.ts` | Local type source for `standardSchemaResolver`, used by `src/lib/schemas/resolve.ts` as the project form resolver. | 2026-05-05 |

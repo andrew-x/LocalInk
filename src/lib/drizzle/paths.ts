@@ -6,6 +6,7 @@ export const DRIZZLE_MIGRATIONS_PATH = "./src/lib/drizzle/migrations";
 export const LOCALINK_DATA_MODES = ["dev", "prod"] as const;
 export const DEFAULT_LOCALINK_DATA_MODE: LocalinkDataMode = "dev";
 export const DATABASE_FILENAME = "localink.sqlite";
+export const GENERATED_IMAGES_DIRECTORY_NAME = "generated-images";
 
 export type LocalinkDataMode = (typeof LOCALINK_DATA_MODES)[number];
 
@@ -47,6 +48,16 @@ export function getDatabasePath(
   rootDirectory = process.cwd(),
 ): string {
   return path.join(getDataDirectory(mode, rootDirectory), DATABASE_FILENAME);
+}
+
+export function getGeneratedImagesDirectory(
+  mode: LocalinkDataMode = getLocalinkDataMode(),
+  rootDirectory = process.cwd(),
+): string {
+  return path.join(
+    getDataDirectory(mode, rootDirectory),
+    GENERATED_IMAGES_DIRECTORY_NAME,
+  );
 }
 
 export function getMigrationsPath(rootDirectory = process.cwd()): string {
