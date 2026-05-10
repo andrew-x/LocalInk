@@ -23,6 +23,12 @@ export type StoryLocation = {
 };
 
 export type StoryChatMessageRole = "system" | "user" | "assistant";
+export type GeneratedImageStylePreset =
+  | "amateur-photo"
+  | "social-media-photo"
+  | "professional-posed-photo"
+  | "cinematic-photo"
+  | "custom";
 
 export const metadata = sqliteTable("metadata", {
   key: text("key").primaryKey(),
@@ -118,6 +124,36 @@ export const chapters = sqliteTable(
   },
   (table) => [
     index("chapters_story_position_idx").on(table.storyId, table.position),
+  ],
+);
+
+export const generatedImages = sqliteTable(
+  "generated_images",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull(),
+    providerResponseId: text("provider_response_id"),
+    prompt: text("prompt").notNull(),
+    stylePreset: text("style_preset")
+      .$type<GeneratedImageStylePreset>()
+      .notNull(),
+    stylePrompt: text("style_prompt").notNull(),
+    model: text("model").notNull(),
+    aspectRatio: text("aspect_ratio").notNull(),
+    imageSize: text("image_size").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    mimeType: text("mime_type").notNull(),
+    fileRelativePath: text("file_relative_path").notNull(),
+    fileSize: integer("file_size").notNull(),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("generated_images_created_at_idx").on(table.createdAt),
+    check(
+      "generated_images_style_preset_check",
+      sql`${table.stylePreset} IN ('amateur-photo', 'social-media-photo', 'professional-posed-photo', 'cinematic-photo', 'custom')`,
+    ),
   ],
 );
 

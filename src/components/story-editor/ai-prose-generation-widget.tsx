@@ -3,6 +3,7 @@
 import { Square, WandSparkles } from "lucide-react";
 import {
   type FormEvent,
+  type KeyboardEvent,
   useCallback,
   useEffect,
   useRef,
@@ -303,6 +304,15 @@ export function AiProseGenerationWidget({
     await streamDraft(draft);
   }
 
+  function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
+    if (!isGenerationShortcut(event) || isGenerationWidgetDisabled) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.requestSubmit();
+  }
+
   function handleStop() {
     if (!activeDraft) {
       return;
@@ -392,6 +402,7 @@ export function AiProseGenerationWidget({
       <div className="pointer-events-auto mx-auto w-full max-w-readable rounded-md border border-border/80 bg-popover/95 p-2 text-popover-foreground shadow-2xl backdrop-blur">
         <form
           className="flex flex-col gap-2 sm:flex-row"
+          onKeyDown={handleGenerationShortcut}
           onSubmit={handleGenerate}
         >
           <input
@@ -432,6 +443,7 @@ export function AiProseGenerationWidget({
             </Button>
           ) : !activeDraft ? (
             <Button
+              aria-keyshortcuts="Meta+Enter Control+Enter"
               className="h-8"
               disabled={!chapters.length}
               leftSection={<WandSparkles aria-hidden="true" />}
@@ -550,4 +562,12 @@ function getGenerationFailureMessage(error: unknown) {
   }
 
   return "The prose could not be generated.";
+}
+
+function isGenerationShortcut(event: KeyboardEvent) {
+  return (
+    event.key === "Enter" &&
+    (event.metaKey || event.ctrlKey) &&
+    !event.nativeEvent.isComposing
+  );
 }

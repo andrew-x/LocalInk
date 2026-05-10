@@ -34,6 +34,8 @@ storyLogger.error("load-failed", { error });
 
 Do not log user writing, prompts, manuscript text, or raw action payloads. Log operational metadata such as action names, IDs when needed, counts, durations, success state, and sanitized error codes.
 
+Image generation has the same privacy boundary: do not log image prompts, provider prompt bodies, base64 image data, binary image contents, local filesystem paths, or raw provider responses that may contain image data. See `docs/ai-image-generation.md`.
+
 Server action entrypoints should not add ad hoc start/end logs. Mutations get standardized logs from `publicActionClient`; read Server Functions should wrap their work in `runLoggedAction`.
 
 ## Mutation Pattern
@@ -165,3 +167,5 @@ src/actions/
 Use a leading underscore for action-local support files that are not action entrypoints. Schema files should be named `_schemas.ts`; shared action result/input types should be named `_types.ts`.
 
 Use action names that describe the operation in logs, for example `get-scene`, `create-scene`, `update-character`, or `delete-lore-entry`.
+
+Generated image actions live in `src/actions/generated-images/`; their route workflow is documented in `docs/ai-image-generation.md`. Prompt enhancement actions follow the same privacy rule as image generation: do not log raw image descriptions, enhanced descriptions, final provider prompts, or provider responses.

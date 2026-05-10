@@ -4,7 +4,7 @@ import {
   createOpenRouter,
   type OpenRouterProvider,
 } from "@openrouter/ai-sdk-provider";
-import { type CallSettings, type Prompt, streamText } from "ai";
+import { type CallSettings, generateText, type Prompt, streamText } from "ai";
 
 const LOCALINK_AI_MODELS = {
   main: "deepseek/deepseek-v4-pro",
@@ -22,6 +22,13 @@ export type StreamLocalinkTextOptions = Prompt &
     onAbort?: () => PromiseLike<void> | void;
     onError?: (event: { error: unknown }) => PromiseLike<void> | void;
     onFinish?: () => PromiseLike<void> | void;
+    model?: LocalinkAiModel;
+    providerOptions?: LocalinkProviderOptions;
+  };
+
+export type GenerateLocalinkTextOptions = Prompt &
+  CallSettings & {
+    abortSignal?: AbortSignal;
     model?: LocalinkAiModel;
     providerOptions?: LocalinkProviderOptions;
   };
@@ -59,6 +66,16 @@ export function streamLocalinkText({
   ...options
 }: StreamLocalinkTextOptions) {
   return streamText({
+    model: getLocalinkLanguageModel(model),
+    ...options,
+  });
+}
+
+export function generateLocalinkText({
+  model = "main",
+  ...options
+}: GenerateLocalinkTextOptions) {
+  return generateText({
     model: getLocalinkLanguageModel(model),
     ...options,
   });

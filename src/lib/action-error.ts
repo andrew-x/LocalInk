@@ -1,4 +1,9 @@
-export type ActionErrorCode = "BAD_REQUEST" | "MAINTENANCE" | "INTERNAL_ERROR";
+export type ActionErrorCode =
+  | "AI_NOT_CONFIGURED"
+  | "BAD_REQUEST"
+  | "GENERATION_FAILED"
+  | "INTERNAL_ERROR"
+  | "MAINTENANCE";
 
 export class ActionError extends Error {
   readonly code: ActionErrorCode;
