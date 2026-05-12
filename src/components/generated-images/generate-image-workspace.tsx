@@ -227,7 +227,7 @@ export function GenerateImageWorkspace({
                 label="Aspect ratio"
               >
                 <div className="grid gap-1">
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-5 gap-1">
                     {COMMON_ASPECT_RATIOS.map((ratio) => (
                       <button
                         aria-pressed={field.value === ratio}
@@ -516,9 +516,10 @@ function FieldShell({
 }
 
 const COMMON_ASPECT_RATIOS: GenerateImageFormValues["aspectRatio"][] = [
-  "9:16",
+  "1:1",
   "3:4",
   "4:3",
+  "9:16",
   "16:9",
 ];
 
