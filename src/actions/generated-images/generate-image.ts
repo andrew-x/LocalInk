@@ -15,7 +15,6 @@ export const generateImage = publicActionClient
     const image = await generateAndStoreGeneratedImage(parsedInput);
 
     revalidatePath("/images");
-    revalidatePath("/images/generate");
     revalidatePath(`/images/${image.id}`);
 
     return image;
