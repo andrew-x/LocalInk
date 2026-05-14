@@ -42,6 +42,8 @@ type GenerateImageWorkspaceProps = {
   initialImage: GeneratedImageListItem | null;
 };
 
+type PromptSource = "input" | "enhanced";
+
 export function GenerateImageWorkspace({
   defaultValues,
   initialImage,
@@ -52,6 +54,8 @@ export function GenerateImageWorkspace({
   const [showMoreRatios, setShowMoreRatios] = useState(
     () => !COMMON_ASPECT_RATIOS.includes(defaultValues.aspectRatio),
   );
+  const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
+  const [promptSource, setPromptSource] = useState<PromptSource>("input");
   const { form, action: generateAction } = useHookFormAction(
     generateImage,
     formResolver(generateImageFormSchema),
@@ -62,12 +66,13 @@ export function GenerateImageWorkspace({
     },
   );
   const enhancePromptAction = useAction(enhanceImagePrompt);
-  const imagePrompt = form.watch("prompt");
   const stylePreset = form.watch("stylePreset");
   const stylePrompt = form.watch("stylePrompt");
   const isGenerating = generateAction.isPending;
   const isEnhancingPrompt = enhancePromptAction.isPending;
-  const canEnhancePrompt = Boolean(imagePrompt?.trim());
+  const hasEnhancedPrompt = Boolean(enhancedPrompt?.trim());
+  const selectedPromptSource =
+    promptSource === "enhanced" && hasEnhancedPrompt ? "enhanced" : "input";
   const rootError = form.formState.errors.root?.message;
 
   useEffect(() => {
@@ -90,7 +95,13 @@ export function GenerateImageWorkspace({
 
     form.clearErrors("root");
 
-    const result = await generateAction.executeAsync(values);
+    const result = await generateAction.executeAsync({
+      ...values,
+      prompt:
+        selectedPromptSource === "enhanced" && enhancedPrompt
+          ? enhancedPrompt
+          : values.prompt,
+    });
 
     if (result.data) {
       setGeneratedImage(result.data);
@@ -113,7 +124,7 @@ export function GenerateImageWorkspace({
   }
 
   async function handleEnhancePrompt() {
-    if (isGenerating || isEnhancingPrompt || !canEnhancePrompt) {
+    if (isGenerating || isEnhancingPrompt || !form.getValues("prompt").trim()) {
       return;
     }
 
@@ -123,11 +134,8 @@ export function GenerateImageWorkspace({
     const result = await enhancePromptAction.executeAsync(form.getValues());
 
     if (result.data) {
-      form.setValue("prompt", result.data.prompt, {
-        shouldDirty: true,
-        shouldTouch: true,
-        shouldValidate: true,
-      });
+      setEnhancedPrompt(result.data.prompt);
+      setPromptSource("enhanced");
       toast.success("Image description enhanced.");
       return;
     }
@@ -185,37 +193,48 @@ export function GenerateImageWorkspace({
           <Controller
             control={form.control}
             name="prompt"
-            render={({ field, fieldState }) => (
-              <FieldShell
-                error={fieldState.error?.message}
-                label="Image description"
-                action={
-                  <Button
-                    aria-label="Enhance image description"
-                    className="size-6 p-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                    disabled={
-                      isGenerating || isEnhancingPrompt || !canEnhancePrompt
-                    }
-                    leftSection={<Sparkles aria-hidden="true" />}
-                    loading={isEnhancingPrompt}
-                    onClick={handleEnhancePrompt}
-                    size="sm"
-                    tooltip="Enhance with DeepSeek V4"
-                    type="button"
-                    variant="ghost"
+            render={({ field, fieldState }) => {
+              const canEnhancePrompt = Boolean(field.value?.trim());
+
+              return (
+                <FieldShell
+                  error={fieldState.error?.message}
+                  label="Image description"
+                  action={
+                    <Button
+                      aria-label="Enhance image description"
+                      className="size-6 p-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                      disabled={
+                        isGenerating || isEnhancingPrompt || !canEnhancePrompt
+                      }
+                      leftSection={<Sparkles aria-hidden="true" />}
+                      loading={isEnhancingPrompt}
+                      onClick={handleEnhancePrompt}
+                      size="sm"
+                      tooltip="Enhance with DeepSeek V4"
+                      type="button"
+                      variant="ghost"
+                    />
+                  }
+                >
+                  <Textarea
+                    {...field}
+                    aria-invalid={fieldState.invalid || undefined}
+                    className="min-h-36 resize-none text-label"
+                    maxLength={4000}
+                    placeholder="A rain-slick alley outside a tiny midnight print shop..."
+                    rows={6}
                   />
-                }
-              >
-                <Textarea
-                  {...field}
-                  aria-invalid={fieldState.invalid || undefined}
-                  className="min-h-64 resize-none text-label"
-                  maxLength={4000}
-                  placeholder="A rain-slick alley outside a tiny midnight print shop..."
-                  rows={12}
-                />
-              </FieldShell>
-            )}
+                  {enhancedPrompt ? (
+                    <EnhancedPromptChoice
+                      onPromptSourceChange={setPromptSource}
+                      prompt={enhancedPrompt}
+                      promptSource={selectedPromptSource}
+                    />
+                  ) : null}
+                </FieldShell>
+              );
+            }}
           />
 
           <Controller
@@ -488,6 +507,66 @@ export function GenerateImageWorkspace({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function EnhancedPromptChoice({
+  onPromptSourceChange,
+  prompt,
+  promptSource,
+}: {
+  onPromptSourceChange: (source: PromptSource) => void;
+  prompt: string;
+  promptSource: PromptSource;
+}) {
+  const useEnhancedPrompt = promptSource === "enhanced";
+
+  return (
+    <div className="grid gap-2 rounded-md border border-border/80 bg-card/65 p-2.5 shadow-xs">
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <Label className="block truncate text-label-sm">
+            Enhanced prompt
+          </Label>
+          <p className="truncate text-caption text-muted-foreground">
+            {useEnhancedPrompt ? "Used for generation" : "Preview only"}
+          </p>
+        </div>
+        <button
+          aria-checked={useEnhancedPrompt}
+          aria-label="Use enhanced prompt for generation"
+          className={cn(
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35",
+            useEnhancedPrompt
+              ? "border-primary/55 bg-primary"
+              : "border-border/80 bg-muted/70 hover:bg-muted",
+          )}
+          onClick={() =>
+            onPromptSourceChange(useEnhancedPrompt ? "input" : "enhanced")
+          }
+          role="switch"
+          type="button"
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "size-5 rounded-full bg-background shadow-xs transition-transform",
+              useEnhancedPrompt && "translate-x-5",
+            )}
+          />
+        </button>
+      </div>
+      <div
+        className={cn(
+          "max-h-64 min-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-md border px-2.5 py-2 text-label-sm leading-relaxed transition-[background-color,border-color,color]",
+          useEnhancedPrompt
+            ? "border-primary/35 bg-background text-foreground shadow-xs"
+            : "border-border/70 bg-background/45 text-muted-foreground",
+        )}
+      >
+        {prompt}
+      </div>
     </div>
   );
 }
