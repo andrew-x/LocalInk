@@ -9,6 +9,7 @@ import {
   GENERATED_IMAGE_ASPECT_RATIOS,
   GENERATED_IMAGE_MODELS,
   GENERATED_IMAGE_SIZES,
+  GENERATED_IMAGE_STYLE_PRESETS,
   getGeneratedImageDefaults,
   getGeneratedImageDownloadFilename,
   getGeneratedImageDownloadUrl,
@@ -47,6 +48,101 @@ describe("generated image prompts and styles", () => {
         stylePrompt: `${presetPrompt} Extra.`,
       }),
     ).toBe("custom");
+  });
+
+  test("includes a high-quality color classic film camera style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "classic-film-camera",
+    );
+
+    expect(preset?.name).toBe("Classic film camera");
+    expect(preset?.prompt).toContain("High-resolution color photograph");
+    expect(preset?.prompt).toContain("not black-and-white");
+    expect(preset?.prompt).toContain("fine organic grain");
+    expect(preset?.prompt).toContain("avoid sepia");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "classic-film-camera",
+    );
+  });
+
+  test("includes a 2000s point-and-shoot style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "2000s-point-and-shoot",
+    );
+
+    expect(preset?.name).toBe("2000s point-and-shoot");
+    expect(preset?.prompt).toContain(
+      "early-2000s consumer digital point-and-shoot photo",
+    );
+    expect(preset?.prompt).toContain("not a low-resolution file");
+    expect(preset?.prompt).toContain("Built-in direct flash");
+    expect(preset?.prompt).toContain("small-sensor deep focus");
+    expect(preset?.prompt).toContain("Avoid compression artifacts");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "2000s-point-and-shoot",
+    );
+  });
+
+  test("includes a disposable camera style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "disposable-camera",
+    );
+
+    expect(preset?.name).toBe("Disposable camera");
+    expect(preset?.prompt).toContain("single-use 35mm color");
+    expect(preset?.prompt).toContain("Fixed-focus plastic lens");
+    expect(preset?.prompt).toContain("built-in flash");
+    expect(preset?.prompt).toContain("drugstore photo");
+    expect(preset?.prompt).toContain("avoid low resolution");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "disposable-camera",
+    );
+  });
+
+  test("includes an instant film style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "instant-film",
+    );
+
+    expect(preset?.name).toBe("Instant film");
+    expect(preset?.prompt).toContain("fresh instant film photograph");
+    expect(preset?.prompt).toContain("Polaroid or Instax color film");
+    expect(preset?.prompt).toContain("Soft contrast");
+    expect(preset?.prompt).toContain("adding a white instant-film border");
+    expect(preset?.prompt).toContain("Avoid low resolution");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "instant-film",
+    );
+  });
+
+  test("includes a candid street photography style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "candid-street-photo",
+    );
+
+    expect(preset?.name).toBe("Candid street photo");
+    expect(preset?.prompt).toContain("Candid documentary street photograph");
+    expect(preset?.prompt).toContain("unposed real-life moment");
+    expect(preset?.prompt).toContain("available light");
+    expect(preset?.prompt).toContain("avoid studio lighting");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "candid-street-photo",
+    );
+  });
+
+  test("includes a nightlife party photography style preset", () => {
+    const preset = GENERATED_IMAGE_STYLE_PRESETS.find(
+      (option) => option.id === "nightlife-party-photo",
+    );
+
+    expect(preset?.name).toBe("Nightlife party photo");
+    expect(preset?.prompt).toContain("Candid nightlife and party photograph");
+    expect(preset?.prompt).toContain("direct on-camera flash");
+    expect(preset?.prompt).toContain("saturated practical lights or neon");
+    expect(preset?.prompt).toContain("avoid fashion editorial posing");
+    expect(detectGeneratedImageStylePreset(preset?.prompt ?? "")).toBe(
+      "nightlife-party-photo",
+    );
   });
 
   test("builds separated style, subject, and avoid sections in that order", () => {

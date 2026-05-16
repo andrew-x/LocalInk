@@ -37,10 +37,40 @@ export const GENERATED_IMAGE_STYLE_PRESETS = [
       "Casual smartphone snapshot, like a photo your friend would take of you. Modern phone wide lens (~26mm equivalent) with HDR-blended exposure, mixed available light (daylight plus warm interior bulbs is fine), slight handheld motion, slightly off-center or crooked framing, mild luminance noise in shadows. The subject is an ordinary real person — relatable, not striking — with natural unstyled hair (a few flyaways, possibly slightly messy), unretouched skin that shows real pores, freckles, redness or minor blemishes, everyday clothing that may be wrinkled or unremarkable, and a candid unposed expression mid-action or mid-conversation. The background is not curated — everyday clutter, mundane interiors, and imperfect composition are welcome.",
   },
   {
+    id: "2000s-point-and-shoot",
+    name: "2000s point-and-shoot",
+    prompt:
+      "High-quality recreation of an early-2000s consumer digital point-and-shoot photo, like a compact pocket camera snapshot, not a modern phone photo and not a low-resolution file. Built-in direct flash or harsh on-camera fill when appropriate, small-sensor deep focus, 35mm-equivalent wide-normal lens, slightly flattened perspective, crisp edges, hard specular highlights, mild shadow sensor noise, and bright flash foregrounds falling into darker ambient backgrounds. Auto white balance can lean cool indoors or slightly green under fluorescents; colors feel punchy but believable with a JPEG-era consumer-camera response. Casual imperfect crop, ordinary clutter, house-party, mall, bedroom, diner, school, or night-out snapshot energy. Avoid compression artifacts, pixelation, fake nostalgia filters, sepia, heavy blur, disposable-camera light leaks, VHS artifacts, and visible date stamps unless the subject explicitly asks for one.",
+  },
+  {
+    id: "disposable-camera",
+    name: "Disposable camera",
+    prompt:
+      "High-quality recreation of a single-use 35mm color disposable camera snapshot, with the vibe of a real printed drugstore photo rather than a damaged scan. Fixed-focus plastic lens character, built-in flash, deep depth of field, simple center-weighted exposure, mild corner falloff, slight edge softness, clean fine film grain, and bright flash foregrounds that fall into darker ambient backgrounds. Colors should feel like consumer color negative film: warm skin, punchy reds and yellows, slightly cool shadows, modest contrast, and imperfect everyday framing. Preserve clear subject detail and believable skin texture; avoid low resolution, pixelation, heavy blur, scratches, dust, fake light leaks, torn paper, sepia, VHS artifacts, and visible date stamps unless specifically requested.",
+  },
+  {
+    id: "instant-film",
+    name: "Instant film",
+    prompt:
+      "High-quality recreation of a fresh instant film photograph, like Polaroid or Instax color film, with the color response and tonal softness of instant chemistry but not a degraded old print. Soft contrast, gentle highlight bloom, creamy rolloff, slightly pastel colors, warm skin tones, cool cyan-green shadows, modest dynamic range, subtle film texture, and simple close-range composition. Feels tactile, intimate, and candid, with clean real-camera detail beneath the softer tonality. Avoid low resolution, muddy blur, sepia, scratched or stained paper, fake aging, excessive fading, heavy vignettes, light leaks, and adding a white instant-film border unless the subject explicitly asks for one.",
+  },
+  {
     id: "social-media-photo",
     name: "Social media photo",
     prompt:
       "Lifestyle photo for a normal person's social media — the kind a friend with a few hundred followers would post, not an influencer or brand campaign. Soft flattering light from a large window or single softbox, deliberate but uncontrived framing, shallow depth of field from a ~50mm f/1.8 lens. The subject is a real ordinary person with natural skin texture preserved beneath light or no makeup, hair styled casually but not salon-perfect (some natural movement and stray strands), relatable proportions, and a genuine candid expression rather than a posed model look. Modern phone-camera color grade with gently lifted shadows and a subtle warm cast. Reads as well-shot and lightly edited, never retouched or AI-perfected.",
+  },
+  {
+    id: "candid-street-photo",
+    name: "Candid street photo",
+    prompt:
+      "Candid documentary street photograph capturing an unposed real-life moment, as if taken by an observant photographer moving through the scene. 28mm or 35mm rangefinder-style lens, available light, zone-focus feel with enough depth of field to hold the subject and surrounding context, crisp real-camera detail, natural motion in gestures without low-quality blur. Composition should feel found rather than staged: off-center framing, layered foreground and background, ordinary street or public-space details, imperfect timing, spontaneous body language, and people who look unaware of the camera or mid-conversation. Natural color documentary grade with realistic contrast and skin tones; avoid studio lighting, fashion editorial posing, influencer polish, paparazzi flash, surveillance-camera angles, heavy retouching, and artificial candidness.",
+  },
+  {
+    id: "nightlife-party-photo",
+    name: "Nightlife party photo",
+    prompt:
+      "Candid nightlife and party photograph with direct on-camera flash, crisp real-camera detail, and spontaneous social energy. Bar, club, house party, concert, late-night diner, or street-after-midnight atmosphere; bright flash-lit faces and hands against darker ambient backgrounds, glossy highlights, saturated practical lights or neon, deep shadows, and a slight wide-angle close-range feel. People should look caught mid-laugh, mid-conversation, dancing, leaning into frame, or reacting naturally, with imperfect crop and crowded layered background details. Preserve believable skin texture and sharp focus on the main subject; avoid fashion editorial posing, influencer polish, paparazzi harassment, surveillance-camera angles, severe motion blur, red-eye, crushed black detail, fake low-resolution artifacts, and overprocessed nightclub HDR.",
   },
   {
     id: "professional-posed-photo",
@@ -53,6 +83,12 @@ export const GENERATED_IMAGE_STYLE_PRESETS = [
     name: "Cinematic photo",
     prompt:
       "Cinematic film still shot on 35mm, in the style of a character-driven contemporary indie film. Anamorphic or fast prime lens with shallow depth of field and oval bokeh, motivated practical-source key light with deep ambient shadow, naturalistic production design, restrained desaturated color grade, fine organic film grain. The subject is cast for realism rather than glamour — an everyday-looking person with naturalistic features, lived-in skin showing real texture and slight imperfections, real hair, and costume that reads as actual clothing rather than fashion editorial. Framing and lighting read as composed by a cinematographer, not rendered by a computer.",
+  },
+  {
+    id: "classic-film-camera",
+    name: "Classic film camera",
+    prompt:
+      "High-resolution color photograph with a modern mirrorless-camera film simulation look inspired by classic color film and 20th-century documentary magazine photography, not black-and-white and not a degraded vintage scan. Real-camera sharpness with clean fine detail, a 35mm or 50mm prime lens feel, natural available light, gentle highlight rolloff, crisp but not clinical microcontrast, and only fine organic grain. Muted color palette with subdued saturation, suppressed magenta, cool blue-green shadows, warm skin-friendly highlights, earthy reds and yellows, olive greens, and slightly faded print-like color separation. Preserve accurate focus, high resolution, natural skin texture, and believable material detail; avoid sepia, monochrome, scratches, dust, light leaks, blur, low-definition softness, Polaroid damage, VHS artifacts, and fake aged-paper effects.",
   },
 ] as const;
 
