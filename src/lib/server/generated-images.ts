@@ -22,14 +22,13 @@ import {
   getLocalinkDataMode,
   type LocalinkDataMode,
 } from "@/lib/drizzle/paths";
-import {
-  type GeneratedImageStylePreset as DbGeneratedImageStylePreset,
-  generatedImages,
-} from "@/lib/drizzle/schema";
+import { generatedImages } from "@/lib/drizzle/schema";
 import {
   buildGeneratedImageProviderPrompt,
   buildGeneratedImageSystemInstruction,
+  CUSTOM_GENERATED_IMAGE_STYLE_PRESET,
   detectGeneratedImageStylePreset,
+  GENERATED_IMAGE_STYLE_PRESET_IDS,
   type GeneratedImageAspectRatio,
   type GeneratedImageModel,
   type GeneratedImageModelConfig,
@@ -933,12 +932,19 @@ function toGeneratedImageDetail(
 }
 
 function normalizeRowStylePreset(
-  preset: DbGeneratedImageStylePreset,
+  preset: string,
   stylePrompt: string,
 ): GeneratedImageStylePreset {
-  return preset === "custom"
-    ? detectGeneratedImageStylePreset(stylePrompt)
-    : preset;
+  if (
+    preset !== CUSTOM_GENERATED_IMAGE_STYLE_PRESET &&
+    GENERATED_IMAGE_STYLE_PRESET_IDS.includes(
+      preset as GeneratedImageStylePreset,
+    )
+  ) {
+    return preset as GeneratedImageStylePreset;
+  }
+
+  return detectGeneratedImageStylePreset(stylePrompt);
 }
 
 function isSupportedGeneratedImageMimeType(

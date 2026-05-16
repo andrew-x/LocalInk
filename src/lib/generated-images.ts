@@ -1,3 +1,15 @@
+import {
+  CUSTOM_GENERATED_IMAGE_STYLE_PRESET,
+  type GeneratedImageBuiltInStylePreset,
+  type GeneratedImageStylePreset,
+} from "@/lib/generated-image-style-presets";
+
+export {
+  CUSTOM_GENERATED_IMAGE_STYLE_PRESET,
+  GENERATED_IMAGE_STYLE_PRESET_IDS,
+  type GeneratedImageStylePreset,
+} from "@/lib/generated-image-style-presets";
+
 export const GENERATED_IMAGE_MODELS = [
   {
     id: "openai/gpt-image-2/text-to-image",
@@ -90,9 +102,11 @@ export const GENERATED_IMAGE_STYLE_PRESETS = [
     prompt:
       "High-resolution color photograph with a modern mirrorless-camera film simulation look inspired by classic color film and 20th-century documentary magazine photography, not black-and-white and not a degraded vintage scan. Real-camera sharpness with clean fine detail, a 35mm or 50mm prime lens feel, natural available light, gentle highlight rolloff, crisp but not clinical microcontrast, and only fine organic grain. Muted color palette with subdued saturation, suppressed magenta, cool blue-green shadows, warm skin-friendly highlights, earthy reds and yellows, olive greens, and slightly faded print-like color separation. Preserve accurate focus, high resolution, natural skin texture, and believable material detail; avoid sepia, monochrome, scratches, dust, light leaks, blur, low-definition softness, Polaroid damage, VHS artifacts, and fake aged-paper effects.",
   },
-] as const;
-
-export const CUSTOM_GENERATED_IMAGE_STYLE_PRESET = "custom";
+] as const satisfies ReadonlyArray<{
+  id: GeneratedImageBuiltInStylePreset;
+  name: string;
+  prompt: string;
+}>;
 
 export const GENERATED_IMAGE_STYLE_PRESET_OPTIONS = [
   ...GENERATED_IMAGE_STYLE_PRESETS,
@@ -139,9 +153,6 @@ export type GeneratedImageModelConfig = (typeof GENERATED_IMAGE_MODELS)[number];
 export type GeneratedImageOutputModalities =
   (typeof GENERATED_IMAGE_MODELS)[number]["outputModalities"];
 export type GeneratedImageProvider = GeneratedImageModelConfig["provider"];
-export type GeneratedImageStylePreset =
-  | (typeof GENERATED_IMAGE_STYLE_PRESETS)[number]["id"]
-  | typeof CUSTOM_GENERATED_IMAGE_STYLE_PRESET;
 export type GeneratedImageAspectRatio =
   (typeof GENERATED_IMAGE_ASPECT_RATIOS)[number];
 export type GeneratedImageSize = (typeof GENERATED_IMAGE_SIZES)[number];
