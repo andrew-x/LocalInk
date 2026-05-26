@@ -13,6 +13,7 @@ const navigationItems = [
   { href: "/", label: "Home" },
   { href: "/images/generate", label: "Generate Images" },
   { href: "/images", label: "Image Gallery" },
+  { href: "/prompts", label: "Prompts" },
 ] as const;
 
 export function AppHeader({ actions, className }: AppHeaderProps) {

@@ -300,7 +300,6 @@ export function AiProseGenerationWidget({
     };
 
     setActiveDraft(draft);
-    setInstructions("");
     await streamDraft(draft);
   }
 
@@ -342,6 +341,7 @@ export function AiProseGenerationWidget({
 
     handle.setContentEditable(true);
     handle.acceptDraft(activeDraft.draftId, text);
+    setInstructions("");
     resetDraftState();
   }
 

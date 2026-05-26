@@ -526,9 +526,9 @@ export function StoryEditorChatPane({
     );
   }
 
-  async function handleCopyMessage(message: StoryChatVisibleMessage) {
+  async function handleCopyMessage(text: string) {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(text);
       toast.success("Copied.");
     } catch {
       toast.error("The message could not be copied.");
@@ -897,7 +897,7 @@ type ChatMessageProps = {
   canRegenerate: boolean;
   isBusy: boolean;
   message: DraftStoryChatMessage;
-  onCopy: (message: StoryChatVisibleMessage) => Promise<void>;
+  onCopy: (text: string) => Promise<void>;
   onRegenerate: (message: StoryChatVisibleMessage) => Promise<void>;
 };
 
@@ -908,11 +908,17 @@ function ChatMessage({
   onCopy,
   onRegenerate,
 }: ChatMessageProps) {
+  const contentRef = useRef<HTMLDivElement | HTMLParagraphElement | null>(null);
   const isAssistant = message.role === "assistant";
   const hasContent = message.content.trim().length > 0;
   const isWaitingForAssistant =
     message.streamStatus === "waiting" ||
     (message.streamStatus === "streaming" && message.content.length === 0);
+
+  function copyVisibleContent() {
+    const text = contentRef.current?.textContent ?? message.content;
+    void onCopy(text);
+  }
 
   if (isAssistant) {
     return (
@@ -920,7 +926,10 @@ function ChatMessage({
         {isWaitingForAssistant ? (
           <AssistantWaitingMessage />
         ) : (
-          <div className="whitespace-pre-wrap break-words font-content text-[0.875rem] leading-6 text-foreground">
+          <div
+            className="whitespace-pre-wrap break-words font-content text-[0.875rem] leading-6 text-foreground"
+            ref={contentRef}
+          >
             {message.content}
           </div>
         )}
@@ -929,7 +938,7 @@ function ChatMessage({
             disabled={!hasContent}
             icon={<Copy aria-hidden="true" className="size-3" />}
             label="Copy assistant message"
-            onClick={() => void onCopy(message)}
+            onClick={copyVisibleContent}
             tooltip="Copy"
           />
           {canRegenerate ? (
@@ -949,7 +958,10 @@ function ChatMessage({
   return (
     <li className="grid justify-items-end gap-1.5">
       <div className="max-w-[88%] rounded-md border border-primary/20 bg-primary px-3 py-2 text-primary-foreground shadow-xs">
-        <p className="whitespace-pre-wrap break-words text-[0.8125rem] leading-5">
+        <p
+          className="whitespace-pre-wrap break-words text-[0.8125rem] leading-5"
+          ref={contentRef}
+        >
           {message.content}
         </p>
       </div>
@@ -958,7 +970,7 @@ function ChatMessage({
           disabled={!message.content}
           icon={<Copy aria-hidden="true" className="size-3" />}
           label="Copy user message"
-          onClick={() => void onCopy(message)}
+          onClick={copyVisibleContent}
           tooltip="Copy"
         />
       </div>

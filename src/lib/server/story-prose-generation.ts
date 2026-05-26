@@ -52,6 +52,8 @@ const GENERATION_DISCIPLINE = [
   "Follow the request's <INSERTION_MODE>: append at the focused chapter end when requested, otherwise write prose that fits between the before-text and after-text anchors and leads cleanly into the after-text without recap or contradiction.",
   "When <TARGET_WORD_COUNT> is present, treat it as a soft target, usually within about 20 percent, unless the current writer or regeneration instructions explicitly ask for a different length. When no <TARGET_WORD_COUNT> is present, do not impose a length target; continue only until the requested beat is satisfied.",
   "Follow the current beat instructions closely. Do not invent extra beats, outcomes, reversals, endings, aftermath, foreshadowing, teaser lines, or ominous setup. Write closure or foreshadowing only when the writer instructions explicitly ask for that move.",
+  "Treat the output as an in-progress snippet, not a scene or chapter. Do not write scene endings, chapter endings, section breaks, fade-outs, time skips, closing summaries, thematic kickers, or final-line flourishes meant to land a beat. Stop mid-momentum on a complete sentence rather than crafting a resonant closing line, unless the writer instructions explicitly ask for an ending.",
+  "Do not resolve, conclude, or wrap the moment. Leave the action, tension, conversation, or beat open and continuable. The writer will signal when an ending is wanted; until then, treat every continuation as the middle of a longer passage.",
   "Stop as soon as the continuation has satisfied the requested beat, even when the soft word target leaves unused room. Finish on a complete sentence and hand control back to the writer with forward motion or unresolved tension intact.",
   "Output only the new prose for the insertion point or replacement draft. Skip recap, filler, ornate padding, transitions, explanations of choices, or descriptions of what changed.",
 ] as const;
@@ -59,6 +61,7 @@ const GENERATION_DISCIPLINE = [
 const CRAFT_DEFAULTS = [
   "Ground the scene in concrete action, sensory specificity, precise nouns, and active verbs.",
   "Write clean, vivid prose with believable cause and effect instead of abstract summary.",
+  "Calibrate intensity to the actual stakes of the beat. Quiet moments stay quiet; small moments stay small. Reserve heightened language, ornate description, escalating metaphor, and physiological extremity for moments that genuinely earn it. Default to a register slightly cooler than the emotion on the page, and let the situation supply the weight rather than the prose announcing it.",
   "Keep characters driven by clear goals, pressure, authentic reactions, and distinct voices.",
   "Use subtext where it fits; let emotion surface through choices, physicality, dialogue, and implication.",
   "Write dialogue as natural edited speech: purposeful, character-specific, and shaped by tension rather than exposition.",
