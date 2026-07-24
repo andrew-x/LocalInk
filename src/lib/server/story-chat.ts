@@ -268,8 +268,7 @@ export async function prepareStoryChatRegeneration({
     );
 
     if (
-      !latestMessage ||
-      latestMessage.role !== "assistant" ||
+      latestMessage?.role !== "assistant" ||
       latestMessage.id !== assistantMessageId
     ) {
       throw new ActionError(

@@ -829,23 +829,20 @@ function MarkdownPreview({ text }: { text: string }) {
   return (
     <>
       {blocks.map((block, blockIndex) => (
+        // Composite index+content keys are stable for this fully re-rendered,
+        // stateless markdown preview; index guards against duplicate text.
+        // biome-ignore lint/suspicious/noArrayIndexKey: static presentational text
         <span className="mb-5 block last:mb-0" key={`${blockIndex}-${block}`}>
           {block.split("\n").map((line, lineIndex) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: static presentational text
             <span key={`${lineIndex}-${line}`}>
               {lineIndex > 0 ? <br /> : null}
               {parseMarkdownInline(line).map((segment, segmentIndex) => {
-                const content = (
-                  <span key={`${segmentIndex}-${segment.text}`}>
-                    {segment.text}
-                  </span>
-                );
+                const key = `${segmentIndex}-${segment.text}`;
 
                 if (segment.bold && segment.italic) {
                   return (
-                    <strong
-                      className="font-semibold italic"
-                      key={`${segmentIndex}-${segment.text}`}
-                    >
+                    <strong className="font-semibold italic" key={key}>
                       {segment.text}
                     </strong>
                   );
@@ -853,10 +850,7 @@ function MarkdownPreview({ text }: { text: string }) {
 
                 if (segment.bold) {
                   return (
-                    <strong
-                      className="font-semibold"
-                      key={`${segmentIndex}-${segment.text}`}
-                    >
+                    <strong className="font-semibold" key={key}>
                       {segment.text}
                     </strong>
                   );
@@ -864,16 +858,13 @@ function MarkdownPreview({ text }: { text: string }) {
 
                 if (segment.italic) {
                   return (
-                    <em
-                      className="italic"
-                      key={`${segmentIndex}-${segment.text}`}
-                    >
+                    <em className="italic" key={key}>
                       {segment.text}
                     </em>
                   );
                 }
 
-                return content;
+                return <span key={key}>{segment.text}</span>;
               })}
             </span>
           ))}
