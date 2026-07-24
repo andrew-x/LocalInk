@@ -214,6 +214,13 @@ describe("generated image prompts and styles", () => {
         provider: "openrouter",
         providerModelId: "bytedance-seed/seedream-4.5",
       },
+      {
+        id: "bytedance/seedream-v5.0-pro",
+        name: "Seedream 5 Pro",
+        outputModalities: ["image"],
+        provider: "wavespeed",
+        providerModelId: "bytedance/seedream-v5.0-pro",
+      },
     ]);
     expect(GENERATED_IMAGE_ASPECT_RATIOS).toEqual([
       "1:1",

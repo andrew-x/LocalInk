@@ -39,6 +39,13 @@ export const GENERATED_IMAGE_MODELS = [
     provider: "openrouter",
     providerModelId: "bytedance-seed/seedream-4.5",
   },
+  {
+    id: "bytedance/seedream-v5.0-pro",
+    name: "Seedream 5 Pro",
+    outputModalities: ["image"],
+    provider: "wavespeed",
+    providerModelId: "bytedance/seedream-v5.0-pro",
+  },
 ] as const;
 
 export const GENERATED_IMAGE_STYLE_PRESETS = [

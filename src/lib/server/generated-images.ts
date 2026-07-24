@@ -43,8 +43,6 @@ import { generateId } from "@/lib/util";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL =
   "https://openrouter.ai/api/v1/chat/completions";
-const WAVESPEED_GPT_IMAGE_2_TEXT_TO_IMAGE_URL =
-  "https://api.wavespeed.ai/api/v3/openai/gpt-image-2/text-to-image";
 const WAVESPEED_PREDICTION_RESULT_URL_PREFIX =
   "https://api.wavespeed.ai/api/v3/predictions/";
 const WAVESPEED_API_URL_PREFIX = "https://api.wavespeed.ai/api/v3/";
@@ -52,6 +50,27 @@ const WAVESPEED_PROVIDER = "wavespeed";
 const WAVESPEED_IMAGE_QUALITY = "medium";
 const WAVESPEED_OUTPUT_FORMAT = "png";
 const WAVESPEED_OUTPUT_MIME_TYPE = "image/png";
+// Per-model WaveSpeed request capabilities. Different WaveSpeed models accept
+// different request bodies: GPT Image 2 takes a `quality` field and supports up
+// to 4K, while Seedream tops out at 2K and rejects `quality`. Unknown models
+// fall back to the conservative defaults below.
+const WAVESPEED_MODEL_CAPABILITIES: Record<
+  string,
+  { maxResolution: "2k" | "4k"; supportsQuality: boolean }
+> = {
+  "bytedance/seedream-v5.0-pro": {
+    maxResolution: "2k",
+    supportsQuality: false,
+  },
+  "openai/gpt-image-2/text-to-image": {
+    maxResolution: "4k",
+    supportsQuality: true,
+  },
+};
+const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
+  maxResolution: "2k",
+  supportsQuality: false,
+} as const;
 const WAVESPEED_MAX_POLL_ATTEMPTS = 300;
 const WAVESPEED_POLL_INTERVAL_MS = 1000;
 const MAX_GENERATED_IMAGE_BYTES = 50 * 1024 * 1024;
@@ -608,6 +627,7 @@ async function requestGeneratedImage({
     const response = await requestWaveSpeedGeneratedImage({
       aspectRatio,
       imageSize,
+      modelConfig,
       providerPrompt,
     });
 
@@ -628,10 +648,12 @@ async function requestGeneratedImage({
 async function requestWaveSpeedGeneratedImage({
   aspectRatio,
   imageSize,
+  modelConfig,
   providerPrompt,
 }: {
   aspectRatio: GeneratedImageAspectRatio;
   imageSize: GeneratedImageSize;
+  modelConfig: GeneratedImageModelConfig;
   providerPrompt: string;
 }): Promise<WaveSpeedGeneratedImageOutput> {
   const apiKey = process.env.WAVESPEED_API_KEY;
@@ -644,17 +666,16 @@ async function requestWaveSpeedGeneratedImage({
   }
 
   const submittedBody = await requestWaveSpeedJson(
-    WAVESPEED_GPT_IMAGE_2_TEXT_TO_IMAGE_URL,
+    `${WAVESPEED_API_URL_PREFIX}${modelConfig.providerModelId}`,
     {
-      body: JSON.stringify({
-        aspect_ratio: aspectRatio,
-        enable_base64_output: true,
-        enable_sync_mode: false,
-        output_format: WAVESPEED_OUTPUT_FORMAT,
-        prompt: buildWaveSpeedPrompt(providerPrompt),
-        quality: WAVESPEED_IMAGE_QUALITY,
-        resolution: toWaveSpeedResolution(imageSize),
-      }),
+      body: JSON.stringify(
+        buildWaveSpeedRequestBody({
+          aspectRatio,
+          imageSize,
+          modelConfig,
+          providerPrompt,
+        }),
+      ),
       headers: buildWaveSpeedHeaders(apiKey),
       method: "POST",
     },
@@ -832,8 +853,54 @@ function buildWaveSpeedPrompt(providerPrompt: string): string {
   );
 }
 
-function toWaveSpeedResolution(imageSize: GeneratedImageSize) {
-  return imageSize.toLowerCase();
+function getWaveSpeedModelCapabilities(modelConfig: GeneratedImageModelConfig) {
+  return (
+    WAVESPEED_MODEL_CAPABILITIES[modelConfig.providerModelId] ??
+    WAVESPEED_DEFAULT_MODEL_CAPABILITIES
+  );
+}
+
+function buildWaveSpeedRequestBody({
+  aspectRatio,
+  imageSize,
+  modelConfig,
+  providerPrompt,
+}: {
+  aspectRatio: GeneratedImageAspectRatio;
+  imageSize: GeneratedImageSize;
+  modelConfig: GeneratedImageModelConfig;
+  providerPrompt: string;
+}): Record<string, unknown> {
+  const capabilities = getWaveSpeedModelCapabilities(modelConfig);
+  const body: Record<string, unknown> = {
+    aspect_ratio: aspectRatio,
+    enable_base64_output: true,
+    enable_sync_mode: false,
+    output_format: WAVESPEED_OUTPUT_FORMAT,
+    prompt: buildWaveSpeedPrompt(providerPrompt),
+    resolution: toWaveSpeedResolution(imageSize, capabilities.maxResolution),
+  };
+
+  if (capabilities.supportsQuality) {
+    body.quality = WAVESPEED_IMAGE_QUALITY;
+  }
+
+  return body;
+}
+
+function toWaveSpeedResolution(
+  imageSize: GeneratedImageSize,
+  maxResolution: "2k" | "4k",
+): string {
+  const resolution = imageSize.toLowerCase();
+
+  // Models that top out below 4K must not receive a higher tier than they
+  // support, so clamp the requested size down to the model's ceiling.
+  if (maxResolution === "2k" && resolution === "4k") {
+    return "2k";
+  }
+
+  return resolution;
 }
 
 function getWaveSpeedPrediction(
