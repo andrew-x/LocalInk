@@ -10,6 +10,7 @@ import {
   GENERATED_IMAGE_MODELS,
   GENERATED_IMAGE_SIZES,
   GENERATED_IMAGE_STYLE_PRESETS,
+  generatedImageModelPrefersAffirmativePrompt,
   getGeneratedImageDefaults,
   getGeneratedImageDownloadFilename,
   getGeneratedImageDownloadUrl,
@@ -20,6 +21,7 @@ import {
   normalizeGeneratedImageModel,
   normalizeGeneratedImageSize,
   normalizeGeneratedImageStylePreset,
+  PHOTOREALISM_AFFIRMATIVE_PROMPT,
   PHOTOREALISM_INSTRUCTIONS,
   PHOTOREALISM_NEGATIVE_PROMPT,
 } from "./generated-images";
@@ -158,6 +160,63 @@ describe("generated image prompts and styles", () => {
       prompt.indexOf("Subject:"),
     );
     expect(prompt.indexOf("Subject:")).toBeLessThan(prompt.indexOf("Avoid:"));
+  });
+
+  test("flags only Seedream models as preferring affirmative prompts", () => {
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "bytedance-seed/seedream-4.5",
+      ),
+    ).toBe(true);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "bytedance/seedream-v5.0-pro",
+      ),
+    ).toBe(true);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "openai/gpt-image-2/text-to-image",
+      ),
+    ).toBe(false);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "google/gemini-3-pro-image-preview",
+      ),
+    ).toBe(false);
+  });
+
+  test("builds a photorealism-first, negation-free prompt for Seedream models", () => {
+    const prompt = buildGeneratedImageProviderPrompt({
+      model: "bytedance/seedream-v5.0-pro",
+      prompt: "A brass key on a rain-dark windowsill.",
+      stylePrompt: "Cinematic light, shallow depth of field.",
+    });
+
+    // Photorealism anchor and subject lead the prompt; the style follows.
+    expect(prompt.startsWith("Real photograph. Photorealistic")).toBe(true);
+    expect(prompt.indexOf("Subject:")).toBeLessThan(
+      prompt.indexOf("Photographic style:"),
+    );
+    expect(prompt).toContain(PHOTOREALISM_AFFIRMATIVE_PROMPT);
+    // No "Avoid:" list and no forbidden-style names that would backfire.
+    expect(prompt).not.toContain("Avoid:");
+    expect(prompt).not.toContain(PHOTOREALISM_NEGATIVE_PROMPT);
+    expect(prompt).not.toContain("anime");
+    expect(prompt).not.toContain("illustration");
+  });
+
+  test("builds an affirmation-only system instruction for Seedream models", () => {
+    const instructions = buildGeneratedImageSystemInstruction(
+      "bytedance-seed/seedream-4.5",
+    );
+
+    expect(instructions).toContain(
+      "Generate exactly one photorealistic image.",
+    );
+    expect(instructions).toContain(PHOTOREALISM_AFFIRMATIVE_PROMPT);
+    // The negation-based instruction that diffusion models misread is omitted.
+    expect(instructions).not.toContain("Do not produce illustrations");
+    expect(instructions).not.toContain("anime");
   });
 
   test("falls back to a neutral photographic style when none is given", () => {

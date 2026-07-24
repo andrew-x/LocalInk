@@ -34,6 +34,7 @@ import {
   type GeneratedImageModelConfig,
   type GeneratedImageSize,
   type GeneratedImageStylePreset,
+  generatedImageModelPrefersAffirmativePrompt,
   getGeneratedImageModelConfig,
   getGeneratedImageOutputModalities,
   getGeneratedImageDefaults as getSharedGeneratedImageDefaults,
@@ -203,6 +204,7 @@ export async function generateAndStoreGeneratedImage(
     stylePrompt,
   });
   const providerPrompt = buildGeneratedImageProviderPrompt({
+    model: input.model,
     prompt,
     stylePrompt,
   });
@@ -280,11 +282,12 @@ export async function enhanceGeneratedImagePrompt(
         ...input,
         prompt,
         providerPromptTemplate: buildGeneratedImageProviderPrompt({
+          model: input.model,
           prompt: "<ENHANCED_IMAGE_DESCRIPTION>",
           stylePrompt,
         }),
         stylePrompt,
-        systemInstruction: buildGeneratedImageSystemInstruction(),
+        systemInstruction: buildGeneratedImageSystemInstruction(input.model),
       }),
       providerOptions: IMAGE_PROMPT_ENHANCEMENT_PROVIDER_OPTIONS,
       system: buildGeneratedImagePromptEnhancementSystemPrompt(),
@@ -727,7 +730,7 @@ async function requestOpenRouterGeneratedImage({
         },
         messages: [
           {
-            content: buildGeneratedImageSystemInstruction(),
+            content: buildGeneratedImageSystemInstruction(modelConfig.id),
             role: "system",
           },
           {
@@ -847,8 +850,21 @@ function buildOpenRouterHeaders(apiKey: string): Record<string, string> {
   return headers;
 }
 
-function buildWaveSpeedPrompt(providerPrompt: string): string {
-  return [buildGeneratedImageSystemInstruction(), "", providerPrompt].join(
+function buildWaveSpeedPrompt(
+  providerPrompt: string,
+  model: GeneratedImageModel,
+): string {
+  // WaveSpeed has no system role, so instruction-following models get the system
+  // instruction prepended into the single prompt string. Diffusion models
+  // (Seedream) would read that negation-heavy block as content — and, because
+  // they weight the earliest tokens most, front-loading forbidden-style names is
+  // exactly what pulls illustration/anime looks in — so they receive only the
+  // affirmation-first provider prompt.
+  if (generatedImageModelPrefersAffirmativePrompt(model)) {
+    return providerPrompt;
+  }
+
+  return [buildGeneratedImageSystemInstruction(model), "", providerPrompt].join(
     "\n",
   );
 }
@@ -877,7 +893,7 @@ function buildWaveSpeedRequestBody({
     enable_base64_output: true,
     enable_sync_mode: false,
     output_format: WAVESPEED_OUTPUT_FORMAT,
-    prompt: buildWaveSpeedPrompt(providerPrompt),
+    prompt: buildWaveSpeedPrompt(providerPrompt, modelConfig.id),
     resolution: toWaveSpeedResolution(imageSize, capabilities.maxResolution),
   };
 

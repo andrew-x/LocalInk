@@ -182,6 +182,27 @@ export const PHOTOREALISM_INSTRUCTIONS = [
 export const PHOTOREALISM_NEGATIVE_PROMPT =
   "supermodel or fashion-model features, influencer face, magazine-cover beauty, idealized or hyper-attractive features, face slimming, skin smoothing, contoured cheekbones, perfect symmetry, salon-perfect hair, plastic or waxy skin, airbrushed faces, heavy makeup glamour look, oversaturated colors, perfectly circular bokeh, generic stock-photo backdrop, AI sheen, CGI, 3D render, illustration, painting, anime, cartoon";
 
+// Affirmation-only photorealism direction for diffusion-style models (Seedream)
+// that do not honor negation. Naming a style to exclude ("anime", "illustration")
+// in these models' prompts pulls that style into the image instead of suppressing
+// it, so this block states only what the photograph should be — it never lists
+// styles to avoid.
+export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
+  "This is a real, unretouched photograph taken on a physical camera with a real lens. Natural skin shows pores, fine hairs, freckles, and minor blemishes or asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
+
+// Diffusion-based image models (Seedream) weight the earliest tokens most
+// heavily and treat every token as content, so they ignore "do not" phrasing and
+// negative lists. They get an affirmation-only, photorealism-first prompt instead
+// of the negation-based prompt the instruction-tuned models can follow.
+const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
+  new Set(["bytedance-seed/seedream-4.5", "bytedance/seedream-v5.0-pro"]);
+
+export function generatedImageModelPrefersAffirmativePrompt(
+  model: GeneratedImageModel,
+): boolean {
+  return AFFIRMATIVE_PROMPT_IMAGE_MODELS.has(model);
+}
+
 export function getGeneratedImageDefaults(): {
   aspectRatio: GeneratedImageAspectRatio;
   imageSize: GeneratedImageSize;
@@ -304,19 +325,41 @@ export function normalizeGeneratedImageStylePreset({
 }
 
 export function buildGeneratedImageProviderPrompt({
+  model,
   prompt,
   stylePrompt,
 }: {
+  model?: GeneratedImageModel;
   prompt: string;
   stylePrompt: string;
 }): string {
   const trimmedPrompt = prompt.trim();
   const trimmedStylePrompt = stylePrompt.trim();
+  const styleDirection =
+    trimmedStylePrompt ||
+    "Unstyled documentary photograph, ~35mm equivalent lens, available light, mild grain, no retouching.";
+
+  // Seedream and other diffusion models weight the earliest tokens most and do
+  // not honor negation. Lead with the photorealism anchor, then the subject,
+  // and never send an "Avoid:" list of style names — it would be read as
+  // content and pull those styles into the image.
+  if (model && generatedImageModelPrefersAffirmativePrompt(model)) {
+    return [
+      "Real photograph. Photorealistic, shot on a physical camera with a real lens.",
+      "",
+      "Subject:",
+      trimmedPrompt,
+      "",
+      "Photographic style:",
+      styleDirection,
+      "",
+      PHOTOREALISM_AFFIRMATIVE_PROMPT,
+    ].join("\n");
+  }
 
   return [
     "Photographic style:",
-    trimmedStylePrompt ||
-      "Unstyled documentary photograph, ~35mm equivalent lens, available light, mild grain, no retouching.",
+    styleDirection,
     "",
     "Subject:",
     trimmedPrompt,
@@ -326,7 +369,18 @@ export function buildGeneratedImageProviderPrompt({
   ].join("\n");
 }
 
-export function buildGeneratedImageSystemInstruction(): string {
+export function buildGeneratedImageSystemInstruction(
+  model?: GeneratedImageModel,
+): string {
+  // Diffusion models get an affirmation-only instruction with no forbidden-style
+  // names and no "do not" phrasing they would misread as content.
+  if (model && generatedImageModelPrefersAffirmativePrompt(model)) {
+    return [
+      "Generate exactly one photorealistic image.",
+      PHOTOREALISM_AFFIRMATIVE_PROMPT,
+    ].join("\n");
+  }
+
   return [...IMAGE_ONLY_INSTRUCTIONS, ...PHOTOREALISM_INSTRUCTIONS].join("\n");
 }
 
