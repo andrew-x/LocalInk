@@ -33,18 +33,39 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "google/gemini-3.1-flash-image-preview",
   },
   {
-    id: "bytedance-seed/seedream-4.5",
-    name: "Seedream 4.5",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "bytedance-seed/seedream-4.5",
-  },
-  {
     id: "bytedance/seedream-v5.0-pro",
     name: "Seedream 5 Pro",
     outputModalities: ["image"],
     provider: "wavespeed",
     providerModelId: "bytedance/seedream-v5.0-pro",
+  },
+  {
+    id: "microsoft/mai-image-2.5-pro",
+    name: "MAI-Image-2.5 Pro",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "microsoft/mai-image-2.5-pro",
+  },
+  {
+    id: "krea/krea-2-medium",
+    name: "Krea 2 Medium",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "krea/krea-2-medium",
+  },
+  {
+    id: "alibaba/qwen-image-3.0-pro/text-to-image",
+    name: "Qwen Image 3.0 Pro",
+    outputModalities: ["image"],
+    provider: "wavespeed",
+    providerModelId: "alibaba/qwen-image-3.0-pro/text-to-image",
+  },
+  {
+    id: "alibaba/qwen-image-3.0/text-to-image",
+    name: "Qwen Image 3.0",
+    outputModalities: ["image"],
+    provider: "wavespeed",
+    providerModelId: "alibaba/qwen-image-3.0/text-to-image",
   },
 ] as const;
 
@@ -190,17 +211,87 @@ export const PHOTOREALISM_NEGATIVE_PROMPT =
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
   "This is a real, unretouched photograph taken on a physical camera with a real lens. Natural skin shows pores, fine hairs, freckles, and minor blemishes or asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
 
-// Diffusion-based image models (Seedream) weight the earliest tokens most
-// heavily and treat every token as content, so they ignore "do not" phrasing and
-// negative lists. They get an affirmation-only, photorealism-first prompt instead
-// of the negation-based prompt the instruction-tuned models can follow.
+// Compact photorealism direction for models with a hard prompt-length cap
+// (Qwen Image 3.0). It carries the same affirmation-only intent as
+// PHOTOREALISM_AFFIRMATIVE_PROMPT in roughly a third of the characters, so the
+// subject and style still fit inside the provider's limit.
+export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
+  "Natural skin with visible pores and small imperfections, physically plausible light and shadow, realistic depth of field, believable color, and ordinary real people with candid expressions.";
+
+// Diffusion-based image models (Seedream, Qwen Image, MAI-Image, Krea) weight
+// the earliest tokens most heavily and treat every token as content, so they
+// ignore "do not" phrasing and negative lists. They get an affirmation-only,
+// photorealism-first prompt instead of the negation-based prompt the
+// instruction-tuned models can follow.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
-  new Set(["bytedance-seed/seedream-4.5", "bytedance/seedream-v5.0-pro"]);
+  new Set([
+    "alibaba/qwen-image-3.0-pro/text-to-image",
+    "alibaba/qwen-image-3.0/text-to-image",
+    "bytedance/seedream-v5.0-pro",
+    "krea/krea-2-medium",
+    "microsoft/mai-image-2.5-pro",
+  ]);
+
+// OpenRouter serves two kinds of image model. Models that behave like chat
+// models (the Nano Banana models, MAI-Image-2.5 Pro) take a messages array on
+// /api/v1/chat/completions. Native image-generation models reject that endpoint
+// outright ("cannot be used with the chat/completions endpoint") and must go to
+// /api/v1/images, which takes a single prompt string and returns base64 image
+// data. This cannot be inferred from the model ID, so it is listed explicitly.
+const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
+  new Set(["krea/krea-2-medium"]);
+
+// Providers that reject or silently truncate prompts past a documented limit.
+// Qwen Image 3.0 accepts at most 800 characters, well under LocalInk's usual
+// composed prompt length, so those models get the compact prompt shape below.
+const GENERATED_IMAGE_MODEL_PROMPT_LIMITS: Partial<
+  Record<GeneratedImageModel, number>
+> = {
+  "alibaba/qwen-image-3.0-pro/text-to-image": 800,
+  "alibaba/qwen-image-3.0/text-to-image": 800,
+};
+
+const COMPACT_PROMPT_ANCHOR = "Real photograph, shot on a physical camera.";
+// Characters held back for the style direction before the subject is allowed to
+// claim the rest of the budget. The subject is the user's actual intent, so it
+// takes priority; the style presets are boilerplate that degrades gracefully.
+const COMPACT_PROMPT_STYLE_RESERVE = 160;
 
 export function generatedImageModelPrefersAffirmativePrompt(
   model: GeneratedImageModel,
 ): boolean {
   return AFFIRMATIVE_PROMPT_IMAGE_MODELS.has(model);
+}
+
+export function generatedImageModelUsesOpenRouterImagesEndpoint(
+  model: GeneratedImageModel,
+): boolean {
+  return OPENROUTER_IMAGES_ENDPOINT_MODELS.has(model);
+}
+
+export function getGeneratedImageModelPromptLimit(
+  model: GeneratedImageModel,
+): number | null {
+  return GENERATED_IMAGE_MODEL_PROMPT_LIMITS[model] ?? null;
+}
+
+/**
+ * Characters an image description may use before the compact prompt has to trim
+ * it. Returns null for models without a prompt cap.
+ */
+export function getGeneratedImageModelSubjectLimit(
+  model: GeneratedImageModel,
+): number | null {
+  const promptLimit = getGeneratedImageModelPromptLimit(model);
+
+  if (promptLimit === null) {
+    return null;
+  }
+
+  return Math.max(
+    0,
+    promptLimit - getCompactPromptOverhead() - COMPACT_PROMPT_STYLE_RESERVE,
+  );
 }
 
 export function getGeneratedImageDefaults(): {
@@ -339,6 +430,19 @@ export function buildGeneratedImageProviderPrompt({
     trimmedStylePrompt ||
     "Unstyled documentary photograph, ~35mm equivalent lens, available light, mild grain, no retouching.";
 
+  // Prompt-capped providers (Qwen Image 3.0) reject or truncate anything past
+  // their limit, so they get a shorter shape that keeps the photorealism anchor,
+  // the subject, and as much style direction as still fits.
+  const promptLimit = model ? getGeneratedImageModelPromptLimit(model) : null;
+
+  if (promptLimit !== null) {
+    return buildCompactGeneratedImageProviderPrompt({
+      maxLength: promptLimit,
+      styleDirection,
+      subject: trimmedPrompt,
+    });
+  }
+
   // Seedream and other diffusion models weight the earliest tokens most and do
   // not honor negation. Lead with the photorealism anchor, then the subject,
   // and never send an "Avoid:" list of style names — it would be read as
@@ -367,6 +471,77 @@ export function buildGeneratedImageProviderPrompt({
     "Avoid:",
     PHOTOREALISM_NEGATIVE_PROMPT,
   ].join("\n");
+}
+
+function composeCompactGeneratedImagePrompt({
+  styleDirection,
+  subject,
+}: {
+  styleDirection: string;
+  subject: string;
+}): string {
+  const sections = [COMPACT_PROMPT_ANCHOR, "", "Subject:", subject];
+
+  if (styleDirection) {
+    sections.push("", "Style:", styleDirection);
+  }
+
+  sections.push("", PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT);
+
+  return sections.join("\n");
+}
+
+// Fixed characters the compact prompt spends on its anchor, labels, separators,
+// and photorealism line, measured with single-character stand-ins so the subject
+// and style budgets never have to be kept in sync by hand.
+function getCompactPromptOverhead(): number {
+  return (
+    composeCompactGeneratedImagePrompt({ styleDirection: "x", subject: "x" })
+      .length - 2
+  );
+}
+
+function buildCompactGeneratedImageProviderPrompt({
+  maxLength,
+  styleDirection,
+  subject,
+}: {
+  maxLength: number;
+  styleDirection: string;
+  subject: string;
+}): string {
+  const available = Math.max(0, maxLength - getCompactPromptOverhead());
+  const styleReserve = Math.min(
+    styleDirection.length,
+    COMPACT_PROMPT_STYLE_RESERVE,
+  );
+  const trimmedSubject = truncateToLength(
+    subject,
+    Math.max(0, available - styleReserve),
+  );
+  const trimmedStyle = truncateToLength(
+    styleDirection,
+    Math.max(0, available - trimmedSubject.length),
+  );
+
+  return composeCompactGeneratedImagePrompt({
+    styleDirection: trimmedStyle,
+    subject: trimmedSubject,
+  });
+}
+
+function truncateToLength(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const clipped = value.slice(0, maxLength);
+  // Prefer a whole-word cut, but fall back to the hard cut when the last word is
+  // long enough that dropping it would waste most of the budget.
+  const wordSafe = clipped.replace(/\s+\S*$/, "");
+  const truncated = wordSafe.length >= maxLength * 0.6 ? wordSafe : clipped;
+
+  return truncated.trim().replace(/[,;:]$/, "");
 }
 
 export function buildGeneratedImageSystemInstruction(

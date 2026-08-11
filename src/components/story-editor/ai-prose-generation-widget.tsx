@@ -17,6 +17,7 @@ import type {
   StoryEditorData,
 } from "@/actions/stories/_types";
 import { Button } from "@/components/common/button";
+import { Textarea } from "@/components/common/textarea";
 import type {
   AiDraftInlineAction,
   AiDraftStatus,
@@ -303,6 +304,17 @@ export function AiProseGenerationWidget({
     await streamDraft(draft);
   }
 
+  function handleInstructionsKeyDown(
+    event: KeyboardEvent<HTMLTextAreaElement>,
+  ) {
+    if (!isPlainEnter(event) || isGenerationWidgetDisabled) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  }
+
   function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
     if (!isGenerationShortcut(event) || isGenerationWidgetDisabled) {
       return;
@@ -401,17 +413,20 @@ export function AiProseGenerationWidget({
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-page pb-4">
       <div className="pointer-events-auto mx-auto w-full max-w-readable rounded-md border border-border/80 bg-popover/95 p-2 text-popover-foreground shadow-2xl backdrop-blur">
         <form
-          className="flex flex-col gap-2 sm:flex-row"
+          className="flex flex-col gap-2 sm:flex-row sm:items-end"
           onKeyDown={handleGenerationShortcut}
           onSubmit={handleGenerate}
         >
-          <input
+          <Textarea
             aria-label="AI prose instructions"
-            className="h-8 min-w-0 flex-1 rounded-md border border-input bg-card/80 px-3 py-1 text-body shadow-xs outline-none transition-[background-color,border-color,box-shadow] selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+            aria-keyshortcuts="Enter Shift+Enter"
+            className="max-h-48 min-h-8 min-w-0 flex-1 resize-none px-3 py-[0.1875rem]"
             disabled={isGenerationWidgetDisabled}
             maxLength={2000}
             onChange={(event) => setInstructions(event.target.value)}
+            onKeyDown={handleInstructionsKeyDown}
             placeholder="What happens next?"
+            rows={1}
             value={instructions}
           />
           <select
@@ -568,6 +583,17 @@ function isGenerationShortcut(event: KeyboardEvent) {
   return (
     event.key === "Enter" &&
     (event.metaKey || event.ctrlKey) &&
+    !event.nativeEvent.isComposing
+  );
+}
+
+function isPlainEnter(event: KeyboardEvent) {
+  return (
+    event.key === "Enter" &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.shiftKey &&
     !event.nativeEvent.isComposing
   );
 }

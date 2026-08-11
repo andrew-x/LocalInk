@@ -24,6 +24,7 @@ Recurring sources for implementation decisions that depend on current framework,
 | WaveSpeed GPT Image 2 text-to-image | https://wavespeed.ai/docs/docs-api/openai/openai-gpt-image-2-text-to-image | GPT Image 2 endpoint, request parameters, prediction response shape, status values, and result polling URL. | 2026-05-10 |
 | WaveSpeed Seedream 5 Pro | https://wavespeed.ai/docs/docs-api/bytedance/bytedance-seedream-v5.0-pro | Seedream 5 Pro endpoint, request parameters, and max-resolution/field support for the WaveSpeed model-capabilities map. | 2026-07-24 |
 | WaveSpeed base64 output | https://wavespeed.ai/docs/base64-output | Base64 output behavior for sync and polled predictions, including naked base64 strings without data URI prefixes. | 2026-05-10 |
+| WaveSpeed delete task | https://wavespeed.ai/docs/delete-task | Predictions delete endpoint request/response shape used for post-generation WaveSpeed history cleanup. | 2026-08-11 |
 | Bun llms.txt | https://bun.com/llms.txt | LLM-readable index for Bun runtime, package manager, and lockfile behavior. | 2026-05-05 |
 | Drizzle ORM llms.txt | https://orm.drizzle.team/llms.txt | LLM-readable index for Drizzle ORM schema, query, and migration guidance. | 2026-05-05 |
 | React Hook Form standard schema resolver | `node_modules/@hookform/resolvers/standard-schema/dist/standard-schema.d.ts` | Local type source for `standardSchemaResolver`, used by `src/lib/schemas/resolve.ts` as the project form resolver. | 2026-05-05 |

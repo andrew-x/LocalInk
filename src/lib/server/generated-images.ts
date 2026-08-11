@@ -35,45 +35,106 @@ import {
   type GeneratedImageSize,
   type GeneratedImageStylePreset,
   generatedImageModelPrefersAffirmativePrompt,
+  generatedImageModelUsesOpenRouterImagesEndpoint,
   getGeneratedImageModelConfig,
+  getGeneratedImageModelSubjectLimit,
   getGeneratedImageOutputModalities,
   getGeneratedImageDefaults as getSharedGeneratedImageDefaults,
   normalizeGeneratedImageStylePreset,
 } from "@/lib/generated-images";
+import { createLogger } from "@/lib/logger";
 import { generateId } from "@/lib/util";
 
 const OPENROUTER_CHAT_COMPLETIONS_URL =
   "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
 const WAVESPEED_PREDICTION_RESULT_URL_PREFIX =
   "https://api.wavespeed.ai/api/v3/predictions/";
 const WAVESPEED_API_URL_PREFIX = "https://api.wavespeed.ai/api/v3/";
+const WAVESPEED_PREDICTION_DELETE_URL =
+  "https://api.wavespeed.ai/api/v3/predictions/delete";
 const WAVESPEED_PROVIDER = "wavespeed";
 const WAVESPEED_IMAGE_QUALITY = "medium";
 const WAVESPEED_OUTPUT_FORMAT = "png";
 const WAVESPEED_OUTPUT_MIME_TYPE = "image/png";
-// Per-model WaveSpeed request capabilities. Different WaveSpeed models accept
-// different request bodies: GPT Image 2 takes a `quality` field and supports up
-// to 4K, while Seedream tops out at 2K and rejects `quality`. Unknown models
-// fall back to the conservative defaults below.
-const WAVESPEED_MODEL_CAPABILITIES: Record<
-  string,
-  { maxResolution: "2k" | "4k"; supportsQuality: boolean }
-> = {
-  "bytedance/seedream-v5.0-pro": {
-    maxResolution: "2k",
-    supportsQuality: false,
-  },
-  "openai/gpt-image-2/text-to-image": {
-    maxResolution: "4k",
-    supportsQuality: true,
-  },
+// Per-model WaveSpeed request capabilities. WaveSpeed model schemas set
+// `additionalProperties: false`, so every field LocalInk sends must be one the
+// selected model actually declares. GPT Image 2 takes `quality` and supports up
+// to 4K; Seedream tops out at 2K and rejects `quality`; the Qwen Image 3.0
+// models accept only prompt, aspect ratio, resolution, prompt expansion, and
+// seed, which also means they cannot return base64 and hand back a CDN URL
+// instead. Unknown models fall back to the defaults below.
+type WaveSpeedModelCapabilities = {
+  maxResolution: "2k" | "4k";
+  supportsBase64Output: boolean;
+  supportsOutputFormat: boolean;
+  supportsPromptExpansion: boolean;
+  supportsQuality: boolean;
+  supportsSyncMode: boolean;
 };
+const WAVESPEED_MODEL_CAPABILITIES: Record<string, WaveSpeedModelCapabilities> =
+  {
+    "alibaba/qwen-image-3.0-pro/text-to-image": {
+      maxResolution: "2k",
+      supportsBase64Output: false,
+      supportsOutputFormat: false,
+      supportsPromptExpansion: true,
+      supportsQuality: false,
+      supportsSyncMode: false,
+    },
+    "alibaba/qwen-image-3.0/text-to-image": {
+      maxResolution: "2k",
+      supportsBase64Output: false,
+      supportsOutputFormat: false,
+      supportsPromptExpansion: true,
+      supportsQuality: false,
+      supportsSyncMode: false,
+    },
+    "bytedance/seedream-v5.0-pro": {
+      maxResolution: "2k",
+      supportsBase64Output: true,
+      supportsOutputFormat: true,
+      supportsPromptExpansion: false,
+      supportsQuality: false,
+      supportsSyncMode: true,
+    },
+    "openai/gpt-image-2/text-to-image": {
+      maxResolution: "4k",
+      supportsBase64Output: true,
+      supportsOutputFormat: true,
+      supportsPromptExpansion: false,
+      supportsQuality: true,
+      supportsSyncMode: true,
+    },
+  };
 const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
   maxResolution: "2k",
+  supportsBase64Output: true,
+  supportsOutputFormat: true,
+  supportsPromptExpansion: false,
   supportsQuality: false,
-} as const;
+  supportsSyncMode: true,
+} as const satisfies WaveSpeedModelCapabilities;
+const WAVESPEED_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const WAVESPEED_MAX_POLL_ATTEMPTS = 300;
 const WAVESPEED_POLL_INTERVAL_MS = 1000;
+const WAVESPEED_PREDICTION_DELETE_TIMEOUT_MS = 10_000;
+// Markers that identify a provider-side content-moderation rejection rather
+// than an infrastructure failure. Matched against the provider error only to
+// classify it — the raw text is never logged, because it can quote the prompt.
+const WAVESPEED_CONTENT_REJECTION_MARKERS = [
+  "content policy",
+  "content_policy",
+  "content filter",
+  "inappropriate",
+  "moderation",
+  "nsfw",
+  "not safe for work",
+  "prohibited",
+  "safety",
+  "sensitive content",
+  "violat",
+];
 const MAX_GENERATED_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_ENHANCED_IMAGE_PROMPT_LENGTH = 4000;
 const IMAGE_PROMPT_ENHANCEMENT_PROVIDER_OPTIONS = {
@@ -90,6 +151,8 @@ const IMAGE_EXTENSION_BY_MIME_TYPE = {
   "image/png": "png",
   "image/webp": "webp",
 } as const;
+
+const generatedImagesLogger = createLogger("generated-images");
 
 type GenerateAndStoreGeneratedImageInput = {
   aspectRatio: GeneratedImageAspectRatio;
@@ -129,6 +192,9 @@ type WaveSpeedPrediction = {
   urls?: unknown;
 };
 
+// `base64` holds naked base64 for models that accept `enable_base64_output`.
+// Models that do not declare that field (Qwen Image 3.0) can only answer with a
+// CDN URL, which is downloaded before the bytes are stored locally.
 type WaveSpeedGeneratedImageOutput = {
   base64: string;
   id: string | null;
@@ -141,6 +207,15 @@ type OpenRouterGeneratedImage = {
   imageUrl?: {
     url?: unknown;
   };
+};
+
+type OpenRouterImagesGeneratedImage = {
+  b64_json?: unknown;
+  media_type?: unknown;
+};
+
+type OpenRouterImagesResponse = {
+  data?: unknown;
 };
 
 type OpenRouterImageResponse = {
@@ -224,8 +299,8 @@ export async function generateAndStoreGeneratedImage(
   );
   const filePath = resolveGeneratedImageFilePath(fileRelativePath);
 
-  await mkdir(getGeneratedImagesDirectory(), { recursive: true });
-  await writeFile(filePath, decodedImage.bytes, { flag: "wx" });
+  const isWaveSpeedPrediction =
+    modelConfig.provider === WAVESPEED_PROVIDER && Boolean(response.id);
 
   const row = {
     aspectRatio: input.aspectRatio,
@@ -246,10 +321,27 @@ export async function generateAndStoreGeneratedImage(
   } satisfies typeof generatedImages.$inferInsert;
 
   try {
+    await mkdir(getGeneratedImagesDirectory(), { recursive: true });
+    await writeFile(filePath, decodedImage.bytes, { flag: "wx" });
     await getDb().insert(generatedImages).values(row);
   } catch (error) {
     await unlink(filePath).catch(() => undefined);
+
+    // Local persistence failed, so nothing was kept here. The provider still
+    // holds the prompt and the finished image, so discard it rather than
+    // leaving an orphan behind.
+    if (isWaveSpeedPrediction && response.id) {
+      await deleteWaveSpeedPrediction(response.id);
+    }
+
     throw error;
+  }
+
+  // Only once the bytes are on disk and the row is committed is the remote copy
+  // safe to discard. Cleaning up any earlier would risk losing the image if
+  // local persistence failed.
+  if (isWaveSpeedPrediction && response.id) {
+    await deleteWaveSpeedPrediction(response.id);
   }
 
   return toGeneratedImageDetail(row);
@@ -272,6 +364,10 @@ export async function enhanceGeneratedImagePrompt(
     );
   }
 
+  // Prompt-capped models (Qwen Image 3.0) would have a long enhanced
+  // description trimmed away at generation time, so the rewrite is asked to fit
+  // the model's own budget instead.
+  const maxLength = getEnhancedGeneratedImagePromptLimit(input.model);
   let result: Awaited<ReturnType<typeof generateLocalinkText>>;
 
   try {
@@ -290,7 +386,7 @@ export async function enhanceGeneratedImagePrompt(
         systemInstruction: buildGeneratedImageSystemInstruction(input.model),
       }),
       providerOptions: IMAGE_PROMPT_ENHANCEMENT_PROVIDER_OPTIONS,
-      system: buildGeneratedImagePromptEnhancementSystemPrompt(),
+      system: buildGeneratedImagePromptEnhancementSystemPrompt(maxLength),
       temperature: 0.45,
     });
   } catch (error) {
@@ -301,7 +397,7 @@ export async function enhanceGeneratedImagePrompt(
     throw promptEnhancementFailedError();
   }
 
-  return normalizeEnhancedGeneratedImagePrompt(result.text);
+  return normalizeEnhancedGeneratedImagePrompt(result.text, maxLength);
 }
 
 export async function deleteGeneratedImageById(
@@ -490,7 +586,19 @@ export function decodeGeneratedImageBase64(
   };
 }
 
-export function buildGeneratedImagePromptEnhancementSystemPrompt(): string {
+export function getEnhancedGeneratedImagePromptLimit(
+  model: GeneratedImageModel,
+): number {
+  return Math.min(
+    getGeneratedImageModelSubjectLimit(model) ??
+      MAX_ENHANCED_IMAGE_PROMPT_LENGTH,
+    MAX_ENHANCED_IMAGE_PROMPT_LENGTH,
+  );
+}
+
+export function buildGeneratedImagePromptEnhancementSystemPrompt(
+  maxLength: number = MAX_ENHANCED_IMAGE_PROMPT_LENGTH,
+): string {
   return [
     "You rewrite image descriptions for a photorealistic image generator.",
     "Return only the enhanced image description text. Do not include labels, markdown, JSON, code fences, quotes, notes, alternatives, or explanations.",
@@ -499,7 +607,7 @@ export function buildGeneratedImagePromptEnhancementSystemPrompt(): string {
     "If the request is vague, add plausible concrete visual details that sharpen the same intent without inventing story-critical facts.",
     "Improve image-prompt quality with clear subject priority, composition, pose/action, setting, props, materials, texture, lighting motivation, camera/framing, depth, color temperature, and visual mood where useful.",
     "LocalInk applies the photographic style, image-only instructions, photorealism rules, and negative prompt separately. Do not repeat those section labels, negative terms, or boilerplate instructions in the output.",
-    `Keep the result under ${MAX_ENHANCED_IMAGE_PROMPT_LENGTH.toLocaleString("en-US")} characters.`,
+    `Keep the result under ${maxLength.toLocaleString("en-US")} characters.`,
   ].join("\n");
 }
 
@@ -525,6 +633,8 @@ export function buildGeneratedImagePromptEnhancementRequest({
         finalProviderPromptTemplate: providerPromptTemplate,
         generationSettings: {
           aspectRatio,
+          imageDescriptionCharacterLimit:
+            getEnhancedGeneratedImagePromptLimit(model),
           imageSize,
           imageModel: imageModel.name,
           providerModel: imageModel.providerModelId,
@@ -539,7 +649,10 @@ export function buildGeneratedImagePromptEnhancementRequest({
   ].join("\n");
 }
 
-export function normalizeEnhancedGeneratedImagePrompt(text: string): string {
+export function normalizeEnhancedGeneratedImagePrompt(
+  text: string,
+  maxLength: number = MAX_ENHANCED_IMAGE_PROMPT_LENGTH,
+): string {
   const normalized = stripPromptEnhancementWrapper(text)
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
@@ -550,12 +663,12 @@ export function normalizeEnhancedGeneratedImagePrompt(text: string): string {
     throw promptEnhancementFailedError();
   }
 
-  if (normalized.length <= MAX_ENHANCED_IMAGE_PROMPT_LENGTH) {
+  if (normalized.length <= maxLength) {
     return normalized;
   }
 
   return normalized
-    .slice(0, MAX_ENHANCED_IMAGE_PROMPT_LENGTH)
+    .slice(0, maxLength)
     .replace(/\s+\S*$/, "")
     .trim();
 }
@@ -566,7 +679,7 @@ export function parseWaveSpeedGeneratedImageBase64(
   const prediction = getWaveSpeedPrediction(response);
 
   if (prediction.status === "failed") {
-    throw generationFailedError();
+    throw toWaveSpeedFailureError(prediction);
   }
 
   if (prediction.status !== "completed") {
@@ -615,6 +728,35 @@ export function parseOpenRouterGeneratedImageDataUrl(
   };
 }
 
+/**
+ * Reads an image out of an OpenRouter images-endpoint response.
+ *
+ * Unlike the chat/completions path, this endpoint returns naked base64 plus a
+ * separate `media_type`, so the data URL is assembled here.
+ */
+export function parseOpenRouterImagesGeneratedImageDataUrl(
+  response: OpenRouterImagesResponse,
+): GeneratedImageProviderOutput {
+  const images = Array.isArray(response.data) ? response.data : [];
+  const firstImage = images.find(isOpenRouterImagesGeneratedImage);
+  const base64 = getTrimmedString(firstImage?.b64_json);
+  const mimeType = getTrimmedString(firstImage?.media_type)?.toLowerCase();
+
+  if (!base64 || !mimeType || !isSupportedGeneratedImageMimeType(mimeType)) {
+    throw new ActionError(
+      "GENERATION_FAILED",
+      "The model did not return an image. Try a different model or prompt.",
+    );
+  }
+
+  // This endpoint has no response identifier to correlate against, and there is
+  // no provider-side copy to clean up later.
+  return {
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    id: null,
+  };
+}
+
 async function requestGeneratedImage({
   aspectRatio,
   imageSize,
@@ -627,6 +769,7 @@ async function requestGeneratedImage({
   providerPrompt: string;
 }): Promise<GeneratedImageProviderOutput> {
   if (modelConfig.provider === WAVESPEED_PROVIDER) {
+    const capabilities = getWaveSpeedModelCapabilities(modelConfig);
     const response = await requestWaveSpeedGeneratedImage({
       aspectRatio,
       imageSize,
@@ -634,10 +777,31 @@ async function requestGeneratedImage({
       providerPrompt,
     });
 
-    return {
-      dataUrl: `data:${WAVESPEED_OUTPUT_MIME_TYPE};base64,${response.base64}`,
-      id: response.id,
-    };
+    if (capabilities.supportsBase64Output) {
+      return {
+        dataUrl: `data:${WAVESPEED_OUTPUT_MIME_TYPE};base64,${response.base64}`,
+        id: response.id,
+      };
+    }
+
+    // Models that cannot return base64 hand back a CDN URL instead, so the
+    // bytes are downloaded here — before the prediction is cleaned up — and
+    // converted into the same data URL shape the rest of the flow expects.
+    try {
+      return {
+        dataUrl: await downloadWaveSpeedGeneratedImage(response.base64),
+        id: response.id,
+      };
+    } catch (error) {
+      // Nothing was stored locally, so the provider-side copy of the prompt and
+      // image is discarded, matching the failure-path cleanup in
+      // requestWaveSpeedGeneratedImage.
+      if (response.id) {
+        await deleteWaveSpeedPrediction(response.id);
+      }
+
+      throw error;
+    }
   }
 
   return requestOpenRouterGeneratedImage({
@@ -682,21 +846,35 @@ async function requestWaveSpeedGeneratedImage({
       headers: buildWaveSpeedHeaders(apiKey),
       method: "POST",
     },
+    modelConfig.id,
   );
   const submittedPrediction = getWaveSpeedPrediction(submittedBody);
+  const predictionId = getTrimmedString(submittedPrediction.id);
 
-  if (submittedPrediction.status === "completed") {
-    return parseWaveSpeedGeneratedImageBase64(submittedBody);
+  try {
+    if (submittedPrediction.status === "completed") {
+      return parseWaveSpeedGeneratedImageBase64(submittedBody);
+    }
+
+    if (submittedPrediction.status === "failed") {
+      throw toWaveSpeedFailureError(submittedPrediction);
+    }
+
+    return await pollWaveSpeedGeneratedImage({
+      apiKey,
+      resultUrl: getWaveSpeedPredictionResultUrl(submittedPrediction),
+    });
+  } catch (error) {
+    // Every failure past submission — a moderation rejection, a poll timeout,
+    // an undecodable output — still leaves a prediction in the WaveSpeed
+    // account, holding the prompt and sometimes a finished image. Clean it up
+    // before surfacing the error.
+    if (predictionId) {
+      await deleteWaveSpeedPrediction(predictionId);
+    }
+
+    throw error;
   }
-
-  if (submittedPrediction.status === "failed") {
-    throw generationFailedError();
-  }
-
-  return pollWaveSpeedGeneratedImage({
-    apiKey,
-    resultUrl: getWaveSpeedPredictionResultUrl(submittedPrediction),
-  });
 }
 
 async function requestOpenRouterGeneratedImage({
@@ -719,11 +897,25 @@ async function requestOpenRouterGeneratedImage({
     );
   }
 
-  let response: Response;
-
-  try {
-    response = await fetch(OPENROUTER_CHAT_COMPLETIONS_URL, {
-      body: JSON.stringify({
+  // Native image-generation models reject the chat/completions endpoint and
+  // have to use the dedicated images endpoint instead.
+  const usesImagesEndpoint = generatedImageModelUsesOpenRouterImagesEndpoint(
+    modelConfig.id,
+  );
+  const url = usesImagesEndpoint
+    ? OPENROUTER_IMAGES_URL
+    : OPENROUTER_CHAT_COMPLETIONS_URL;
+  const requestBody = usesImagesEndpoint
+    ? {
+        aspect_ratio: aspectRatio,
+        model: modelConfig.providerModelId,
+        // The images endpoint takes one prompt string and has no system role,
+        // so the system instruction is folded into the prompt the same way the
+        // WaveSpeed request does it.
+        prompt: buildSinglePromptRequestValue(providerPrompt, modelConfig.id),
+        resolution: imageSize,
+      }
+    : {
         image_config: {
           aspect_ratio: aspectRatio,
           image_size: imageSize,
@@ -741,7 +933,12 @@ async function requestOpenRouterGeneratedImage({
         modalities: getGeneratedImageOutputModalities(modelConfig.id),
         model: modelConfig.providerModelId,
         stream: false,
-      }),
+      };
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      body: JSON.stringify(requestBody),
       headers: buildOpenRouterHeaders(apiKey),
       method: "POST",
     });
@@ -750,7 +947,11 @@ async function requestOpenRouterGeneratedImage({
   }
 
   if (!response.ok) {
-    throw generationFailedError();
+    throw toProviderResponseError({
+      model: modelConfig.id,
+      provider: "openrouter",
+      status: response.status,
+    });
   }
 
   let body: unknown;
@@ -761,6 +962,14 @@ async function requestOpenRouterGeneratedImage({
     throw generationFailedError();
   }
 
+  if (usesImagesEndpoint) {
+    if (!isOpenRouterImagesResponse(body)) {
+      throw generationFailedError();
+    }
+
+    return parseOpenRouterImagesGeneratedImageDataUrl(body);
+  }
+
   if (!isOpenRouterImageResponse(body)) {
     throw generationFailedError();
   }
@@ -768,9 +977,85 @@ async function requestOpenRouterGeneratedImage({
   return parseOpenRouterGeneratedImageDataUrl(body);
 }
 
+/**
+ * Turns a failed provider HTTP response into a user-facing error.
+ *
+ * The status code is the one piece of provider feedback that is always safe to
+ * log — response bodies can quote the prompt back — and an authentication
+ * failure is worth separating from a generic outage, since it is fixed by
+ * correcting the API key rather than by retrying.
+ */
+function toProviderResponseError({
+  model,
+  provider,
+  status,
+}: {
+  model: GeneratedImageModel;
+  provider: string;
+  status: number;
+}): ActionError {
+  generatedImagesLogger.error("image-generation-request-failed", {
+    model,
+    provider,
+    status,
+  });
+
+  if (status === 401 || status === 403) {
+    return new ActionError(
+      "AI_NOT_CONFIGURED",
+      "The image provider rejected the API key. Check the key and try again.",
+    );
+  }
+
+  return generationFailedError();
+}
+
+/**
+ * Removes a completed prediction from the WaveSpeed account history.
+ *
+ * LocalInk keeps generated images on the user's own disk, so once the bytes are
+ * stored locally the provider-side copy is redundant private data. This is
+ * best-effort cleanup: it never throws, because the image has already been
+ * persisted successfully by the time it runs and a failed cleanup must not turn
+ * a successful generation into an error. It is also time-boxed, so an
+ * unresponsive provider cannot stall a generation that is already complete.
+ */
+export async function deleteWaveSpeedPrediction(
+  predictionId: string,
+): Promise<void> {
+  const apiKey = process.env.WAVESPEED_API_KEY;
+  const id = predictionId.trim();
+
+  if (!apiKey || !id) {
+    return;
+  }
+
+  try {
+    const response = await fetch(WAVESPEED_PREDICTION_DELETE_URL, {
+      body: JSON.stringify({ ids: [id] }),
+      headers: buildWaveSpeedHeaders(apiKey),
+      method: "POST",
+      signal: AbortSignal.timeout(WAVESPEED_PREDICTION_DELETE_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      generatedImagesLogger.error("wavespeed-prediction-delete-failed", {
+        provider: WAVESPEED_PROVIDER,
+        status: response.status,
+      });
+    }
+  } catch {
+    generatedImagesLogger.error("wavespeed-prediction-delete-failed", {
+      provider: WAVESPEED_PROVIDER,
+      status: "request-failed",
+    });
+  }
+}
+
 async function requestWaveSpeedJson(
   url: string,
   init: RequestInit,
+  model?: GeneratedImageModel,
 ): Promise<WaveSpeedImageResponse> {
   let response: Response;
 
@@ -781,7 +1066,13 @@ async function requestWaveSpeedJson(
   }
 
   if (!response.ok) {
-    throw generationFailedError();
+    throw model
+      ? toProviderResponseError({
+          model,
+          provider: WAVESPEED_PROVIDER,
+          status: response.status,
+        })
+      : generationFailedError();
   }
 
   try {
@@ -814,7 +1105,7 @@ async function pollWaveSpeedGeneratedImage({
     }
 
     if (prediction.status === "failed") {
-      throw generationFailedError();
+      throw toWaveSpeedFailureError(prediction);
     }
   }
 
@@ -850,15 +1141,16 @@ function buildOpenRouterHeaders(apiKey: string): Record<string, string> {
   return headers;
 }
 
-function buildWaveSpeedPrompt(
+function buildSinglePromptRequestValue(
   providerPrompt: string,
   model: GeneratedImageModel,
 ): string {
-  // WaveSpeed has no system role, so instruction-following models get the system
-  // instruction prepended into the single prompt string. Diffusion models
-  // (Seedream) would read that negation-heavy block as content — and, because
-  // they weight the earliest tokens most, front-loading forbidden-style names is
-  // exactly what pulls illustration/anime looks in — so they receive only the
+  // WaveSpeed and OpenRouter's images endpoint both take a single prompt string
+  // with no system role, so instruction-following models get the system
+  // instruction prepended into it. Diffusion models (Seedream, Qwen, Krea) would
+  // read that negation-heavy block as content — and, because they weight the
+  // earliest tokens most, front-loading forbidden-style names is exactly what
+  // pulls illustration/anime looks in — so they receive only the
   // affirmation-first provider prompt.
   if (generatedImageModelPrefersAffirmativePrompt(model)) {
     return providerPrompt;
@@ -876,7 +1168,7 @@ function getWaveSpeedModelCapabilities(modelConfig: GeneratedImageModelConfig) {
   );
 }
 
-function buildWaveSpeedRequestBody({
+export function buildWaveSpeedRequestBody({
   aspectRatio,
   imageSize,
   modelConfig,
@@ -890,18 +1182,138 @@ function buildWaveSpeedRequestBody({
   const capabilities = getWaveSpeedModelCapabilities(modelConfig);
   const body: Record<string, unknown> = {
     aspect_ratio: aspectRatio,
-    enable_base64_output: true,
-    enable_sync_mode: false,
-    output_format: WAVESPEED_OUTPUT_FORMAT,
-    prompt: buildWaveSpeedPrompt(providerPrompt, modelConfig.id),
+    prompt: buildSinglePromptRequestValue(providerPrompt, modelConfig.id),
     resolution: toWaveSpeedResolution(imageSize, capabilities.maxResolution),
   };
+
+  // WaveSpeed model schemas set `additionalProperties: false`, so every optional
+  // field goes only to the models that actually declare it. Sending a field a
+  // model does not know about is rejected outright.
+  if (capabilities.supportsBase64Output) {
+    body.enable_base64_output = true;
+  }
+
+  if (capabilities.supportsSyncMode) {
+    body.enable_sync_mode = false;
+  }
+
+  if (capabilities.supportsOutputFormat) {
+    body.output_format = WAVESPEED_OUTPUT_FORMAT;
+  }
 
   if (capabilities.supportsQuality) {
     body.quality = WAVESPEED_IMAGE_QUALITY;
   }
 
+  // LocalInk composes its own photorealism prompt and offers a separate
+  // enhancement step, so the provider's own prompt rewriter is turned off where
+  // the model exposes it.
+  if (capabilities.supportsPromptExpansion) {
+    body.enable_prompt_expansion = false;
+  }
+
   return body;
+}
+
+/**
+ * Downloads a WaveSpeed CDN image output and returns it as a data URL.
+ *
+ * Models whose request schema has no `enable_base64_output` field always answer
+ * with a URL, so the bytes have to be pulled before they can be written to the
+ * local data directory. The download is time-boxed and size-capped, and the MIME
+ * type comes from the bytes themselves rather than a provider-supplied header.
+ */
+async function downloadWaveSpeedGeneratedImage(
+  outputUrl: string,
+): Promise<string> {
+  const url = outputUrl.trim();
+
+  // The URL is provider-supplied, so only a plain HTTPS URL is ever fetched.
+  if (!url.toLowerCase().startsWith("https://")) {
+    throw generationFailedError();
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      signal: AbortSignal.timeout(WAVESPEED_IMAGE_DOWNLOAD_TIMEOUT_MS),
+    });
+  } catch {
+    throw generationFailedError();
+  }
+
+  if (!response.ok) {
+    throw generationFailedError();
+  }
+
+  const contentLength = Number(response.headers.get("content-length"));
+
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > MAX_GENERATED_IMAGE_BYTES
+  ) {
+    throw generationFailedError();
+  }
+
+  let bytes: Buffer;
+
+  try {
+    bytes = Buffer.from(await response.arrayBuffer());
+  } catch {
+    throw generationFailedError();
+  }
+
+  if (!bytes.byteLength || bytes.byteLength > MAX_GENERATED_IMAGE_BYTES) {
+    throw generationFailedError();
+  }
+
+  const mimeType = detectGeneratedImageMimeType(bytes);
+
+  if (!mimeType) {
+    throw generationFailedError();
+  }
+
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+export function detectGeneratedImageMimeType(
+  bytes: Buffer,
+): keyof typeof IMAGE_EXTENSION_BY_MIME_TYPE | null {
+  if (
+    bytes.length >= 8 &&
+    bytes
+      .subarray(0, 8)
+      .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
+    return "image/png";
+  }
+
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "image/jpeg";
+  }
+
+  if (
+    bytes.length >= 12 &&
+    bytes.toString("ascii", 0, 4) === "RIFF" &&
+    bytes.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+
+  if (
+    bytes.length >= 6 &&
+    ["GIF87a", "GIF89a"].includes(bytes.toString("ascii", 0, 6))
+  ) {
+    return "image/gif";
+  }
+
+  return null;
 }
 
 function toWaveSpeedResolution(
@@ -1048,6 +1460,18 @@ function isOpenRouterGeneratedImage(
   return typeof image === "object" && image !== null;
 }
 
+function isOpenRouterImagesResponse(
+  body: unknown,
+): body is OpenRouterImagesResponse {
+  return typeof body === "object" && body !== null;
+}
+
+function isOpenRouterImagesGeneratedImage(
+  image: unknown,
+): image is OpenRouterImagesGeneratedImage {
+  return typeof image === "object" && image !== null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1057,6 +1481,57 @@ function generationFailedError() {
     "GENERATION_FAILED",
     "The image could not be generated.",
   );
+}
+
+function contentRejectedError() {
+  return new ActionError(
+    "GENERATION_FAILED",
+    "The provider's content filter rejected this image. Try rephrasing the description.",
+  );
+}
+
+/**
+ * Classifies why a WaveSpeed prediction failed.
+ *
+ * The provider error can quote the prompt back, so it is only ever inspected in
+ * memory to produce a coarse reason code. The raw text never reaches the logs.
+ */
+export function classifyWaveSpeedFailureReason(
+  prediction: WaveSpeedPrediction,
+): "content-rejected" | "provider-error" {
+  const rawError = prediction.error;
+  const errorText =
+    typeof rawError === "string"
+      ? rawError
+      : rawError == null
+        ? ""
+        : JSON.stringify(rawError);
+  const normalized = errorText.toLowerCase();
+
+  return WAVESPEED_CONTENT_REJECTION_MARKERS.some((marker) =>
+    normalized.includes(marker),
+  )
+    ? "content-rejected"
+    : "provider-error";
+}
+
+/**
+ * Logs a sanitized reason for a failed WaveSpeed prediction and builds the
+ * error to surface. Content rejections get an actionable message so a censored
+ * prompt is distinguishable from an outage — otherwise both read as a generic
+ * failure and there is no hint that rephrasing would help.
+ */
+function toWaveSpeedFailureError(prediction: WaveSpeedPrediction): ActionError {
+  const reason = classifyWaveSpeedFailureReason(prediction);
+
+  generatedImagesLogger.error("wavespeed-generation-failed", {
+    provider: WAVESPEED_PROVIDER,
+    reason,
+  });
+
+  return reason === "content-rejected"
+    ? contentRejectedError()
+    : generationFailedError();
 }
 
 function promptEnhancementFailedError() {

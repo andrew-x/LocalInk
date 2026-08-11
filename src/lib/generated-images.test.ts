@@ -11,9 +11,12 @@ import {
   GENERATED_IMAGE_SIZES,
   GENERATED_IMAGE_STYLE_PRESETS,
   generatedImageModelPrefersAffirmativePrompt,
+  generatedImageModelUsesOpenRouterImagesEndpoint,
   getGeneratedImageDefaults,
   getGeneratedImageDownloadFilename,
   getGeneratedImageDownloadUrl,
+  getGeneratedImageModelPromptLimit,
+  getGeneratedImageModelSubjectLimit,
   getGeneratedImageOutputModalities,
   getGeneratedImageStylePresetPrompt,
   IMAGE_ONLY_INSTRUCTIONS,
@@ -22,6 +25,7 @@ import {
   normalizeGeneratedImageSize,
   normalizeGeneratedImageStylePreset,
   PHOTOREALISM_AFFIRMATIVE_PROMPT,
+  PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT,
   PHOTOREALISM_INSTRUCTIONS,
   PHOTOREALISM_NEGATIVE_PROMPT,
 } from "./generated-images";
@@ -162,15 +166,28 @@ describe("generated image prompts and styles", () => {
     expect(prompt.indexOf("Subject:")).toBeLessThan(prompt.indexOf("Avoid:"));
   });
 
-  test("flags only Seedream models as preferring affirmative prompts", () => {
+  test("flags only diffusion models as preferring affirmative prompts", () => {
     expect(
       generatedImageModelPrefersAffirmativePrompt(
-        "bytedance-seed/seedream-4.5",
+        "bytedance/seedream-v5.0-pro",
+      ),
+    ).toBe(true);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt("krea/krea-2-medium"),
+    ).toBe(true);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "microsoft/mai-image-2.5-pro",
       ),
     ).toBe(true);
     expect(
       generatedImageModelPrefersAffirmativePrompt(
-        "bytedance/seedream-v5.0-pro",
+        "alibaba/qwen-image-3.0/text-to-image",
+      ),
+    ).toBe(true);
+    expect(
+      generatedImageModelPrefersAffirmativePrompt(
+        "alibaba/qwen-image-3.0-pro/text-to-image",
       ),
     ).toBe(true);
     expect(
@@ -207,7 +224,7 @@ describe("generated image prompts and styles", () => {
 
   test("builds an affirmation-only system instruction for Seedream models", () => {
     const instructions = buildGeneratedImageSystemInstruction(
-      "bytedance-seed/seedream-4.5",
+      "bytedance/seedream-v5.0-pro",
     );
 
     expect(instructions).toContain(
@@ -267,18 +284,39 @@ describe("generated image prompts and styles", () => {
         providerModelId: "google/gemini-3.1-flash-image-preview",
       },
       {
-        id: "bytedance-seed/seedream-4.5",
-        name: "Seedream 4.5",
-        outputModalities: ["image"],
-        provider: "openrouter",
-        providerModelId: "bytedance-seed/seedream-4.5",
-      },
-      {
         id: "bytedance/seedream-v5.0-pro",
         name: "Seedream 5 Pro",
         outputModalities: ["image"],
         provider: "wavespeed",
         providerModelId: "bytedance/seedream-v5.0-pro",
+      },
+      {
+        id: "microsoft/mai-image-2.5-pro",
+        name: "MAI-Image-2.5 Pro",
+        outputModalities: ["image"],
+        provider: "openrouter",
+        providerModelId: "microsoft/mai-image-2.5-pro",
+      },
+      {
+        id: "krea/krea-2-medium",
+        name: "Krea 2 Medium",
+        outputModalities: ["image"],
+        provider: "openrouter",
+        providerModelId: "krea/krea-2-medium",
+      },
+      {
+        id: "alibaba/qwen-image-3.0-pro/text-to-image",
+        name: "Qwen Image 3.0 Pro",
+        outputModalities: ["image"],
+        provider: "wavespeed",
+        providerModelId: "alibaba/qwen-image-3.0-pro/text-to-image",
+      },
+      {
+        id: "alibaba/qwen-image-3.0/text-to-image",
+        name: "Qwen Image 3.0",
+        outputModalities: ["image"],
+        provider: "wavespeed",
+        providerModelId: "alibaba/qwen-image-3.0/text-to-image",
       },
     ]);
     expect(GENERATED_IMAGE_ASPECT_RATIOS).toEqual([
@@ -300,9 +338,82 @@ describe("generated image prompts and styles", () => {
     expect(
       getGeneratedImageOutputModalities("google/gemini-3-pro-image-preview"),
     ).toEqual(["image", "text"]);
+    expect(getGeneratedImageOutputModalities("krea/krea-2-medium")).toEqual([
+      "image",
+    ]);
     expect(
-      getGeneratedImageOutputModalities("bytedance-seed/seedream-4.5"),
+      getGeneratedImageOutputModalities("microsoft/mai-image-2.5-pro"),
     ).toEqual(["image"]);
+  });
+
+  test("routes native OpenRouter image models to the images endpoint", () => {
+    // Krea is a native image-generation model: OpenRouter rejects it on
+    // chat/completions with a 404 telling you to use /api/v1/images.
+    expect(
+      generatedImageModelUsesOpenRouterImagesEndpoint("krea/krea-2-medium"),
+    ).toBe(true);
+    // MAI-Image-2.5 Pro is served as a chat model and works on chat/completions.
+    expect(
+      generatedImageModelUsesOpenRouterImagesEndpoint(
+        "microsoft/mai-image-2.5-pro",
+      ),
+    ).toBe(false);
+    expect(
+      generatedImageModelUsesOpenRouterImagesEndpoint(
+        "google/gemini-3-pro-image-preview",
+      ),
+    ).toBe(false);
+  });
+
+  test("keeps prompt-capped models inside their provider prompt limit", () => {
+    const model = "alibaba/qwen-image-3.0/text-to-image";
+    const promptLimit = getGeneratedImageModelPromptLimit(model);
+
+    expect(promptLimit).toBe(800);
+    expect(
+      getGeneratedImageModelPromptLimit("bytedance/seedream-v5.0-pro"),
+    ).toBe(null);
+
+    const prompt = buildGeneratedImageProviderPrompt({
+      model,
+      // Both sections run far past the cap on their own.
+      prompt: "A courier waits under green ferry-terminal lights. ".repeat(30),
+      stylePrompt: getGeneratedImageStylePresetPrompt("amateur-photo"),
+    });
+
+    expect(prompt.length).toBeLessThanOrEqual(promptLimit ?? 0);
+    expect(prompt.startsWith("Real photograph")).toBe(true);
+    expect(prompt).toContain("Subject:\nA courier waits");
+    expect(prompt).toContain("Style:");
+    expect(prompt).toContain(PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT);
+    // The capped prompt stays affirmation-only, like the other diffusion models.
+    expect(prompt).not.toContain("Avoid:");
+    expect(prompt).not.toContain("anime");
+
+    // A short description keeps its full text and leaves the rest to the style.
+    const shortPrompt = buildGeneratedImageProviderPrompt({
+      model,
+      prompt: "A brass key on a rain-dark windowsill.",
+      stylePrompt: getGeneratedImageStylePresetPrompt("amateur-photo"),
+    });
+
+    expect(shortPrompt.length).toBeLessThanOrEqual(promptLimit ?? 0);
+    expect(shortPrompt).toContain(
+      "Subject:\nA brass key on a rain-dark windowsill.",
+    );
+  });
+
+  test("reserves an image description budget for prompt-capped models", () => {
+    const subjectLimit = getGeneratedImageModelSubjectLimit(
+      "alibaba/qwen-image-3.0-pro/text-to-image",
+    );
+
+    expect(subjectLimit).not.toBeNull();
+    expect(subjectLimit ?? 0).toBeGreaterThan(0);
+    expect(subjectLimit ?? 0).toBeLessThan(800);
+    expect(
+      getGeneratedImageModelSubjectLimit("openai/gpt-image-2/text-to-image"),
+    ).toBe(null);
   });
 
   test("normalizes legacy generated image options for new requests", () => {
