@@ -315,7 +315,7 @@ describe("generated image server helpers", () => {
     const requestPrompt = buildGeneratedImagePromptEnhancementRequest({
       aspectRatio: "16:9",
       imageSize: "2K",
-      model: "google/gemini-3-pro-image-preview",
+      model: "google/gemini-3-pro-image",
       prompt: "A tired courier at a neon ferry terminal.",
       providerPromptTemplate:
         "Photographic style:\nCinematic\n\nSubject:\n<ENHANCED_IMAGE_DESCRIPTION>\n\nAvoid:\nplastic skin",

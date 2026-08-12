@@ -196,9 +196,7 @@ describe("generated image prompts and styles", () => {
       ),
     ).toBe(false);
     expect(
-      generatedImageModelPrefersAffirmativePrompt(
-        "google/gemini-3-pro-image-preview",
-      ),
+      generatedImageModelPrefersAffirmativePrompt("google/gemini-3-pro-image"),
     ).toBe(false);
   });
 
@@ -270,18 +268,18 @@ describe("generated image prompts and styles", () => {
         providerModelId: "openai/gpt-image-2/text-to-image",
       },
       {
-        id: "google/gemini-3-pro-image-preview",
+        id: "google/gemini-3-pro-image",
         name: "Nano Banana Pro",
         outputModalities: ["image", "text"],
         provider: "openrouter",
-        providerModelId: "google/gemini-3-pro-image-preview",
+        providerModelId: "google/gemini-3-pro-image",
       },
       {
-        id: "google/gemini-3.1-flash-image-preview",
+        id: "google/gemini-3.1-flash-image",
         name: "Nano Banana 2",
         outputModalities: ["image", "text"],
         provider: "openrouter",
-        providerModelId: "google/gemini-3.1-flash-image-preview",
+        providerModelId: "google/gemini-3.1-flash-image",
       },
       {
         id: "bytedance/seedream-v5.0-pro",
@@ -336,7 +334,7 @@ describe("generated image prompts and styles", () => {
 
   test("uses OpenRouter output modalities by model capability", () => {
     expect(
-      getGeneratedImageOutputModalities("google/gemini-3-pro-image-preview"),
+      getGeneratedImageOutputModalities("google/gemini-3-pro-image"),
     ).toEqual(["image", "text"]);
     expect(getGeneratedImageOutputModalities("krea/krea-2-medium")).toEqual([
       "image",
@@ -360,7 +358,7 @@ describe("generated image prompts and styles", () => {
     ).toBe(false);
     expect(
       generatedImageModelUsesOpenRouterImagesEndpoint(
-        "google/gemini-3-pro-image-preview",
+        "google/gemini-3-pro-image",
       ),
     ).toBe(false);
   });
@@ -418,7 +416,7 @@ describe("generated image prompts and styles", () => {
 
   test("normalizes legacy generated image options for new requests", () => {
     expect(normalizeGeneratedImageModel("google/gemini-2.5-flash-image")).toBe(
-      "google/gemini-3-pro-image-preview",
+      "google/gemini-3-pro-image",
     );
     expect(normalizeGeneratedImageModel("unknown-image-model")).toBe(
       "openai/gpt-image-2/text-to-image",

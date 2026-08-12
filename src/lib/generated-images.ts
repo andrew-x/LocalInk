@@ -19,18 +19,18 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "openai/gpt-image-2/text-to-image",
   },
   {
-    id: "google/gemini-3-pro-image-preview",
+    id: "google/gemini-3-pro-image",
     name: "Nano Banana Pro",
     outputModalities: ["image", "text"],
     provider: "openrouter",
-    providerModelId: "google/gemini-3-pro-image-preview",
+    providerModelId: "google/gemini-3-pro-image",
   },
   {
-    id: "google/gemini-3.1-flash-image-preview",
+    id: "google/gemini-3.1-flash-image",
     name: "Nano Banana 2",
     outputModalities: ["image", "text"],
     provider: "openrouter",
-    providerModelId: "google/gemini-3.1-flash-image-preview",
+    providerModelId: "google/gemini-3.1-flash-image",
   },
   {
     id: "bytedance/seedream-v5.0-pro",
@@ -173,7 +173,9 @@ const GENERATED_IMAGE_DOWNLOAD_EXTENSION_BY_MIME_TYPE = {
 } as const;
 
 const LEGACY_GENERATED_IMAGE_MODEL_REPLACEMENTS = {
-  "google/gemini-2.5-flash-image": "google/gemini-3-pro-image-preview",
+  "google/gemini-2.5-flash-image": "google/gemini-3-pro-image",
+  "google/gemini-3-pro-image-preview": "google/gemini-3-pro-image",
+  "google/gemini-3.1-flash-image-preview": "google/gemini-3.1-flash-image",
 } as const;
 
 export type GeneratedImageModel = (typeof GENERATED_IMAGE_MODELS)[number]["id"];
