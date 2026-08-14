@@ -103,6 +103,38 @@ describe("generated image server helpers", () => {
     );
   });
 
+  test("reads the WaveSpeed base64 output format from the payload itself", async () => {
+    const { detectWaveSpeedBase64MimeType } = await import(
+      "./generated-images"
+    );
+    const toBase64 = (header: number[]) =>
+      Buffer.concat([Buffer.from(header), Buffer.alloc(32)]).toString("base64");
+
+    // Only models that declare `output_format` are told to render PNG. Grok 2
+    // Image always answers with JPEG, and mislabelling it would store the wrong
+    // extension and `mime_type` for the row.
+    expect(detectWaveSpeedBase64MimeType(toBase64([0xff, 0xd8, 0xff]))).toBe(
+      "image/jpeg",
+    );
+    expect(
+      detectWaveSpeedBase64MimeType(
+        toBase64([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      ),
+    ).toBe("image/png");
+    // Providers may wrap long base64 payloads, so whitespace in the header must
+    // not defeat the check.
+    expect(
+      detectWaveSpeedBase64MimeType(
+        `\n${toBase64([0xff, 0xd8, 0xff]).slice(0, 8)}\n${toBase64([
+          0xff, 0xd8, 0xff,
+        ]).slice(8)}`,
+      ),
+    ).toBe("image/jpeg");
+    // An unrecognized header keeps the previous assumption rather than failing;
+    // the full payload is validated downstream.
+    expect(detectWaveSpeedBase64MimeType("AAAA")).toBe("image/png");
+  });
+
   test("separates WaveSpeed content rejections from provider failures", async () => {
     const {
       classifyWaveSpeedFailureReason,
@@ -453,6 +485,21 @@ describe("generated image server helpers", () => {
       Object.keys(buildBody("alibaba/qwen-image-3.0-pro/text-to-image")),
     ).toEqual(Object.keys(qwenBody));
 
+    // Grok 2 Image declares no `aspect_ratio` and no `resolution`, so both are
+    // dropped rather than clamped; it sizes every output itself.
+    const grokBody = buildBody("x-ai/grok-2-image");
+
+    expect(Object.keys(grokBody).sort()).toEqual([
+      "enable_base64_output",
+      "enable_sync_mode",
+      "prompt",
+    ]);
+    expect(grokBody.enable_base64_output).toBe(true);
+    expect(grokBody.enable_sync_mode).toBe(false);
+    // Its prompt cap is smaller than the negation-based system instruction, so
+    // the composed provider prompt is sent through untouched.
+    expect(grokBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+
     // Models without a capability entry fall back to the conservative defaults:
     // base64 output and sync mode, no quality, no prompt expansion, 2K at most.
     const fallbackBody = buildBody("google/gemini-3-pro-image");
@@ -630,6 +677,24 @@ describe("generated image server helpers", () => {
     expect(getEnhancedGeneratedImagePromptLimit("openai/gpt-image-2")).toBe(
       4000,
     );
+
+    // Grok 2 Image caps prompts around 1,000 characters, so the composed
+    // provider prompt has to fit even when the description and style direction
+    // are both far longer than the budget.
+    const { buildGeneratedImageProviderPrompt } = await import(
+      "@/lib/generated-images"
+    );
+    const grokLimit = getEnhancedGeneratedImagePromptLimit("x-ai/grok-2-image");
+
+    expect(grokLimit).toBeGreaterThan(0);
+    expect(grokLimit).toBeLessThan(1000);
+    expect(
+      buildGeneratedImageProviderPrompt({
+        model: "x-ai/grok-2-image",
+        prompt: "A courier waits under ferry lights. ".repeat(40),
+        stylePrompt: "Candid documentary street photograph. ".repeat(20),
+      }).length,
+    ).toBeLessThanOrEqual(1000);
 
     expect(
       buildGeneratedImagePromptEnhancementSystemPrompt(qwenLimit),

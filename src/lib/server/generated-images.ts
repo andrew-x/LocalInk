@@ -64,41 +64,63 @@ const WAVESPEED_OUTPUT_MIME_TYPE = "image/png";
 // `additionalProperties: false`, so every field LocalInk sends must be one the
 // selected model actually declares. The Qwen Image 3.0 models accept only
 // prompt, aspect ratio, resolution, prompt expansion, and seed, which also means
-// they cannot return base64 and hand back a CDN URL instead. Unknown models fall
-// back to the defaults below.
+// they cannot return base64 and hand back a CDN URL instead. Grok 2 Image is
+// narrower still: prompt, image count, sync mode, and base64 output, with no
+// shape or size controls at all. Unknown models fall back to the defaults below.
 type WaveSpeedModelCapabilities = {
   maxResolution: "2k" | "4k";
+  supportsAspectRatio: boolean;
   supportsBase64Output: boolean;
   supportsOutputFormat: boolean;
   supportsPromptExpansion: boolean;
   supportsQuality: boolean;
+  supportsResolution: boolean;
   supportsSyncMode: boolean;
 };
 const WAVESPEED_MODEL_CAPABILITIES: Record<string, WaveSpeedModelCapabilities> =
   {
     "alibaba/qwen-image-3.0-pro/text-to-image": {
       maxResolution: "2k",
+      supportsAspectRatio: true,
       supportsBase64Output: false,
       supportsOutputFormat: false,
       supportsPromptExpansion: true,
       supportsQuality: false,
+      supportsResolution: true,
       supportsSyncMode: false,
     },
     "alibaba/qwen-image-3.0/text-to-image": {
       maxResolution: "2k",
+      supportsAspectRatio: true,
       supportsBase64Output: false,
       supportsOutputFormat: false,
       supportsPromptExpansion: true,
       supportsQuality: false,
+      supportsResolution: true,
       supportsSyncMode: false,
+    },
+    // Grok 2 Image sizes every output itself (up to 1024x1024) and declares no
+    // `aspect_ratio` or `resolution` field, so LocalInk's shape and size choices
+    // cannot be passed through — sending either would be rejected outright.
+    "x-ai/grok-2-image": {
+      maxResolution: "2k",
+      supportsAspectRatio: false,
+      supportsBase64Output: true,
+      supportsOutputFormat: false,
+      supportsPromptExpansion: false,
+      supportsQuality: false,
+      supportsResolution: false,
+      supportsSyncMode: true,
     },
   };
 const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
   maxResolution: "2k",
+  supportsAspectRatio: true,
   supportsBase64Output: true,
   supportsOutputFormat: true,
   supportsPromptExpansion: false,
   supportsQuality: false,
+  supportsResolution: true,
   supportsSyncMode: true,
 } as const satisfies WaveSpeedModelCapabilities;
 // Per-model capabilities for OpenRouter's images endpoint, mirroring the
@@ -950,7 +972,9 @@ async function requestGeneratedImage({
 
     if (capabilities.supportsBase64Output) {
       return {
-        dataUrl: `data:${WAVESPEED_OUTPUT_MIME_TYPE};base64,${response.base64}`,
+        dataUrl: `data:${detectWaveSpeedBase64MimeType(
+          response.base64,
+        )};base64,${response.base64}`,
         id: response.id,
       };
     }
@@ -1525,14 +1549,23 @@ export function buildWaveSpeedRequestBody({
 }): Record<string, unknown> {
   const capabilities = getWaveSpeedModelCapabilities(modelConfig);
   const body: Record<string, unknown> = {
-    aspect_ratio: aspectRatio,
     prompt: buildSinglePromptRequestValue(providerPrompt, modelConfig.id),
-    resolution: toWaveSpeedResolution(imageSize, capabilities.maxResolution),
   };
 
   // WaveSpeed model schemas set `additionalProperties: false`, so every optional
   // field goes only to the models that actually declare it. Sending a field a
   // model does not know about is rejected outright.
+  if (capabilities.supportsAspectRatio) {
+    body.aspect_ratio = aspectRatio;
+  }
+
+  if (capabilities.supportsResolution) {
+    body.resolution = toWaveSpeedResolution(
+      imageSize,
+      capabilities.maxResolution,
+    );
+  }
+
   if (capabilities.supportsBase64Output) {
     body.enable_base64_output = true;
   }
@@ -1648,6 +1681,28 @@ async function downloadWaveSpeedGeneratedImage(
   }
 
   return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+/**
+ * MIME type of a WaveSpeed base64 output, read from the payload itself.
+ *
+ * Only models that declare `output_format` are told to render PNG; the rest
+ * return whatever their own pipeline produces (Grok 2 Image always answers with
+ * JPEG). Decoding just the leading bytes is enough to recognize the container,
+ * and it keeps the stored file extension and `mime_type` honest without
+ * committing a per-model format claim that a provider change could quietly
+ * invalidate. Falls back to PNG, which is what this path assumed before, when
+ * the header is unrecognized — the full payload is validated downstream anyway.
+ */
+export function detectWaveSpeedBase64MimeType(
+  base64: string,
+): keyof typeof IMAGE_EXTENSION_BY_MIME_TYPE {
+  const header = base64.slice(0, 64).replace(/\s/g, "").slice(0, 24);
+
+  return (
+    detectGeneratedImageMimeType(Buffer.from(header, "base64")) ??
+    WAVESPEED_OUTPUT_MIME_TYPE
+  );
 }
 
 export function detectGeneratedImageMimeType(

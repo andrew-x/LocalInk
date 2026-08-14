@@ -60,6 +60,13 @@ export const GENERATED_IMAGE_MODELS = [
     provider: "wavespeed",
     providerModelId: "alibaba/qwen-image-3.0/text-to-image",
   },
+  {
+    id: "x-ai/grok-2-image",
+    name: "Grok 2 Image",
+    outputModalities: ["image"],
+    provider: "wavespeed",
+    providerModelId: "x-ai/grok-2-image",
+  },
 ] as const;
 
 export const GENERATED_IMAGE_STYLE_PRESETS = [
@@ -219,17 +226,26 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
   "Natural skin with visible pores and small imperfections, physically plausible light and shadow, realistic depth of field, believable color, and ordinary real people with candid expressions.";
 
+// Models that must never receive the negation-based prompt or the long
+// instruction block that goes with it.
+//
 // Diffusion-based image models (Seedream, Qwen Image, Krea) weight the earliest
 // tokens most heavily and treat every token as content, so they
 // ignore "do not" phrasing and negative lists. They get an affirmation-only,
 // photorealism-first prompt instead of the negation-based prompt the
 // instruction-tuned models can follow.
+//
+// Grok 2 Image is autoregressive rather than diffusion, but it is listed for the
+// second reason: its prompt cap is smaller than the negation-based system
+// instruction alone, so prepending that block would consume the whole budget
+// before the subject was reached.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
     "alibaba/qwen-image-3.0-pro/text-to-image",
     "alibaba/qwen-image-3.0/text-to-image",
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
+    "x-ai/grok-2-image",
   ]);
 
 // OpenRouter serves two kinds of image model. Models that behave like chat
@@ -248,13 +264,15 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
   ]);
 
 // Providers that reject or silently truncate prompts past a documented limit.
-// Qwen Image 3.0 accepts at most 800 characters, well under LocalInk's usual
-// composed prompt length, so those models get the compact prompt shape below.
+// Qwen Image 3.0 accepts at most 800 characters and Grok 2 Image about 1,000
+// (xAI's own cap is 1,024), both well under LocalInk's usual composed prompt
+// length, so those models get the compact prompt shape below.
 const GENERATED_IMAGE_MODEL_PROMPT_LIMITS: Partial<
   Record<GeneratedImageModel, number>
 > = {
   "alibaba/qwen-image-3.0-pro/text-to-image": 800,
   "alibaba/qwen-image-3.0/text-to-image": 800,
+  "x-ai/grok-2-image": 1000,
 };
 
 const COMPACT_PROMPT_ANCHOR = "Real photograph, shot on a physical camera.";
