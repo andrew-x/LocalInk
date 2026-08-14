@@ -7,8 +7,8 @@ import {
 import { type CallSettings, generateText, type Prompt, streamText } from "ai";
 
 const LOCALINK_AI_MODELS = {
-  main: "deepseek/deepseek-v4-flash-latest",
-  fast: "deepseek/deepseek-v4-flash-latest",
+  main: "deepseek/deepseek-v4-pro-0813",
+  fast: "deepseek/deepseek-v4-flash-0731",
 } as const;
 
 export type LocalinkAiModel = keyof typeof LOCALINK_AI_MODELS;

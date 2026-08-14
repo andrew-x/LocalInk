@@ -9,9 +9,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
 import { useAction } from "next-safe-action/hooks";
-import { type KeyboardEvent, useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Controller } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -25,6 +24,7 @@ import { generateImage } from "@/actions/generated-images/generate-image";
 import { Button } from "@/components/common/button";
 import { Label } from "@/components/common/label";
 import { Textarea } from "@/components/common/textarea";
+import { GeneratedImageLightbox } from "@/components/generated-images/generated-image-lightbox";
 import {
   GENERATED_IMAGE_ASPECT_RATIOS,
   GENERATED_IMAGE_MODELS,
@@ -50,6 +50,11 @@ export function GenerateImageWorkspace({
 }: GenerateImageWorkspaceProps) {
   const [generatedImage, setGeneratedImage] =
     useState<GeneratedImageListItem | null>(initialImage);
+  // A snapshot, not `generatedImage` itself, so a generation finishing mid-view
+  // does not swap the image out from under a zoomed/panned lightbox.
+  const [lightboxImage, setLightboxImage] =
+    useState<GeneratedImageListItem | null>(null);
+  const previewButtonRef = useRef<HTMLButtonElement>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showMoreRatios, setShowMoreRatios] = useState(
     () => !COMMON_ASPECT_RATIOS.includes(defaultValues.aspectRatio),
@@ -469,33 +474,32 @@ export function GenerateImageWorkspace({
         ) : null}
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center p-2">
-          {isGenerating ? (
-            <div className="grid gap-3 text-center text-muted-foreground">
-              <LoaderCircle
-                aria-hidden="true"
-                className="mx-auto size-7 animate-spin text-primary"
-              />
-              <p className="text-body">Generating image...</p>
-            </div>
-          ) : generatedImage ? (
-            <Link
-              aria-label="Open generated image preview"
+          {generatedImage ? (
+            // Kept mounted during generation so the last image stays viewable.
+            // Only the opacity class changes, so there is no refetch or flash.
+            <button
+              aria-label="Open generated image"
               className={cn(
-                "relative block h-full w-full overflow-hidden rounded-md outline-none transition-[background-color,box-shadow]",
+                "relative block h-full w-full cursor-zoom-in overflow-hidden rounded-md outline-none transition-[background-color,box-shadow]",
                 "hover:bg-background/45 focus-visible:ring-[3px] focus-visible:ring-ring/35",
               )}
-              href={`/images/${generatedImage.id}?from=generate`}
+              onClick={() => setLightboxImage(generatedImage)}
+              ref={previewButtonRef}
+              type="button"
             >
               <Image
                 alt={generatedImage.prompt}
-                className="object-contain"
+                className={cn(
+                  "object-contain transition-opacity duration-200",
+                  isGenerating && "opacity-30",
+                )}
                 fill
                 sizes="(min-width: 1024px) calc(100vw - 22rem), 100vw"
                 src={generatedImage.contentUrl}
                 unoptimized
               />
-            </Link>
-          ) : (
+            </button>
+          ) : isGenerating ? null : (
             <div className="grid max-w-sm gap-4 text-center">
               <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-border/80 bg-muted/70 text-muted-foreground">
                 <ImageIcon aria-hidden="true" className="size-5" />
@@ -505,8 +509,32 @@ export function GenerateImageWorkspace({
               </p>
             </div>
           )}
+
+          {isGenerating ? (
+            // pointer-events-none keeps the dimmed image underneath clickable.
+            <div
+              aria-live="polite"
+              className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-center text-muted-foreground"
+            >
+              <LoaderCircle
+                aria-hidden="true"
+                className="size-7 animate-spin text-primary"
+              />
+              <p className="text-body">Generating image...</p>
+            </div>
+          ) : null}
         </div>
       </section>
+
+      {lightboxImage ? (
+        <GeneratedImageLightbox
+          images={[lightboxImage]}
+          index={0}
+          onClose={() => setLightboxImage(null)}
+          restoreFocusRef={previewButtonRef}
+          showUseSettings={false}
+        />
+      ) : null}
     </div>
   );
 }

@@ -7,14 +7,7 @@ import {
   Download,
   Images,
   Info,
-  Minus,
-  Pause,
-  Play,
-  Plus,
-  RotateCcw,
   Shuffle,
-  SkipBack,
-  SkipForward,
   Trash2,
   X,
 } from "lucide-react";
@@ -22,7 +15,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { GeneratedImageListItem } from "@/actions/generated-images/_types";
@@ -38,7 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/common/dialog";
-import { useGeneratedImageLightboxViewport } from "@/components/generated-images/use-generated-image-lightbox-viewport";
+import { GeneratedImageLightbox } from "@/components/generated-images/generated-image-lightbox";
 import day from "@/lib/dayjs";
 import {
   CUSTOM_GENERATED_IMAGE_STYLE_PRESET,
@@ -51,8 +44,6 @@ import { cn } from "@/lib/util";
 type GeneratedImageGalleryProps = {
   images: GeneratedImageListItem[];
 };
-
-const SLIDESHOW_INTERVAL_MS = 6000;
 
 export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
   const router = useRouter();
@@ -69,6 +60,17 @@ export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
   const [slideshowImages, setSlideshowImages] = useState<
     GeneratedImageListItem[] | null
   >(null);
+  const [slideshowIndex, setSlideshowIndex] = useState(0);
+  // Tracked by id rather than index: galleryImages can change underneath the
+  // lightbox, and an index pointer would silently slide onto a different
+  // image. A removed id resolves to -1, which closes the lightbox.
+  const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
+  // The tile that opened the lightbox, so focus returns there on close.
+  const lightboxTriggerRef = useRef<HTMLElement | null>(null);
+  const slideshowButtonRef = useRef<HTMLButtonElement>(null);
+  const lightboxIndex = lightboxImageId
+    ? galleryImages.findIndex((image) => image.id === lightboxImageId)
+    : -1;
   const deleteAction = useAction(deleteGeneratedImage);
   const bulkDeleteAction = useAction(deleteGeneratedImages);
   const isDeleting = deleteAction.isPending;
@@ -83,6 +85,7 @@ export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
       return;
     }
 
+    setSlideshowIndex(0);
     setSlideshowImages(shuffleImages(galleryImages));
   }
 
@@ -212,6 +215,7 @@ export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
             <Button
               disabled={!galleryImages.length}
               onClick={startSlideshow}
+              ref={slideshowButtonRef}
               type="button"
               variant="outline"
             >
@@ -237,6 +241,10 @@ export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
                   image={image}
                   key={image.id}
                   onDelete={() => setDeleteImage(image)}
+                  onOpen={(trigger) => {
+                    lightboxTriggerRef.current = trigger;
+                    setLightboxImageId(image.id);
+                  }}
                   onPreviewPrompt={() => setPreviewImage(image)}
                   onSelectionChange={(selected) =>
                     handleSelectionChange(image.id, selected)
@@ -349,10 +357,26 @@ export function GeneratedImageGallery({ images }: GeneratedImageGalleryProps) {
         </DialogContent>
       </Dialog>
 
+      {lightboxIndex >= 0 ? (
+        <GeneratedImageLightbox
+          images={galleryImages}
+          index={lightboxIndex}
+          onClose={() => setLightboxImageId(null)}
+          onIndexChange={(nextIndex) =>
+            setLightboxImageId(galleryImages[nextIndex]?.id ?? null)
+          }
+          restoreFocusRef={lightboxTriggerRef}
+        />
+      ) : null}
+
       {slideshowImages ? (
-        <GeneratedImageSlideshow
+        <GeneratedImageLightbox
+          autoPlay
           images={slideshowImages}
+          index={slideshowIndex}
           onClose={() => setSlideshowImages(null)}
+          onIndexChange={setSlideshowIndex}
+          restoreFocusRef={slideshowButtonRef}
         />
       ) : null}
     </>
@@ -363,6 +387,7 @@ function GeneratedImageCard({
   feature,
   image,
   onDelete,
+  onOpen,
   onPreviewPrompt,
   onSelectionChange,
   selectionActive,
@@ -371,6 +396,7 @@ function GeneratedImageCard({
   feature: boolean;
   image: GeneratedImageListItem;
   onDelete: () => void;
+  onOpen: (trigger: HTMLElement) => void;
   onPreviewPrompt: () => void;
   onSelectionChange: (selected: boolean) => void;
   selectionActive: boolean;
@@ -410,10 +436,11 @@ function GeneratedImageCard({
         </span>
       </label>
 
-      <Link
+      <button
         aria-label="Open generated image"
-        className="block h-full w-full bg-background"
-        href={`/images/${image.id}`}
+        className="block h-full w-full cursor-zoom-in bg-background outline-none"
+        onClick={(event) => onOpen(event.currentTarget)}
+        type="button"
       >
         <Image
           alt={image.prompt}
@@ -427,7 +454,7 @@ function GeneratedImageCard({
           src={image.contentUrl}
           unoptimized
         />
-      </Link>
+      </button>
 
       <div
         className={cn(
@@ -572,286 +599,6 @@ function GeneratedImageBulkSelectionBar({
   );
 }
 
-function GeneratedImageSlideshow({
-  images,
-  onClose,
-}: {
-  images: GeneratedImageListItem[];
-  onClose: () => void;
-}) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
-  const currentImage = images[currentIndex];
-  const hasMultipleImages = images.length > 1;
-  const {
-    canZoomIn,
-    canZoomOut,
-    handleDoubleClick,
-    handlePointerDown,
-    handlePointerMove,
-    handleWheel,
-    isDragging,
-    pan,
-    resetZoom,
-    stageRef,
-    stopDragging,
-    zoom,
-    zoomIn,
-    zoomOut,
-  } = useGeneratedImageLightboxViewport();
-
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (currentImage?.id) {
-      resetZoom();
-    }
-  }, [currentImage?.id, resetZoom]);
-
-  useEffect(() => {
-    if (isPaused || !hasMultipleImages) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setCurrentIndex((index) => (index + 1) % images.length);
-    }, SLIDESHOW_INTERVAL_MS);
-
-    return () => window.clearInterval(timer);
-  }, [hasMultipleImages, images.length, isPaused]);
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-
-      if (!hasMultipleImages) {
-        return;
-      }
-
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        setCurrentIndex((index) => (index - 1 + images.length) % images.length);
-        return;
-      }
-
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        setCurrentIndex((index) => (index + 1) % images.length);
-        return;
-      }
-
-      if (
-        (event.key === " " || event.code === "Space") &&
-        !isSlideshowControlTarget(event.target)
-      ) {
-        event.preventDefault();
-        setIsPaused((paused) => !paused);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hasMultipleImages, images.length, onClose]);
-
-  if (!currentImage) {
-    return null;
-  }
-
-  function showPreviousImage() {
-    if (!hasMultipleImages) {
-      return;
-    }
-
-    setCurrentIndex((index) => (index - 1 + images.length) % images.length);
-  }
-
-  function showNextImage() {
-    if (!hasMultipleImages) {
-      return;
-    }
-
-    setCurrentIndex((index) => (index + 1) % images.length);
-  }
-
-  return (
-    <div
-      aria-label="Image slideshow"
-      aria-modal="true"
-      className="fixed inset-0 z-50 bg-black text-white"
-      role="dialog"
-    >
-      <section
-        aria-label="Slideshow image"
-        className={cn(
-          "relative h-dvh touch-none overflow-hidden select-none",
-          zoom === 1 ? "cursor-zoom-in" : "cursor-grab",
-          isDragging && "cursor-grabbing",
-        )}
-        onDoubleClick={handleDoubleClick}
-        onPointerCancel={stopDragging}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={stopDragging}
-        onWheel={handleWheel}
-        ref={stageRef}
-      >
-        <div
-          className="absolute inset-0 transition-transform duration-200 ease-out will-change-transform"
-          style={{
-            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-          }}
-        >
-          <Image
-            alt={currentImage.prompt}
-            className="pointer-events-none object-contain p-4 sm:p-8"
-            draggable={false}
-            fill
-            key={currentImage.id}
-            priority
-            sizes="100vw"
-            src={currentImage.contentUrl}
-            unoptimized
-          />
-        </div>
-
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-linear-to-b from-black/90 via-black/55 to-transparent">
-          <div
-            className="pointer-events-auto grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-page py-4"
-            data-lightbox-control
-          >
-            <Button
-              aria-label="Close slideshow"
-              className="size-9 border-white/15 bg-white/10 text-white hover:bg-white/15"
-              onClick={onClose}
-              size="icon"
-              tooltip="Close slideshow"
-              type="button"
-              variant="outline"
-            >
-              <X aria-hidden="true" className="size-4" />
-            </Button>
-
-            <div aria-live="polite" className="min-w-0 text-center">
-              <p className="truncate text-label text-white/90">
-                {currentImage.prompt}
-              </p>
-              <p className="truncate text-caption text-white/55">
-                {isPaused ? "Paused" : "Playing"} · {currentIndex + 1} /{" "}
-                {images.length} · {formatDimensions(currentImage)}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-1 sm:gap-2">
-              <Button
-                aria-label="Previous image"
-                className="size-9 border-white/15 bg-white/10 text-white hover:bg-white/15"
-                disabled={!hasMultipleImages}
-                onClick={showPreviousImage}
-                size="icon"
-                tooltip="Previous image"
-                type="button"
-                variant="outline"
-              >
-                <SkipBack aria-hidden="true" className="size-4" />
-              </Button>
-
-              <Button
-                aria-label={isPaused ? "Resume slideshow" : "Pause slideshow"}
-                className="size-9 border-white/15 bg-white/10 text-white hover:bg-white/15"
-                disabled={!hasMultipleImages}
-                onClick={() => setIsPaused((paused) => !paused)}
-                size="icon"
-                tooltip={isPaused ? "Resume slideshow" : "Pause slideshow"}
-                type="button"
-                variant="outline"
-              >
-                {isPaused ? (
-                  <Play aria-hidden="true" className="size-4" />
-                ) : (
-                  <Pause aria-hidden="true" className="size-4" />
-                )}
-              </Button>
-
-              <Button
-                aria-label="Next image"
-                className="size-9 border-white/15 bg-white/10 text-white hover:bg-white/15"
-                disabled={!hasMultipleImages}
-                onClick={showNextImage}
-                size="icon"
-                tooltip="Next image"
-                type="button"
-                variant="outline"
-              >
-                <SkipForward aria-hidden="true" className="size-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-linear-to-t from-black/90 via-black/55 to-transparent">
-          <div
-            className="pointer-events-auto flex flex-col items-center gap-3 px-page pt-16 pb-4"
-            data-lightbox-control
-          >
-            <div className="flex items-center gap-1 rounded-md border border-white/15 bg-black/55 p-1 shadow-sm backdrop-blur">
-              <Button
-                aria-label="Zoom out"
-                className="size-8 text-white hover:bg-white/10"
-                disabled={!canZoomOut}
-                onClick={zoomOut}
-                size="icon"
-                tooltip="Zoom out"
-                type="button"
-                variant="ghost"
-              >
-                <Minus aria-hidden="true" className="size-4" />
-              </Button>
-              <span className="min-w-12 px-1 text-center text-caption text-white/65">
-                {Math.round(zoom * 100)}%
-              </span>
-              <Button
-                aria-label="Zoom in"
-                className="size-8 text-white hover:bg-white/10"
-                disabled={!canZoomIn}
-                onClick={zoomIn}
-                size="icon"
-                tooltip="Zoom in"
-                type="button"
-                variant="ghost"
-              >
-                <Plus aria-hidden="true" className="size-4" />
-              </Button>
-              <Button
-                aria-label="Reset zoom"
-                className="size-8 text-white hover:bg-white/10"
-                disabled={!canZoomOut}
-                onClick={resetZoom}
-                size="icon"
-                tooltip="Reset zoom"
-                type="button"
-                variant="ghost"
-              >
-                <RotateCcw aria-hidden="true" className="size-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function PromptPreviewDialog({
   image,
   onOpenChange,
@@ -932,13 +679,6 @@ function shuffleImages(images: GeneratedImageListItem[]) {
   }
 
   return shuffledImages;
-}
-
-function isSlideshowControlTarget(target: EventTarget | null) {
-  return (
-    target instanceof HTMLElement &&
-    Boolean(target.closest("[data-lightbox-control]"))
-  );
 }
 
 function formatCreatedAt(createdAt: string) {

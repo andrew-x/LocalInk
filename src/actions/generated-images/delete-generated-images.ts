@@ -17,10 +17,6 @@ export const deleteGeneratedImages = publicActionClient
     revalidatePath("/images");
     revalidatePath("/images/generate");
 
-    for (const image of images) {
-      revalidatePath(`/images/${image.id}`);
-    }
-
     return {
       ids: images.map((image) => image.id),
     };

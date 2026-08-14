@@ -28,6 +28,8 @@ import {
   buildGeneratedImageSystemInstruction,
   CUSTOM_GENERATED_IMAGE_STYLE_PRESET,
   detectGeneratedImageStylePreset,
+  GENERATED_IMAGE_ASPECT_RATIOS,
+  GENERATED_IMAGE_SIZES,
   GENERATED_IMAGE_STYLE_PRESET_IDS,
   type GeneratedImageAspectRatio,
   type GeneratedImageModel,
@@ -48,6 +50,7 @@ import { generateId } from "@/lib/util";
 const OPENROUTER_CHAT_COMPLETIONS_URL =
   "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
+const OPENROUTER_IMAGE_QUALITY = "medium";
 const WAVESPEED_PREDICTION_RESULT_URL_PREFIX =
   "https://api.wavespeed.ai/api/v3/predictions/";
 const WAVESPEED_API_URL_PREFIX = "https://api.wavespeed.ai/api/v3/";
@@ -59,11 +62,10 @@ const WAVESPEED_OUTPUT_FORMAT = "png";
 const WAVESPEED_OUTPUT_MIME_TYPE = "image/png";
 // Per-model WaveSpeed request capabilities. WaveSpeed model schemas set
 // `additionalProperties: false`, so every field LocalInk sends must be one the
-// selected model actually declares. GPT Image 2 takes `quality` and supports up
-// to 4K; Seedream tops out at 2K and rejects `quality`; the Qwen Image 3.0
-// models accept only prompt, aspect ratio, resolution, prompt expansion, and
-// seed, which also means they cannot return base64 and hand back a CDN URL
-// instead. Unknown models fall back to the defaults below.
+// selected model actually declares. The Qwen Image 3.0 models accept only
+// prompt, aspect ratio, resolution, prompt expansion, and seed, which also means
+// they cannot return base64 and hand back a CDN URL instead. Unknown models fall
+// back to the defaults below.
 type WaveSpeedModelCapabilities = {
   maxResolution: "2k" | "4k";
   supportsBase64Output: boolean;
@@ -90,22 +92,6 @@ const WAVESPEED_MODEL_CAPABILITIES: Record<string, WaveSpeedModelCapabilities> =
       supportsQuality: false,
       supportsSyncMode: false,
     },
-    "bytedance/seedream-v5.0-pro": {
-      maxResolution: "2k",
-      supportsBase64Output: true,
-      supportsOutputFormat: true,
-      supportsPromptExpansion: false,
-      supportsQuality: false,
-      supportsSyncMode: true,
-    },
-    "openai/gpt-image-2/text-to-image": {
-      maxResolution: "4k",
-      supportsBase64Output: true,
-      supportsOutputFormat: true,
-      supportsPromptExpansion: false,
-      supportsQuality: true,
-      supportsSyncMode: true,
-    },
   };
 const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
   maxResolution: "2k",
@@ -115,14 +101,71 @@ const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
   supportsQuality: false,
   supportsSyncMode: true,
 } as const satisfies WaveSpeedModelCapabilities;
+// Per-model capabilities for OpenRouter's images endpoint, mirroring the
+// `supported_parameters` enums that /api/v1/images/models publishes. That
+// endpoint validates every field against those enums and rejects anything
+// outside them, while LocalInk offers one app-wide list of sizes and aspect
+// ratios, so requests are clamped to the closest supported value instead of
+// failing. `maxImageSize: null` means the model has no `resolution` parameter at
+// all and the field must be omitted rather than clamped. Models absent from this
+// map — the chat-style ones — are sent through unclamped.
+type OpenRouterImagesModelCapabilities = {
+  aspectRatios: ReadonlySet<GeneratedImageAspectRatio>;
+  maxImageSize: GeneratedImageSize | null;
+  supportsQuality: boolean;
+};
+const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
+  Record<GeneratedImageModel, OpenRouterImagesModelCapabilities>
+> = {
+  "bytedance-seed/seedream-5-0-pro": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: "2K",
+    supportsQuality: false,
+  },
+  "krea/krea-2-large": {
+    aspectRatios: new Set(["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]),
+    maxImageSize: "1K",
+    supportsQuality: false,
+  },
+  // GPT Image 2 sizes its own output from the aspect ratio and declares no
+  // `resolution` parameter, so LocalInk's image-size choice cannot be passed
+  // through for this model. It does take `quality`, which is where the extra
+  // rendering effort goes instead.
+  "openai/gpt-image-2": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: null,
+    supportsQuality: true,
+  },
+};
 const WAVESPEED_IMAGE_DOWNLOAD_TIMEOUT_MS = 60_000;
 const WAVESPEED_MAX_POLL_ATTEMPTS = 300;
 const WAVESPEED_POLL_INTERVAL_MS = 1000;
 const WAVESPEED_PREDICTION_DELETE_TIMEOUT_MS = 10_000;
 // Markers that identify a provider-side content-moderation rejection rather
-// than an infrastructure failure. Matched against the provider error only to
-// classify it — the raw text is never logged, because it can quote the prompt.
-const WAVESPEED_CONTENT_REJECTION_MARKERS = [
+// than an infrastructure failure. Moderation messages are the ones that quote
+// the prompt back, so a match downgrades the provider text to a classification
+// instead of letting it reach the logs.
+const CONTENT_REJECTION_MARKERS = [
   "content policy",
   "content_policy",
   "content filter",
@@ -137,6 +180,8 @@ const WAVESPEED_CONTENT_REJECTION_MARKERS = [
 ];
 const MAX_GENERATED_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_ENHANCED_IMAGE_PROMPT_LENGTH = 4000;
+const MAX_LOGGED_PROVIDER_ERROR_LENGTH = 200;
+const WITHHELD_PROVIDER_ERROR_MESSAGE = "[content-rejection text withheld]";
 const IMAGE_PROMPT_ENHANCEMENT_PROVIDER_OPTIONS = {
   openrouter: {
     reasoning: {
@@ -193,8 +238,8 @@ type WaveSpeedPrediction = {
 };
 
 // `base64` holds naked base64 for models that accept `enable_base64_output`.
-// Models that do not declare that field (Qwen Image 3.0) can only answer with a
-// CDN URL, which is downloaded before the bytes are stored locally.
+// Models that do not declare that field can only answer with a CDN URL, which is
+// downloaded before the bytes are stored locally.
 type WaveSpeedGeneratedImageOutput = {
   base64: string;
   id: string | null;
@@ -220,6 +265,8 @@ type OpenRouterImagesResponse = {
 
 type OpenRouterImageResponse = {
   choices?: Array<{
+    finish_reason?: unknown;
+    native_finish_reason?: unknown;
     message?: {
       images?: unknown;
     };
@@ -231,6 +278,62 @@ type GeneratedImageProviderOutput = {
   dataUrl: string;
   id: string | null;
 };
+
+/**
+ * Every distinct way an image generation can fail.
+ *
+ * Failures used to collapse into one opaque "The image could not be generated."
+ * with nothing in the logs, so a dead API key, a moderation block, a poll
+ * timeout, and an undecodable payload were indistinguishable after the fact.
+ * Each throw site now names itself here, and the union keeps the codes from
+ * drifting as the provider paths change.
+ */
+type GeneratedImageFailureReason =
+  | "base64-empty"
+  | "base64-malformed"
+  | "base64-too-large"
+  | "data-url-malformed"
+  | "data-url-unsupported-mime-type"
+  | "local-persistence-failed"
+  | "openrouter-images-missing-image"
+  | "openrouter-images-unexpected-response"
+  | "openrouter-invalid-json"
+  | "openrouter-missing-image"
+  | "openrouter-request-failed"
+  | "openrouter-unexpected-response"
+  | "prompt-enhancement-failed"
+  | "provider-http-error"
+  | "wavespeed-download-body-failed"
+  | "wavespeed-download-empty"
+  | "wavespeed-download-http-error"
+  | "wavespeed-download-invalid-url"
+  | "wavespeed-download-request-failed"
+  | "wavespeed-download-too-large"
+  | "wavespeed-download-unrecognized-format"
+  | "wavespeed-incomplete-prediction"
+  | "wavespeed-invalid-json"
+  | "wavespeed-missing-output"
+  | "wavespeed-missing-prediction-id"
+  | "wavespeed-poll-timeout"
+  | "wavespeed-prediction-failed"
+  | "wavespeed-request-failed"
+  | "wavespeed-unexpected-response";
+
+type GeneratedImageFailureDetails = {
+  errorCode?: string;
+  errorName?: string;
+  model?: GeneratedImageModel;
+  provider?: string;
+  providerErrorCode?: string;
+  providerErrorMessage?: string;
+  providerName?: string;
+  status?: number | string;
+};
+
+type ProviderErrorSummary = Pick<
+  GeneratedImageFailureDetails,
+  "providerErrorCode" | "providerErrorMessage" | "providerName"
+>;
 
 export async function getGeneratedImageDefaults(): Promise<GeneratedImageDefaults> {
   return getSharedGeneratedImageDefaults();
@@ -290,7 +393,10 @@ export async function generateAndStoreGeneratedImage(
     modelConfig,
     providerPrompt,
   });
-  const decodedImage = decodeGeneratedImageDataUrl(response.dataUrl);
+  const decodedImage = decodeGeneratedImageDataUrl(response.dataUrl, {
+    model: modelConfig.id,
+    provider: modelConfig.provider,
+  });
   const id = generateId("generated-image");
   const now = day().toISOString();
   const fileRelativePath = path.posix.join(
@@ -325,6 +431,16 @@ export async function generateAndStoreGeneratedImage(
     await writeFile(filePath, decodedImage.bytes, { flag: "wx" });
     await getDb().insert(generatedImages).values(row);
   } catch (error) {
+    // The image itself was fine — this is a disk or SQLite problem — so the
+    // errno label is what distinguishes a full disk from a locked database.
+    // The failing path is never logged.
+    logGeneratedImageFailure("local-persistence-failed", {
+      errorCode: getErrnoCode(error),
+      errorName: getErrorName(error),
+      model: input.model,
+      provider: modelConfig.provider,
+    });
+
     await unlink(filePath).catch(() => undefined);
 
     // Local persistence failed, so nothing was kept here. The provider still
@@ -394,7 +510,7 @@ export async function enhanceGeneratedImagePrompt(
       throw error;
     }
 
-    throw promptEnhancementFailedError();
+    throw promptEnhancementFailedError(error);
   }
 
   return normalizeEnhancedGeneratedImagePrompt(result.text, maxLength);
@@ -539,25 +655,32 @@ export function resolveGeneratedImageFilePath(
 
 export function decodeGeneratedImageDataUrl(
   dataUrl: string,
+  details?: GeneratedImageFailureDetails,
 ): DecodedGeneratedImageDataUrl {
   const match = dataUrl.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);
 
   if (!match) {
-    throw generationFailedError();
+    throw generationFailedError("data-url-malformed", details);
   }
 
   const mimeType = match[1].toLowerCase();
 
   if (!isSupportedGeneratedImageMimeType(mimeType)) {
-    throw generationFailedError();
+    // The MIME type is a short provider-declared token, not user content, so it
+    // is safe to log and is the whole explanation for this failure.
+    throw generationFailedError("data-url-unsupported-mime-type", {
+      ...details,
+      providerErrorCode: toLoggableScalar(mimeType),
+    });
   }
 
-  return decodeGeneratedImageBase64(match[2], mimeType);
+  return decodeGeneratedImageBase64(match[2], mimeType, details);
 }
 
 export function decodeGeneratedImageBase64(
   base64: string,
   mimeType: keyof typeof IMAGE_EXTENSION_BY_MIME_TYPE,
+  details?: GeneratedImageFailureDetails,
 ): DecodedGeneratedImageDataUrl {
   const normalizedBase64 = base64.replace(/\s/g, "");
 
@@ -566,13 +689,22 @@ export function decodeGeneratedImageBase64(
     !/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedBase64) ||
     /=[^=]/.test(normalizedBase64)
   ) {
-    throw generationFailedError();
+    throw generationFailedError("base64-malformed", details);
   }
 
   const bytes = Buffer.from(normalizedBase64, "base64");
 
-  if (!bytes.byteLength || bytes.byteLength > MAX_GENERATED_IMAGE_BYTES) {
-    throw generationFailedError();
+  if (!bytes.byteLength) {
+    throw generationFailedError("base64-empty", details);
+  }
+
+  if (bytes.byteLength > MAX_GENERATED_IMAGE_BYTES) {
+    throw generationFailedError("base64-too-large", {
+      ...details,
+      // Byte counts are size metadata, not image content, and separate a
+      // provider returning something enormous from it returning nothing.
+      providerErrorMessage: `${bytes.byteLength} bytes`,
+    });
   }
 
   const dimensions = getImageDimensions(bytes, mimeType);
@@ -675,14 +807,21 @@ export function normalizeEnhancedGeneratedImagePrompt(
 
 export function parseWaveSpeedGeneratedImageBase64(
   response: WaveSpeedImageResponse,
+  model?: GeneratedImageModel,
 ): WaveSpeedGeneratedImageOutput {
-  const prediction = getWaveSpeedPrediction(response);
+  const prediction = getWaveSpeedPrediction(response, model);
 
   if (prediction.status === "failed") {
-    throw toWaveSpeedFailureError(prediction);
+    throw toWaveSpeedFailureError(prediction, model);
   }
 
   if (prediction.status !== "completed") {
+    logGeneratedImageFailure("wavespeed-incomplete-prediction", {
+      model,
+      provider: WAVESPEED_PROVIDER,
+      status: toLoggableScalar(prediction.status) ?? "unknown",
+    });
+
     throw new ActionError(
       "GENERATION_FAILED",
       "The image generation did not complete.",
@@ -696,7 +835,10 @@ export function parseWaveSpeedGeneratedImageBase64(
   );
 
   if (!firstOutput) {
-    throw generationFailedError();
+    throw generationFailedError("wavespeed-missing-output", {
+      model,
+      provider: WAVESPEED_PROVIDER,
+    });
   }
 
   return {
@@ -707,8 +849,10 @@ export function parseWaveSpeedGeneratedImageBase64(
 
 export function parseOpenRouterGeneratedImageDataUrl(
   response: OpenRouterImageResponse,
+  model?: GeneratedImageModel,
 ): GeneratedImageProviderOutput {
-  const message = response.choices?.[0]?.message;
+  const choice = response.choices?.[0];
+  const message = choice?.message;
   const images = Array.isArray(message?.images) ? message.images : [];
   const firstImage = images.find(isOpenRouterGeneratedImage);
   const dataUrl = firstImage
@@ -716,6 +860,20 @@ export function parseOpenRouterGeneratedImageDataUrl(
     : null;
 
   if (typeof dataUrl !== "string" || !dataUrl.trim()) {
+    // The finish reason is the difference between a model that answered with
+    // text and one that was cut off or filtered. The message body itself is
+    // never logged, since a refusal restates the prompt.
+    logGeneratedImageFailure("openrouter-missing-image", {
+      model,
+      provider: "openrouter",
+      providerErrorCode:
+        toLoggableScalar(choice?.finish_reason) ??
+        toLoggableScalar(choice?.native_finish_reason),
+      providerErrorMessage: response.choices?.length
+        ? `${images.length} images returned`
+        : "no choices returned",
+    });
+
     throw new ActionError(
       "GENERATION_FAILED",
       "The model did not return an image. Try a different model or prompt.",
@@ -736,6 +894,7 @@ export function parseOpenRouterGeneratedImageDataUrl(
  */
 export function parseOpenRouterImagesGeneratedImageDataUrl(
   response: OpenRouterImagesResponse,
+  model?: GeneratedImageModel,
 ): GeneratedImageProviderOutput {
   const images = Array.isArray(response.data) ? response.data : [];
   const firstImage = images.find(isOpenRouterImagesGeneratedImage);
@@ -743,6 +902,18 @@ export function parseOpenRouterImagesGeneratedImageDataUrl(
   const mimeType = getTrimmedString(firstImage?.media_type)?.toLowerCase();
 
   if (!base64 || !mimeType || !isSupportedGeneratedImageMimeType(mimeType)) {
+    // An empty result and an unsupported format are different problems: one is
+    // a provider failure, the other means this model needs a new MIME type
+    // added to the supported list.
+    logGeneratedImageFailure("openrouter-images-missing-image", {
+      model,
+      provider: "openrouter",
+      providerErrorCode: mimeType ? toLoggableScalar(mimeType) : undefined,
+      providerErrorMessage: base64
+        ? "unsupported media type"
+        : `${images.length} images returned`,
+    });
+
     throw new ActionError(
       "GENERATION_FAILED",
       "The model did not return an image. Try a different model or prompt.",
@@ -789,7 +960,10 @@ async function requestGeneratedImage({
     // converted into the same data URL shape the rest of the flow expects.
     try {
       return {
-        dataUrl: await downloadWaveSpeedGeneratedImage(response.base64),
+        dataUrl: await downloadWaveSpeedGeneratedImage(
+          response.base64,
+          modelConfig.id,
+        ),
         id: response.id,
       };
     } catch (error) {
@@ -848,21 +1022,28 @@ async function requestWaveSpeedGeneratedImage({
     },
     modelConfig.id,
   );
-  const submittedPrediction = getWaveSpeedPrediction(submittedBody);
+  const submittedPrediction = getWaveSpeedPrediction(
+    submittedBody,
+    modelConfig.id,
+  );
   const predictionId = getTrimmedString(submittedPrediction.id);
 
   try {
     if (submittedPrediction.status === "completed") {
-      return parseWaveSpeedGeneratedImageBase64(submittedBody);
+      return parseWaveSpeedGeneratedImageBase64(submittedBody, modelConfig.id);
     }
 
     if (submittedPrediction.status === "failed") {
-      throw toWaveSpeedFailureError(submittedPrediction);
+      throw toWaveSpeedFailureError(submittedPrediction, modelConfig.id);
     }
 
     return await pollWaveSpeedGeneratedImage({
       apiKey,
-      resultUrl: getWaveSpeedPredictionResultUrl(submittedPrediction),
+      model: modelConfig.id,
+      resultUrl: getWaveSpeedPredictionResultUrl(
+        submittedPrediction,
+        modelConfig.id,
+      ),
     });
   } catch (error) {
     // Every failure past submission — a moderation rejection, a poll timeout,
@@ -906,15 +1087,12 @@ async function requestOpenRouterGeneratedImage({
     ? OPENROUTER_IMAGES_URL
     : OPENROUTER_CHAT_COMPLETIONS_URL;
   const requestBody = usesImagesEndpoint
-    ? {
-        aspect_ratio: aspectRatio,
-        model: modelConfig.providerModelId,
-        // The images endpoint takes one prompt string and has no system role,
-        // so the system instruction is folded into the prompt the same way the
-        // WaveSpeed request does it.
-        prompt: buildSinglePromptRequestValue(providerPrompt, modelConfig.id),
-        resolution: imageSize,
-      }
+    ? buildOpenRouterImagesRequestBody({
+        aspectRatio,
+        imageSize,
+        modelConfig,
+        providerPrompt,
+      })
     : {
         image_config: {
           aspect_ratio: aspectRatio,
@@ -942,14 +1120,19 @@ async function requestOpenRouterGeneratedImage({
       headers: buildOpenRouterHeaders(apiKey),
       method: "POST",
     });
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    throw generationFailedError("openrouter-request-failed", {
+      errorName: getErrorName(error),
+      model: modelConfig.id,
+      provider: "openrouter",
+    });
   }
 
   if (!response.ok) {
     throw toProviderResponseError({
       model: modelConfig.id,
       provider: "openrouter",
+      responseBody: await readResponseBodyText(response),
       status: response.status,
     });
   }
@@ -958,46 +1141,60 @@ async function requestOpenRouterGeneratedImage({
 
   try {
     body = await response.json();
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    throw generationFailedError("openrouter-invalid-json", {
+      errorName: getErrorName(error),
+      model: modelConfig.id,
+      provider: "openrouter",
+    });
   }
 
   if (usesImagesEndpoint) {
     if (!isOpenRouterImagesResponse(body)) {
-      throw generationFailedError();
+      throw generationFailedError("openrouter-images-unexpected-response", {
+        model: modelConfig.id,
+        provider: "openrouter",
+      });
     }
 
-    return parseOpenRouterImagesGeneratedImageDataUrl(body);
+    return parseOpenRouterImagesGeneratedImageDataUrl(body, modelConfig.id);
   }
 
   if (!isOpenRouterImageResponse(body)) {
-    throw generationFailedError();
+    throw generationFailedError("openrouter-unexpected-response", {
+      model: modelConfig.id,
+      provider: "openrouter",
+    });
   }
 
-  return parseOpenRouterGeneratedImageDataUrl(body);
+  return parseOpenRouterGeneratedImageDataUrl(body, modelConfig.id);
 }
 
 /**
  * Turns a failed provider HTTP response into a user-facing error.
  *
- * The status code is the one piece of provider feedback that is always safe to
- * log — response bodies can quote the prompt back — and an authentication
- * failure is worth separating from a generic outage, since it is fixed by
- * correcting the API key rather than by retrying.
+ * The status alone rarely explains the failure — a 400 covers everything from
+ * an unsupported aspect ratio to a disabled model — so the body is reduced to
+ * its sanitized code and message before logging. An authentication failure is
+ * worth separating from a generic outage, since it is fixed by correcting the
+ * API key rather than by retrying.
  */
 function toProviderResponseError({
   model,
   provider,
+  responseBody,
   status,
 }: {
   model: GeneratedImageModel;
   provider: string;
+  responseBody: string | null;
   status: number;
 }): ActionError {
-  generatedImagesLogger.error("image-generation-request-failed", {
+  logGeneratedImageFailure("provider-http-error", {
     model,
     provider,
     status,
+    ...summarizeProviderErrorBody(responseBody),
   });
 
   if (status === 401 || status === 403) {
@@ -1007,7 +1204,7 @@ function toProviderResponseError({
     );
   }
 
-  return generationFailedError();
+  return imageGenerationFailedError();
 }
 
 /**
@@ -1055,59 +1252,81 @@ export async function deleteWaveSpeedPrediction(
 async function requestWaveSpeedJson(
   url: string,
   init: RequestInit,
-  model?: GeneratedImageModel,
+  model: GeneratedImageModel,
 ): Promise<WaveSpeedImageResponse> {
   let response: Response;
 
   try {
     response = await fetch(url, init);
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    throw generationFailedError("wavespeed-request-failed", {
+      errorName: getErrorName(error),
+      model,
+      provider: WAVESPEED_PROVIDER,
+    });
   }
 
   if (!response.ok) {
-    throw model
-      ? toProviderResponseError({
-          model,
-          provider: WAVESPEED_PROVIDER,
-          status: response.status,
-        })
-      : generationFailedError();
+    throw toProviderResponseError({
+      model,
+      provider: WAVESPEED_PROVIDER,
+      responseBody: await readResponseBodyText(response),
+      status: response.status,
+    });
   }
 
   try {
     return (await response.json()) as WaveSpeedImageResponse;
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    throw generationFailedError("wavespeed-invalid-json", {
+      errorName: getErrorName(error),
+      model,
+      provider: WAVESPEED_PROVIDER,
+    });
   }
 }
 
 async function pollWaveSpeedGeneratedImage({
   apiKey,
+  model,
   resultUrl,
 }: {
   apiKey: string;
+  model: GeneratedImageModel;
   resultUrl: string;
 }): Promise<WaveSpeedGeneratedImageOutput> {
   for (let attempt = 0; attempt < WAVESPEED_MAX_POLL_ATTEMPTS; attempt += 1) {
     await sleep(WAVESPEED_POLL_INTERVAL_MS);
 
-    const body = await requestWaveSpeedJson(resultUrl, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
+    const body = await requestWaveSpeedJson(
+      resultUrl,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        method: "GET",
       },
-      method: "GET",
-    });
-    const prediction = getWaveSpeedPrediction(body);
+      model,
+    );
+    const prediction = getWaveSpeedPrediction(body, model);
 
     if (prediction.status === "completed") {
-      return parseWaveSpeedGeneratedImageBase64(body);
+      return parseWaveSpeedGeneratedImageBase64(body, model);
     }
 
     if (prediction.status === "failed") {
-      throw toWaveSpeedFailureError(prediction);
+      throw toWaveSpeedFailureError(prediction, model);
     }
   }
+
+  logGeneratedImageFailure("wavespeed-poll-timeout", {
+    model,
+    provider: WAVESPEED_PROVIDER,
+    // The elapsed budget is what tells a slow model apart from a stuck one.
+    providerErrorMessage: `${WAVESPEED_MAX_POLL_ATTEMPTS} attempts over ~${
+      (WAVESPEED_MAX_POLL_ATTEMPTS * WAVESPEED_POLL_INTERVAL_MS) / 1000
+    }s`,
+  });
 
   throw new ActionError(
     "GENERATION_FAILED",
@@ -1159,6 +1378,131 @@ function buildSinglePromptRequestValue(
   return [buildGeneratedImageSystemInstruction(model), "", providerPrompt].join(
     "\n",
   );
+}
+
+export function buildOpenRouterImagesRequestBody({
+  aspectRatio,
+  imageSize,
+  modelConfig,
+  providerPrompt,
+}: {
+  aspectRatio: GeneratedImageAspectRatio;
+  imageSize: GeneratedImageSize;
+  modelConfig: GeneratedImageModelConfig;
+  providerPrompt: string;
+}): Record<string, unknown> {
+  const capabilities = OPENROUTER_IMAGES_MODEL_CAPABILITIES[modelConfig.id];
+  const body: Record<string, unknown> = {
+    aspect_ratio: clampOpenRouterImagesAspectRatio({
+      aspectRatio,
+      model: modelConfig.id,
+    }),
+    model: modelConfig.providerModelId,
+    // The images endpoint takes one prompt string and has no system role, so
+    // the system instruction is folded into the prompt the same way the
+    // WaveSpeed request does it.
+    prompt: buildSinglePromptRequestValue(providerPrompt, modelConfig.id),
+  };
+  const resolution = clampOpenRouterImagesSize({
+    imageSize,
+    model: modelConfig.id,
+  });
+
+  // The endpoint rejects fields the selected model does not declare, so
+  // `resolution` is omitted entirely for models that size their own output.
+  if (resolution) {
+    body.resolution = resolution;
+  }
+
+  if (capabilities?.supportsQuality) {
+    body.quality = OPENROUTER_IMAGE_QUALITY;
+  }
+
+  return body;
+}
+
+/**
+ * Largest size the model accepts, at or below the requested one.
+ *
+ * LocalInk offers 1K/2K/4K app-wide, but most native image models on OpenRouter
+ * cap out lower and reject an out-of-enum `resolution` outright. Returns null
+ * for models that declare no `resolution` parameter, where the field has to be
+ * dropped rather than clamped.
+ */
+export function clampOpenRouterImagesSize({
+  imageSize,
+  model,
+}: {
+  imageSize: GeneratedImageSize;
+  model: GeneratedImageModel;
+}): GeneratedImageSize | null {
+  const capabilities = OPENROUTER_IMAGES_MODEL_CAPABILITIES[model];
+
+  if (!capabilities) {
+    return imageSize;
+  }
+
+  const { maxImageSize } = capabilities;
+
+  if (!maxImageSize) {
+    return null;
+  }
+
+  return GENERATED_IMAGE_SIZES.indexOf(imageSize) <=
+    GENERATED_IMAGE_SIZES.indexOf(maxImageSize)
+    ? imageSize
+    : maxImageSize;
+}
+
+/**
+ * Closest aspect ratio the model accepts, by proportion rather than by name.
+ *
+ * A model that does not list the requested ratio would reject the request, so
+ * the nearest supported shape is substituted — 5:4 becomes 4:3 for both GPT
+ * Image 2 and Krea — which is a far smaller surprise than a failed generation.
+ */
+export function clampOpenRouterImagesAspectRatio({
+  aspectRatio,
+  model,
+}: {
+  aspectRatio: GeneratedImageAspectRatio;
+  model: GeneratedImageModel;
+}): GeneratedImageAspectRatio {
+  const supported = OPENROUTER_IMAGES_MODEL_CAPABILITIES[model]?.aspectRatios;
+
+  if (!supported || supported.has(aspectRatio)) {
+    return aspectRatio;
+  }
+
+  const target = toAspectRatioValue(aspectRatio);
+  let closest: GeneratedImageAspectRatio | null = null;
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  // Compared in log space so the ratio is matched proportionally rather than
+  // arithmetically, and iterated over the app-wide list so the fallback is
+  // deterministic when two candidates are equally far away.
+  for (const candidate of GENERATED_IMAGE_ASPECT_RATIOS) {
+    if (!supported.has(candidate)) {
+      continue;
+    }
+
+    const distance = Math.abs(
+      Math.log(toAspectRatioValue(candidate)) - Math.log(target),
+    );
+
+    if (distance < closestDistance) {
+      closest = candidate;
+      closestDistance = distance;
+    }
+  }
+
+  return closest ?? aspectRatio;
+}
+
+function toAspectRatioValue(aspectRatio: GeneratedImageAspectRatio): number {
+  const [width, height] = aspectRatio.split(":").map(Number);
+
+  return width / height;
 }
 
 function getWaveSpeedModelCapabilities(modelConfig: GeneratedImageModelConfig) {
@@ -1225,12 +1569,17 @@ export function buildWaveSpeedRequestBody({
  */
 async function downloadWaveSpeedGeneratedImage(
   outputUrl: string,
+  model: GeneratedImageModel,
 ): Promise<string> {
   const url = outputUrl.trim();
+  const failureDetails = { model, provider: WAVESPEED_PROVIDER };
 
   // The URL is provider-supplied, so only a plain HTTPS URL is ever fetched.
   if (!url.toLowerCase().startsWith("https://")) {
-    throw generationFailedError();
+    throw generationFailedError(
+      "wavespeed-download-invalid-url",
+      failureDetails,
+    );
   }
 
   let response: Response;
@@ -1239,12 +1588,20 @@ async function downloadWaveSpeedGeneratedImage(
     response = await fetch(url, {
       signal: AbortSignal.timeout(WAVESPEED_IMAGE_DOWNLOAD_TIMEOUT_MS),
     });
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    // A timeout arrives here as an AbortError, which is worth telling apart
+    // from a refused connection.
+    throw generationFailedError("wavespeed-download-request-failed", {
+      ...failureDetails,
+      errorName: getErrorName(error),
+    });
   }
 
   if (!response.ok) {
-    throw generationFailedError();
+    throw generationFailedError("wavespeed-download-http-error", {
+      ...failureDetails,
+      status: response.status,
+    });
   }
 
   const contentLength = Number(response.headers.get("content-length"));
@@ -1253,25 +1610,41 @@ async function downloadWaveSpeedGeneratedImage(
     Number.isFinite(contentLength) &&
     contentLength > MAX_GENERATED_IMAGE_BYTES
   ) {
-    throw generationFailedError();
+    throw generationFailedError("wavespeed-download-too-large", {
+      ...failureDetails,
+      providerErrorMessage: `${contentLength} bytes declared`,
+    });
   }
 
   let bytes: Buffer;
 
   try {
     bytes = Buffer.from(await response.arrayBuffer());
-  } catch {
-    throw generationFailedError();
+  } catch (error) {
+    throw generationFailedError("wavespeed-download-body-failed", {
+      ...failureDetails,
+      errorName: getErrorName(error),
+    });
   }
 
-  if (!bytes.byteLength || bytes.byteLength > MAX_GENERATED_IMAGE_BYTES) {
-    throw generationFailedError();
+  if (!bytes.byteLength) {
+    throw generationFailedError("wavespeed-download-empty", failureDetails);
+  }
+
+  if (bytes.byteLength > MAX_GENERATED_IMAGE_BYTES) {
+    throw generationFailedError("wavespeed-download-too-large", {
+      ...failureDetails,
+      providerErrorMessage: `${bytes.byteLength} bytes downloaded`,
+    });
   }
 
   const mimeType = detectGeneratedImageMimeType(bytes);
 
   if (!mimeType) {
-    throw generationFailedError();
+    throw generationFailedError(
+      "wavespeed-download-unrecognized-format",
+      failureDetails,
+    );
   }
 
   return `data:${mimeType};base64,${bytes.toString("base64")}`;
@@ -1333,9 +1706,13 @@ function toWaveSpeedResolution(
 
 function getWaveSpeedPrediction(
   response: WaveSpeedImageResponse,
+  model?: GeneratedImageModel,
 ): WaveSpeedPrediction {
   if (!isRecord(response) || !isRecord(response.data)) {
-    throw generationFailedError();
+    throw generationFailedError("wavespeed-unexpected-response", {
+      model,
+      provider: WAVESPEED_PROVIDER,
+    });
   }
 
   return response.data;
@@ -1343,6 +1720,7 @@ function getWaveSpeedPrediction(
 
 function getWaveSpeedPredictionResultUrl(
   prediction: WaveSpeedPrediction,
+  model?: GeneratedImageModel,
 ): string {
   const urls = isRecord(prediction.urls) ? prediction.urls : null;
   const providerUrl = urls ? getTrimmedString(urls.get) : null;
@@ -1354,7 +1732,10 @@ function getWaveSpeedPredictionResultUrl(
   const id = getTrimmedString(prediction.id);
 
   if (!id) {
-    throw generationFailedError();
+    throw generationFailedError("wavespeed-missing-prediction-id", {
+      model,
+      provider: WAVESPEED_PROVIDER,
+    });
   }
 
   return `${WAVESPEED_PREDICTION_RESULT_URL_PREFIX}${encodeURIComponent(
@@ -1476,7 +1857,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function generationFailedError() {
+/**
+ * Records why a generation failed.
+ *
+ * Every failure emits exactly one `image-generation-failed` entry, so a single
+ * grep answers "what went wrong" without the log ever carrying the prompt, the
+ * response body, the image bytes, or a stack trace. Keys with no value are
+ * dropped so the entry only shows what was actually known at the throw site.
+ */
+function logGeneratedImageFailure(
+  reason: GeneratedImageFailureReason,
+  details: GeneratedImageFailureDetails = {},
+): void {
+  generatedImagesLogger.error("image-generation-failed", {
+    reason,
+    ...Object.fromEntries(
+      Object.entries(details).filter(([, value]) => value !== undefined),
+    ),
+  });
+}
+
+function generationFailedError(
+  reason: GeneratedImageFailureReason,
+  details?: GeneratedImageFailureDetails,
+) {
+  logGeneratedImageFailure(reason, details);
+
+  return imageGenerationFailedError();
+}
+
+function imageGenerationFailedError() {
   return new ActionError(
     "GENERATION_FAILED",
     "The image could not be generated.",
@@ -1499,18 +1909,7 @@ function contentRejectedError() {
 export function classifyWaveSpeedFailureReason(
   prediction: WaveSpeedPrediction,
 ): "content-rejected" | "provider-error" {
-  const rawError = prediction.error;
-  const errorText =
-    typeof rawError === "string"
-      ? rawError
-      : rawError == null
-        ? ""
-        : JSON.stringify(rawError);
-  const normalized = errorText.toLowerCase();
-
-  return WAVESPEED_CONTENT_REJECTION_MARKERS.some((marker) =>
-    normalized.includes(marker),
-  )
+  return looksLikeContentRejection(toProviderErrorText(prediction.error))
     ? "content-rejected"
     : "provider-error";
 }
@@ -1521,24 +1920,160 @@ export function classifyWaveSpeedFailureReason(
  * prompt is distinguishable from an outage — otherwise both read as a generic
  * failure and there is no hint that rephrasing would help.
  */
-function toWaveSpeedFailureError(prediction: WaveSpeedPrediction): ActionError {
+function toWaveSpeedFailureError(
+  prediction: WaveSpeedPrediction,
+  model?: GeneratedImageModel,
+): ActionError {
   const reason = classifyWaveSpeedFailureReason(prediction);
 
-  generatedImagesLogger.error("wavespeed-generation-failed", {
+  logGeneratedImageFailure("wavespeed-prediction-failed", {
+    model,
     provider: WAVESPEED_PROVIDER,
-    reason,
+    providerErrorCode: reason,
+    // Withheld for content rejections, since that is the failure whose text
+    // quotes the prompt. Infrastructure errors ("upstream timeout", "model
+    // overloaded") carry the detail worth reading and are kept.
+    providerErrorMessage: sanitizeProviderErrorText(
+      toProviderErrorText(prediction.error),
+    ),
   });
 
   return reason === "content-rejected"
     ? contentRejectedError()
-    : generationFailedError();
+    : imageGenerationFailedError();
 }
 
-function promptEnhancementFailedError() {
+function promptEnhancementFailedError(error?: unknown) {
+  logGeneratedImageFailure("prompt-enhancement-failed", {
+    errorName: getErrorName(error),
+  });
+
   return new ActionError(
     "GENERATION_FAILED",
     "The image description could not be enhanced.",
   );
+}
+
+/**
+ * Reduces a provider error response to the parts that are safe to log.
+ *
+ * Only short, enum-like fields (`code`, `type`, `provider_name`) and the human
+ * message are kept — never the full body, which can carry image data or echo
+ * the prompt. Bodies that are not JSON (an HTML gateway page, a bare string)
+ * fall back to the sanitized text itself, which is where providers put the
+ * useful part when they answer with plain text.
+ */
+export function summarizeProviderErrorBody(
+  body: string | null,
+): ProviderErrorSummary {
+  if (!body?.trim()) {
+    return {};
+  }
+
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { providerErrorMessage: sanitizeProviderErrorText(body) };
+  }
+
+  if (!isRecord(parsed)) {
+    return { providerErrorMessage: sanitizeProviderErrorText(body) };
+  }
+
+  // OpenRouter nests the failure under `error`; WaveSpeed returns `code` and
+  // `message` at the top level.
+  const container = isRecord(parsed.error) ? parsed.error : parsed;
+  const metadata = isRecord(container.metadata) ? container.metadata : null;
+
+  return {
+    providerErrorCode:
+      toLoggableScalar(container.code) ?? toLoggableScalar(container.type),
+    providerErrorMessage: sanitizeProviderErrorText(
+      typeof container.message === "string" ? container.message : null,
+    ),
+    providerName: toLoggableScalar(metadata?.provider_name),
+  };
+}
+
+/**
+ * Prepares provider error text for the log: collapsed, truncated, and withheld
+ * entirely when it reads as a moderation rejection, because that is the message
+ * that quotes the rejected prompt back.
+ */
+function sanitizeProviderErrorText(
+  text: string | null | undefined,
+): string | undefined {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (looksLikeContentRejection(normalized)) {
+    return WITHHELD_PROVIDER_ERROR_MESSAGE;
+  }
+
+  return normalized.length > MAX_LOGGED_PROVIDER_ERROR_LENGTH
+    ? `${normalized.slice(0, MAX_LOGGED_PROVIDER_ERROR_LENGTH)}…`
+    : normalized;
+}
+
+function looksLikeContentRejection(text: string): boolean {
+  const normalized = text.toLowerCase();
+
+  return CONTENT_REJECTION_MARKERS.some((marker) =>
+    normalized.includes(marker),
+  );
+}
+
+function toProviderErrorText(rawError: unknown): string {
+  if (typeof rawError === "string") {
+    return rawError;
+  }
+
+  return rawError == null ? "" : JSON.stringify(rawError);
+}
+
+/**
+ * Keeps only short scalars, so a nested object cannot smuggle prompt text or
+ * image data into the log through a field that is normally an enum.
+ */
+function toLoggableScalar(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+
+  return normalized && normalized.length <= 64 ? normalized : undefined;
+}
+
+/** Reads a failed response body without letting the read itself throw. */
+async function readResponseBodyText(
+  response: Response,
+): Promise<string | null> {
+  try {
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+function getErrorName(error: unknown): string | undefined {
+  return error instanceof Error && error.name.trim() ? error.name : undefined;
+}
+
+/** Node's `errno` label (`ENOSPC`, `EEXIST`), which never contains a path. */
+function getErrnoCode(error: unknown): string | undefined {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+
+  return typeof code === "string" && code.trim() ? code : undefined;
 }
 
 function getImageDimensions(

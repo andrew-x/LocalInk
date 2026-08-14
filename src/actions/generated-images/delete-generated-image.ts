@@ -16,7 +16,6 @@ export const deleteGeneratedImage = publicActionClient
 
     revalidatePath("/images");
     revalidatePath("/images/generate");
-    revalidatePath(`/images/${image.id}`);
 
     return image;
   });

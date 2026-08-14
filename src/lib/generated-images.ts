@@ -12,11 +12,11 @@ export {
 
 export const GENERATED_IMAGE_MODELS = [
   {
-    id: "openai/gpt-image-2/text-to-image",
+    id: "openai/gpt-image-2",
     name: "GPT Image 2",
     outputModalities: ["image"],
-    provider: "wavespeed",
-    providerModelId: "openai/gpt-image-2/text-to-image",
+    provider: "openrouter",
+    providerModelId: "openai/gpt-image-2",
   },
   {
     id: "google/gemini-3-pro-image",
@@ -33,25 +33,18 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "google/gemini-3.1-flash-image",
   },
   {
-    id: "bytedance/seedream-v5.0-pro",
+    id: "bytedance-seed/seedream-5-0-pro",
     name: "Seedream 5 Pro",
     outputModalities: ["image"],
-    provider: "wavespeed",
-    providerModelId: "bytedance/seedream-v5.0-pro",
+    provider: "openrouter",
+    providerModelId: "bytedance-seed/seedream-5-0-pro",
   },
   {
-    id: "microsoft/mai-image-2.5-pro",
-    name: "MAI-Image-2.5 Pro",
+    id: "krea/krea-2-large",
+    name: "Krea 2 Large",
     outputModalities: ["image"],
     provider: "openrouter",
-    providerModelId: "microsoft/mai-image-2.5-pro",
-  },
-  {
-    id: "krea/krea-2-medium",
-    name: "Krea 2 Medium",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "krea/krea-2-medium",
+    providerModelId: "krea/krea-2-large",
   },
   {
     id: "alibaba/qwen-image-3.0-pro/text-to-image",
@@ -160,7 +153,7 @@ export const GENERATED_IMAGE_ASPECT_RATIOS = [
 
 export const GENERATED_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
 
-export const DEFAULT_GENERATED_IMAGE_MODEL = "openai/gpt-image-2/text-to-image";
+export const DEFAULT_GENERATED_IMAGE_MODEL = "openai/gpt-image-2";
 export const DEFAULT_GENERATED_IMAGE_STYLE_PRESET = "amateur-photo";
 export const DEFAULT_GENERATED_IMAGE_ASPECT_RATIO = "1:1";
 export const DEFAULT_GENERATED_IMAGE_SIZE = "1K";
@@ -173,9 +166,15 @@ const GENERATED_IMAGE_DOWNLOAD_EXTENSION_BY_MIME_TYPE = {
 } as const;
 
 const LEGACY_GENERATED_IMAGE_MODEL_REPLACEMENTS = {
+  // WaveSpeed-era IDs for models LocalInk now reaches through OpenRouter, plus
+  // the Krea tier this app no longer offers. Stored rows and saved defaults keep
+  // the old ID, so they are mapped onto the current equivalent.
+  "bytedance/seedream-v5.0-pro": "bytedance-seed/seedream-5-0-pro",
   "google/gemini-2.5-flash-image": "google/gemini-3-pro-image",
   "google/gemini-3-pro-image-preview": "google/gemini-3-pro-image",
   "google/gemini-3.1-flash-image-preview": "google/gemini-3.1-flash-image",
+  "krea/krea-2-medium": "krea/krea-2-large",
+  "openai/gpt-image-2/text-to-image": "openai/gpt-image-2",
 } as const;
 
 export type GeneratedImageModel = (typeof GENERATED_IMAGE_MODELS)[number]["id"];
@@ -220,8 +219,8 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
   "Natural skin with visible pores and small imperfections, physically plausible light and shadow, realistic depth of field, believable color, and ordinary real people with candid expressions.";
 
-// Diffusion-based image models (Seedream, Qwen Image, MAI-Image, Krea) weight
-// the earliest tokens most heavily and treat every token as content, so they
+// Diffusion-based image models (Seedream, Qwen Image, Krea) weight the earliest
+// tokens most heavily and treat every token as content, so they
 // ignore "do not" phrasing and negative lists. They get an affirmation-only,
 // photorealism-first prompt instead of the negation-based prompt the
 // instruction-tuned models can follow.
@@ -229,19 +228,24 @@ const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
     "alibaba/qwen-image-3.0-pro/text-to-image",
     "alibaba/qwen-image-3.0/text-to-image",
-    "bytedance/seedream-v5.0-pro",
-    "krea/krea-2-medium",
-    "microsoft/mai-image-2.5-pro",
+    "bytedance-seed/seedream-5-0-pro",
+    "krea/krea-2-large",
   ]);
 
 // OpenRouter serves two kinds of image model. Models that behave like chat
-// models (the Nano Banana models, MAI-Image-2.5 Pro) take a messages array on
+// models (the Nano Banana models) take a messages array on
 // /api/v1/chat/completions. Native image-generation models reject that endpoint
 // outright ("cannot be used with the chat/completions endpoint") and must go to
 // /api/v1/images, which takes a single prompt string and returns base64 image
 // data. This cannot be inferred from the model ID, so it is listed explicitly.
+// These are also the models listed by /api/v1/images/models rather than
+// /api/v1/models.
 const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
-  new Set(["krea/krea-2-medium"]);
+  new Set([
+    "bytedance-seed/seedream-5-0-pro",
+    "krea/krea-2-large",
+    "openai/gpt-image-2",
+  ]);
 
 // Providers that reject or silently truncate prompts past a documented limit.
 // Qwen Image 3.0 accepts at most 800 characters, well under LocalInk's usual
