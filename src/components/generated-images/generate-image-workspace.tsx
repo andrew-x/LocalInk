@@ -1,40 +1,25 @@
 "use client";
 
-import { useHookFormAction } from "@next-safe-action/adapter-react-hook-form/hooks";
-import {
-  ChevronDown,
-  Download,
-  ImageIcon,
-  LoaderCircle,
-  Sparkles,
-} from "lucide-react";
+import { Download, ImageIcon, LoaderCircle, TriangleAlert } from "lucide-react";
 import Image from "next/image";
-import { useAction } from "next-safe-action/hooks";
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { Controller } from "react-hook-form";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import {
-  type GenerateImageFormValues,
-  generateImageFormSchema,
-} from "@/actions/generated-images/_schemas";
+import type { GenerateImageFormValues } from "@/actions/generated-images/_schemas";
 import type { GeneratedImageListItem } from "@/actions/generated-images/_types";
-import { enhanceImagePrompt } from "@/actions/generated-images/enhance-image-prompt";
-import { generateImage } from "@/actions/generated-images/generate-image";
 import { Button } from "@/components/common/button";
-import { Label } from "@/components/common/label";
-import { Textarea } from "@/components/common/textarea";
+import { GenerateImageForm } from "@/components/generated-images/generate-image-form";
+import { GeneratedImageJobRail } from "@/components/generated-images/generated-image-job-rail";
 import { GeneratedImageLightbox } from "@/components/generated-images/generated-image-lightbox";
 import {
-  GENERATED_IMAGE_ASPECT_RATIOS,
-  GENERATED_IMAGE_MODELS,
-  GENERATED_IMAGE_SIZES,
-  GENERATED_IMAGE_STYLE_PRESET_OPTIONS,
+  type GeneratedImageJob,
+  useGeneratedImageJobs,
+} from "@/components/generated-images/use-generated-image-jobs";
+import { MAX_CONCURRENT_IMAGE_GENERATIONS } from "@/lib/generated-image-generation-contract";
+import {
   getGeneratedImageDownloadFilename,
   getGeneratedImageDownloadUrl,
-  getGeneratedImageStylePresetPrompt,
 } from "@/lib/generated-images";
-import { formResolver } from "@/lib/schemas/resolve";
 import { cn } from "@/lib/util";
 
 type GenerateImageWorkspaceProps = {
@@ -42,608 +27,240 @@ type GenerateImageWorkspaceProps = {
   initialImage: GeneratedImageListItem | null;
 };
 
-type PromptSource = "input" | "enhanced";
-
 export function GenerateImageWorkspace({
   defaultValues,
   initialImage,
 }: GenerateImageWorkspaceProps) {
-  const [generatedImage, setGeneratedImage] =
-    useState<GeneratedImageListItem | null>(initialImage);
-  // A snapshot, not `generatedImage` itself, so a generation finishing mid-view
-  // does not swap the image out from under a zoomed/panned lightbox.
-  const [lightboxImage, setLightboxImage] =
-    useState<GeneratedImageListItem | null>(null);
+  const [stagedJobId, setStagedJobId] = useState<string | null>(null);
+  // Tracked by id rather than index: the session list grows while the lightbox
+  // is open, and an index pointer would slide onto a different image.
+  const [lightboxImageId, setLightboxImageId] = useState<string | null>(null);
+  // Keyed by job id, not a bare string: two identical messages in a row would
+  // otherwise be the same state and never re-announce.
+  const [announcement, setAnnouncement] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
   const previewButtonRef = useRef<HTMLButtonElement>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showMoreRatios, setShowMoreRatios] = useState(
-    () => !COMMON_ASPECT_RATIOS.includes(defaultValues.aspectRatio),
-  );
-  const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
-  const [promptSource, setPromptSource] = useState<PromptSource>("input");
-  const { form, action: generateAction } = useHookFormAction(
-    generateImage,
-    formResolver(generateImageFormSchema),
-    {
-      formProps: {
-        defaultValues,
-      },
-    },
-  );
-  const enhancePromptAction = useAction(enhanceImagePrompt);
-  const stylePreset = form.watch("stylePreset");
-  const stylePrompt = form.watch("stylePrompt");
-  const isGenerating = generateAction.isPending;
-  const isEnhancingPrompt = enhancePromptAction.isPending;
-  const hasEnhancedPrompt = Boolean(enhancedPrompt?.trim());
-  const selectedPromptSource =
-    promptSource === "enhanced" && hasEnhancedPrompt ? "enhanced" : "input";
-  const rootError = form.formState.errors.root?.message;
+  const lightboxTriggerRef = useRef<HTMLElement | null>(null);
 
-  useEffect(() => {
-    if (!stylePreset || stylePreset === "custom") {
-      return;
-    }
-
-    if (stylePrompt !== getGeneratedImageStylePresetPrompt(stylePreset)) {
-      form.setValue("stylePreset", "custom", {
-        shouldDirty: true,
-        shouldValidate: true,
+  const handleJobSettled = useCallback((job: GeneratedImageJob) => {
+    if (job.status === "failed") {
+      setAnnouncement({
+        key: job.id,
+        message: `Generation failed. ${job.errorMessage ?? ""}`.trim(),
       });
-    }
-  }, [form, stylePreset, stylePrompt]);
-
-  async function handleGenerate(values: GenerateImageFormValues) {
-    if (isGenerating) {
+      toast.error(job.errorMessage ?? "The image could not be generated.", {
+        id: `image-job-${job.id}`,
+      });
       return;
     }
 
-    form.clearErrors("root");
+    setAnnouncement({ key: job.id, message: "Generation complete." });
+    // Deduped: three near-simultaneous completions should not stack three
+    // toasts when the rail already badges each one.
+    toast.success("Image generated.", { id: "image-generated" });
 
-    const result = await generateAction.executeAsync({
-      ...values,
-      prompt:
-        selectedPromptSource === "enhanced" && enhancedPrompt
-          ? enhancedPrompt
-          : values.prompt,
-    });
+    // Nothing staged means nothing to disturb, so the first result takes the
+    // stage rather than leaving it blank next to a finished thumbnail.
+    setStagedJobId((current) => current ?? job.id);
+  }, []);
 
-    if (result.data) {
-      setGeneratedImage(result.data);
-      generateAction.reset();
-      toast.success("Image generated.");
-      return;
-    }
+  const {
+    activeCount,
+    dismissJob,
+    isAtConcurrencyLimit,
+    jobs,
+    markJobSeen,
+    startJob,
+  } = useGeneratedImageJobs({
+    defaultValues,
+    initialImage,
+    onJobSettled: handleJobSettled,
+  });
 
-    const message =
-      result.validationErrors?.formErrors[0] ??
-      result.serverError?.message ??
-      (result.validationErrors
-        ? undefined
-        : "The image could not be generated.");
+  const seedJobId = jobs[0]?.id ?? null;
+  const effectiveStagedJobId =
+    stagedJobId && jobs.some((job) => job.id === stagedJobId)
+      ? stagedJobId
+      : (seedJobId ?? null);
+  const stagedJob = jobs.find((job) => job.id === effectiveStagedJobId) ?? null;
+  const stagedImage = stagedJob?.status === "complete" ? stagedJob.image : null;
+  const sessionImages = jobs
+    .map((job) => job.image)
+    .filter((image): image is GeneratedImageListItem => Boolean(image));
+  const lightboxIndex = lightboxImageId
+    ? sessionImages.findIndex((image) => image.id === lightboxImageId)
+    : -1;
+  const isRailVisible = jobs.length > 1;
 
-    if (message) {
-      form.setError("root", { message });
-      toast.error(message);
+  function selectJob(jobId: string) {
+    setStagedJobId(jobId);
+    markJobSeen(jobId);
+  }
+
+  function retryJob(values: GenerateImageFormValues) {
+    if (!startJob(values)) {
+      toast.error(
+        `Up to ${MAX_CONCURRENT_IMAGE_GENERATIONS} generations can run at once.`,
+      );
     }
   }
 
-  async function handleEnhancePrompt() {
-    if (isGenerating || isEnhancingPrompt || !form.getValues("prompt").trim()) {
+  function openLightbox(trigger: HTMLElement | null) {
+    if (!stagedImage) {
       return;
     }
 
-    form.clearErrors("root");
-    form.clearErrors("prompt");
-
-    const result = await enhancePromptAction.executeAsync(form.getValues());
-
-    if (result.data) {
-      setEnhancedPrompt(result.data.prompt);
-      setPromptSource("enhanced");
-      toast.success("Image description enhanced.");
-      return;
-    }
-
-    const promptMessage = result.validationErrors?.fieldErrors?.prompt?.[0];
-    const stylePromptMessage =
-      result.validationErrors?.fieldErrors?.stylePrompt?.[0];
-    const message =
-      promptMessage ??
-      stylePromptMessage ??
-      result.validationErrors?.formErrors[0] ??
-      result.serverError?.message ??
-      (result.validationErrors
-        ? undefined
-        : "The image description could not be enhanced.");
-
-    if (!message) {
-      return;
-    }
-
-    if (promptMessage) {
-      form.setError("prompt", { message: promptMessage });
-    } else if (stylePromptMessage) {
-      setShowAdvanced(true);
-      form.setError("stylePrompt", { message: stylePromptMessage });
-    } else {
-      form.setError("root", { message });
-    }
-
-    toast.error(message);
-  }
-
-  function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
-    if (!isGenerationShortcut(event) || isGenerating || isEnhancingPrompt) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.requestSubmit();
+    lightboxTriggerRef.current = trigger;
+    setLightboxImageId(stagedImage.id);
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-gutter py-4 lg:flex-row">
-      <form
-        autoComplete="off"
-        className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] rounded-lg border border-border/80 bg-card/70 lg:w-[21rem] lg:shrink-0"
-        onKeyDown={handleGenerationShortcut}
-        onSubmit={form.handleSubmit(handleGenerate)}
-      >
-        <div className="border-border/80 border-b px-panel py-3">
-          <h1 className="font-serif text-title">Generate Images</h1>
-        </div>
+      <GenerateImageForm
+        activeCount={activeCount}
+        defaultValues={defaultValues}
+        isAtConcurrencyLimit={isAtConcurrencyLimit}
+        onGenerate={startJob}
+      />
 
-        <div className="grid min-h-0 content-start gap-4 overflow-y-auto p-panel">
-          <Controller
-            control={form.control}
-            name="prompt"
-            render={({ field, fieldState }) => {
-              const canEnhancePrompt = Boolean(field.value?.trim());
+      <section className="flex min-h-0 min-w-0 flex-1 flex-row rounded-lg border border-border/80 bg-card/45">
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+          {stagedImage ? (
+            <span className="pointer-events-none absolute top-3 right-3 z-10 truncate rounded-md border border-border/80 bg-background/80 px-2 py-1 text-caption text-muted-foreground backdrop-blur">
+              {stagedImage.model} · {stagedImage.aspectRatio} ·{" "}
+              {stagedImage.imageSize}
+            </span>
+          ) : null}
 
-              return (
-                <FieldShell
-                  error={fieldState.error?.message}
-                  label="Image description"
-                  action={
-                    <Button
-                      aria-label="Enhance image description"
-                      className="size-6 p-0 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                      disabled={
-                        isGenerating || isEnhancingPrompt || !canEnhancePrompt
-                      }
-                      leftSection={<Sparkles aria-hidden="true" />}
-                      loading={isEnhancingPrompt}
-                      onClick={handleEnhancePrompt}
-                      size="sm"
-                      tooltip="Enhance with DeepSeek V4"
-                      type="button"
-                      variant="ghost"
-                    />
-                  }
-                >
-                  <Textarea
-                    {...field}
-                    aria-invalid={fieldState.invalid || undefined}
-                    className="min-h-36 resize-none text-label"
-                    maxLength={4000}
-                    placeholder="A rain-slick alley outside a tiny midnight print shop..."
-                    rows={6}
-                  />
-                  {enhancedPrompt ? (
-                    <EnhancedPromptChoice
-                      onPromptSourceChange={setPromptSource}
-                      prompt={enhancedPrompt}
-                      promptSource={selectedPromptSource}
-                    />
-                  ) : null}
-                </FieldShell>
-              );
-            }}
-          />
-
-          <Controller
-            control={form.control}
-            name="aspectRatio"
-            render={({ field, fieldState }) => (
-              <FieldShell
-                error={fieldState.error?.message}
-                label="Aspect ratio"
-              >
-                <div className="grid gap-1">
-                  <div className="grid grid-cols-5 gap-1">
-                    {COMMON_ASPECT_RATIOS.map((ratio) => (
-                      <button
-                        aria-pressed={field.value === ratio}
-                        className={cn(toggleButtonClassName)}
-                        key={ratio}
-                        onClick={() => field.onChange(ratio)}
-                        type="button"
-                      >
-                        {ratio}
-                      </button>
-                    ))}
-                  </div>
-                  {showMoreRatios ? (
-                    <div className="grid grid-cols-4 gap-1">
-                      {OTHER_ASPECT_RATIOS.map((ratio) => (
-                        <button
-                          aria-pressed={field.value === ratio}
-                          className={cn(toggleButtonClassName)}
-                          key={ratio}
-                          onClick={() => field.onChange(ratio)}
-                          type="button"
-                        >
-                          {ratio}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    aria-expanded={showMoreRatios}
-                    className="flex items-center gap-1 self-start rounded-md text-caption text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35"
-                    onClick={() => setShowMoreRatios((current) => !current)}
-                    type="button"
-                  >
-                    <ChevronDown
-                      aria-hidden="true"
-                      className={cn(
-                        "size-3.5 transition-transform",
-                        showMoreRatios && "rotate-180",
-                      )}
-                    />
-                    {showMoreRatios ? "Fewer ratios" : "More ratios"}
-                  </button>
-                </div>
-              </FieldShell>
-            )}
-          />
-
-          <Controller
-            control={form.control}
-            name="model"
-            render={({ field, fieldState }) => (
-              <FieldShell error={fieldState.error?.message} label="Model">
-                <select
-                  {...field}
-                  aria-invalid={fieldState.invalid || undefined}
-                  className={selectClassName}
-                >
-                  {GENERATED_IMAGE_MODELS.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-              </FieldShell>
-            )}
-          />
-
-          <Controller
-            control={form.control}
-            name="stylePreset"
-            render={({ field, fieldState }) => (
-              <FieldShell error={fieldState.error?.message} label="Style">
-                <select
-                  {...field}
-                  aria-invalid={fieldState.invalid || undefined}
-                  className={selectClassName}
-                  onChange={(event) => {
-                    const nextPreset = event.target
-                      .value as GenerateImageFormValues["stylePreset"];
-
-                    field.onChange(nextPreset);
-
-                    if (nextPreset !== "custom") {
-                      form.setValue(
-                        "stylePrompt",
-                        getGeneratedImageStylePresetPrompt(nextPreset),
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        },
-                      );
-                    }
-                  }}
-                >
-                  {GENERATED_IMAGE_STYLE_PRESET_OPTIONS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.name}
-                    </option>
-                  ))}
-                </select>
-              </FieldShell>
-            )}
-          />
-
-          <div className="grid gap-2">
-            <button
-              aria-expanded={showAdvanced}
-              className="flex items-center justify-between rounded-md text-label-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              onClick={() => setShowAdvanced((current) => !current)}
-              type="button"
+          {stagedImage ? (
+            <Button
+              aria-label="Download image"
+              asChild
+              className="absolute right-4 bottom-4 z-20 size-9 rounded-full shadow-md"
+              size="icon"
+              tooltip="Download image"
+              tooltipSide="left"
             >
-              <span>Advanced</span>
-              <ChevronDown
-                aria-hidden="true"
+              <a
+                download={getGeneratedImageDownloadFilename(stagedImage)}
+                href={getGeneratedImageDownloadUrl(stagedImage.contentUrl)}
+              >
+                <Download aria-hidden="true" className="size-4" />
+              </a>
+            </Button>
+          ) : null}
+
+          <div className="relative flex min-h-0 flex-1 items-center justify-center p-2">
+            {stagedImage ? (
+              <button
+                aria-label="Open generated image"
                 className={cn(
-                  "size-3.5 transition-transform",
-                  showAdvanced && "rotate-180",
+                  "relative block h-full w-full cursor-zoom-in overflow-hidden rounded-md outline-none transition-[background-color,box-shadow]",
+                  "hover:bg-background/45 focus-visible:ring-[3px] focus-visible:ring-ring/35",
                 )}
-              />
-            </button>
-
-            {showAdvanced ? (
-              <div className="grid gap-2">
-                <Controller
-                  control={form.control}
-                  name="stylePrompt"
-                  render={({ field, fieldState }) => (
-                    <FieldShell
-                      error={fieldState.error?.message}
-                      label="Style prompt"
-                    >
-                      <Textarea
-                        {...field}
-                        aria-invalid={fieldState.invalid || undefined}
-                        className="min-h-16 resize-none text-label"
-                        maxLength={2000}
-                        rows={3}
-                      />
-                    </FieldShell>
-                  )}
+                onClick={() => openLightbox(previewButtonRef.current)}
+                ref={previewButtonRef}
+                type="button"
+              >
+                <Image
+                  alt={stagedImage.prompt}
+                  className="object-contain"
+                  fill
+                  sizes={
+                    isRailVisible
+                      ? "(min-width: 1024px) calc(100vw - 27rem), 100vw"
+                      : "(min-width: 1024px) calc(100vw - 22rem), 100vw"
+                  }
+                  src={stagedImage.contentUrl}
+                  unoptimized
                 />
-
-                <Controller
-                  control={form.control}
-                  name="imageSize"
-                  render={({ field, fieldState }) => (
-                    <FieldShell
-                      error={fieldState.error?.message}
-                      label="Image size"
-                    >
-                      <div className="grid grid-cols-3 gap-1">
-                        {GENERATED_IMAGE_SIZES.map((size) => (
-                          <button
-                            aria-pressed={field.value === size}
-                            className={cn(toggleButtonClassName)}
-                            key={size}
-                            onClick={() => field.onChange(size)}
-                            type="button"
-                          >
-                            {size}
-                          </button>
-                        ))}
-                      </div>
-                    </FieldShell>
-                  )}
-                />
+              </button>
+            ) : stagedJob?.status === "failed" ? (
+              <div className="grid max-w-sm gap-4 text-center">
+                <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-destructive/40 bg-destructive/10 text-destructive">
+                  <TriangleAlert aria-hidden="true" className="size-5" />
+                </div>
+                <p className="text-body text-muted-foreground">
+                  {stagedJob.errorMessage ??
+                    "The image could not be generated."}
+                </p>
+                <div className="flex justify-center gap-2">
+                  <Button
+                    onClick={() => retryJob(stagedJob.values)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Try again
+                  </Button>
+                </div>
               </div>
-            ) : null}
+            ) : activeCount > 0 ? (
+              <div
+                className="flex flex-col items-center justify-center gap-3 text-center text-muted-foreground"
+                aria-hidden="true"
+              >
+                <LoaderCircle className="size-7 animate-spin text-primary" />
+                <p className="text-body">Generating image...</p>
+              </div>
+            ) : (
+              <div className="grid max-w-sm gap-4 text-center">
+                <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-border/80 bg-muted/70 text-muted-foreground">
+                  <ImageIcon aria-hidden="true" className="size-5" />
+                </div>
+                <p className="text-body text-muted-foreground">
+                  Generated images appear here and are saved to the local
+                  gallery.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="grid gap-2 border-border/80 border-t p-panel">
-          {rootError ? (
-            <p
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-label-sm text-destructive"
-              role="alert"
-            >
-              {rootError}
-            </p>
-          ) : null}
-
-          <Button
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            className="w-full"
-            disabled={isEnhancingPrompt}
-            leftSection={<Sparkles aria-hidden="true" />}
-            loading={isGenerating}
-            size="sm"
-            type="submit"
-          >
-            Generate
-          </Button>
-        </div>
-      </form>
-
-      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-border/80 bg-card/45">
-        {generatedImage ? (
-          <span className="pointer-events-none absolute top-3 right-3 z-10 truncate rounded-md border border-border/80 bg-background/80 px-2 py-1 text-caption text-muted-foreground backdrop-blur">
-            {generatedImage.model} · {generatedImage.aspectRatio} ·{" "}
-            {generatedImage.imageSize}
-          </span>
-        ) : null}
-
-        {generatedImage ? (
-          <Button
-            aria-label="Download image"
-            asChild
-            className="absolute right-4 bottom-4 z-20 size-9 rounded-full shadow-md"
-            size="icon"
-            tooltip="Download image"
-            tooltipSide="left"
-          >
-            <a
-              download={getGeneratedImageDownloadFilename(generatedImage)}
-              href={getGeneratedImageDownloadUrl(generatedImage.contentUrl)}
-            >
-              <Download aria-hidden="true" className="size-4" />
-            </a>
-          </Button>
-        ) : null}
-
-        <div className="relative flex min-h-0 flex-1 items-center justify-center p-2">
-          {generatedImage ? (
-            // Kept mounted during generation so the last image stays viewable.
-            // Only the opacity class changes, so there is no refetch or flash.
-            <button
-              aria-label="Open generated image"
-              className={cn(
-                "relative block h-full w-full cursor-zoom-in overflow-hidden rounded-md outline-none transition-[background-color,box-shadow]",
-                "hover:bg-background/45 focus-visible:ring-[3px] focus-visible:ring-ring/35",
-              )}
-              onClick={() => setLightboxImage(generatedImage)}
-              ref={previewButtonRef}
-              type="button"
-            >
-              <Image
-                alt={generatedImage.prompt}
-                className={cn(
-                  "object-contain transition-opacity duration-200",
-                  isGenerating && "opacity-30",
-                )}
-                fill
-                sizes="(min-width: 1024px) calc(100vw - 22rem), 100vw"
-                src={generatedImage.contentUrl}
-                unoptimized
-              />
-            </button>
-          ) : isGenerating ? null : (
-            <div className="grid max-w-sm gap-4 text-center">
-              <div className="mx-auto flex size-12 items-center justify-center rounded-md border border-border/80 bg-muted/70 text-muted-foreground">
-                <ImageIcon aria-hidden="true" className="size-5" />
-              </div>
-              <p className="text-body text-muted-foreground">
-                Generated images appear here and are saved to the local gallery.
-              </p>
-            </div>
-          )}
-
-          {isGenerating ? (
-            // pointer-events-none keeps the dimmed image underneath clickable.
-            <div
-              aria-live="polite"
-              className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 text-center text-muted-foreground"
-            >
-              <LoaderCircle
-                aria-hidden="true"
-                className="size-7 animate-spin text-primary"
-              />
-              <p className="text-body">Generating image...</p>
-            </div>
-          ) : null}
-        </div>
+        <GeneratedImageJobRail
+          jobs={jobs}
+          onDismiss={dismissJob}
+          onSelect={selectJob}
+          stageFallbackRef={previewButtonRef}
+          stagedJobId={effectiveStagedJobId}
+        />
       </section>
 
-      {lightboxImage ? (
+      {/*
+        The live region stays mounted and the message is a keyed child, so each
+        settle inserts a fresh node and is announced even when the text repeats.
+      */}
+      <p aria-live="polite" className="sr-only" role="status">
+        {announcement ? (
+          <span key={announcement.key}>{announcement.message}</span>
+        ) : null}
+      </p>
+
+      {lightboxIndex >= 0 ? (
         <GeneratedImageLightbox
-          images={[lightboxImage]}
-          index={0}
-          onClose={() => setLightboxImage(null)}
-          restoreFocusRef={previewButtonRef}
+          images={sessionImages}
+          index={lightboxIndex}
+          onClose={() => setLightboxImageId(null)}
+          onIndexChange={(next) => {
+            const nextImage = sessionImages[next];
+
+            if (!nextImage) {
+              return;
+            }
+
+            setLightboxImageId(nextImage.id);
+
+            const nextJob = jobs.find((job) => job.image?.id === nextImage.id);
+
+            if (nextJob) {
+              selectJob(nextJob.id);
+            }
+          }}
+          restoreFocusRef={lightboxTriggerRef}
           showUseSettings={false}
         />
       ) : null}
     </div>
-  );
-}
-
-function EnhancedPromptChoice({
-  onPromptSourceChange,
-  prompt,
-  promptSource,
-}: {
-  onPromptSourceChange: (source: PromptSource) => void;
-  prompt: string;
-  promptSource: PromptSource;
-}) {
-  const useEnhancedPrompt = promptSource === "enhanced";
-
-  return (
-    <div className="grid gap-2 rounded-md border border-border/80 bg-card/65 p-2.5 shadow-xs">
-      <div className="flex min-h-8 items-center justify-between gap-3">
-        <div className="min-w-0">
-          <Label className="block truncate text-label-sm">
-            Enhanced prompt
-          </Label>
-          <p className="truncate text-caption text-muted-foreground">
-            {useEnhancedPrompt ? "Used for generation" : "Preview only"}
-          </p>
-        </div>
-        <button
-          aria-checked={useEnhancedPrompt}
-          aria-label="Use enhanced prompt for generation"
-          className={cn(
-            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border p-0.5 transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35",
-            useEnhancedPrompt
-              ? "border-primary/55 bg-primary"
-              : "border-border/80 bg-muted/70 hover:bg-muted",
-          )}
-          onClick={() =>
-            onPromptSourceChange(useEnhancedPrompt ? "input" : "enhanced")
-          }
-          role="switch"
-          type="button"
-        >
-          <span
-            aria-hidden="true"
-            className={cn(
-              "size-5 rounded-full bg-background shadow-xs transition-transform",
-              useEnhancedPrompt && "translate-x-5",
-            )}
-          />
-        </button>
-      </div>
-      <div
-        className={cn(
-          "max-h-64 min-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-md border px-2.5 py-2 text-label-sm leading-relaxed transition-[background-color,border-color,color]",
-          useEnhancedPrompt
-            ? "border-primary/35 bg-background text-foreground shadow-xs"
-            : "border-border/70 bg-background/45 text-muted-foreground",
-        )}
-      >
-        {prompt}
-      </div>
-    </div>
-  );
-}
-
-function FieldShell({
-  action,
-  children,
-  error,
-  label,
-}: {
-  action?: React.ReactNode;
-  children: React.ReactNode;
-  error?: string;
-  label: string;
-}) {
-  return (
-    <div className="grid gap-1">
-      <div className="flex min-h-7 items-center justify-between gap-2">
-        <Label className="text-label-sm">{label}</Label>
-        {action}
-      </div>
-      {children}
-      {error ? <p className="text-caption text-destructive">{error}</p> : null}
-    </div>
-  );
-}
-
-const COMMON_ASPECT_RATIOS: GenerateImageFormValues["aspectRatio"][] = [
-  "1:1",
-  "3:4",
-  "4:3",
-  "9:16",
-  "16:9",
-];
-
-const OTHER_ASPECT_RATIOS = GENERATED_IMAGE_ASPECT_RATIOS.filter(
-  (ratio) => !COMMON_ASPECT_RATIOS.includes(ratio),
-);
-
-const selectClassName =
-  "flex h-8 w-full rounded-md border border-input bg-card/80 px-2.5 py-1 text-label shadow-xs transition-[background-color,border-color,box-shadow] outline-none focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-invalid:border-destructive aria-invalid:ring-destructive/20";
-
-const toggleButtonClassName =
-  "h-7 rounded-md border border-border/80 bg-muted/45 text-label-sm text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/45 hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 aria-pressed:border-primary/45 aria-pressed:bg-primary/15 aria-pressed:text-foreground";
-
-function isGenerationShortcut(event: KeyboardEvent) {
-  return (
-    event.key === "Enter" &&
-    (event.metaKey || event.ctrlKey) &&
-    !event.nativeEvent.isComposing
   );
 }

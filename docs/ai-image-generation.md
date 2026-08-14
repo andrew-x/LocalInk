@@ -72,14 +72,33 @@ Current routes:
 - `/images/generate`: image generation workspace.
 - `/images`: generated image gallery.
 - `/api/generated-images/[imageId]/content`: local image content response by generated image ID.
+- `/api/generated-images/generate`: `POST` Route Handler that runs image generation. See [Concurrent Generation](#concurrent-generation) for why this is a route rather than a Server Action.
 
 Viewing a generated image up close is an in-place overlay lightbox, not a page navigation. `GeneratedImageLightbox` (`src/components/generated-images/generated-image-lightbox.tsx`) is a shared component built on Radix Dialog (focus trap, scroll lock) that reuses the zoom/pan hook in `use-generated-image-lightbox-viewport.ts` (1x-5x zoom, wheel zoom, drag to pan, double-click toggle) and provides chrome for download, a generation-details drawer, and "Use settings". It is used from three places:
 
-- the generate workspace (`generate-image-workspace.tsx`): a single image, no previous/next navigation.
+- the generate workspace (`generate-image-workspace.tsx`): walks the current session's completed generations (`onIndexChange` keeps the workspace's staged job and the lightbox index in sync), not just the one staged image.
 - the gallery grid (`generated-image-gallery.tsx`): opens on thumbnail click, with previous/next buttons and ArrowLeft/ArrowRight keys to walk the gallery.
 - the slideshow: the same component with an `autoPlay` prop (6s interval, Space to pause), replacing the old inline slideshow implementation.
 
-In the generate workspace, the previously generated image stays mounted and viewable (dimmed, with a spinner overlaid) while a new generation runs, and can still be opened in the lightbox without affecting the in-flight generation, rather than being hidden until the new generation completes.
+In the generate workspace, the staged image stays fully opaque and interactive while other generations run; progress lives in the job rail rather than as a dimmed overlay on the stage. See [Concurrent Generation](#concurrent-generation).
+
+## Concurrent Generation
+
+The `/images/generate` workspace can run up to `MAX_CONCURRENT_IMAGE_GENERATIONS` (3, in `src/lib/generated-image-generation-contract.ts`) generations at once instead of one at a time.
+
+**Transport.** Generation is a `POST` Route Handler (`src/app/api/generated-images/generate/route.ts`), not a Server Action. Next dispatches Server Actions one at a time per client, so concurrent `executeAsync` calls would queue rather than run in parallel — see `node_modules/next/dist/docs/01-app/02-guides/server-actions.md` ("Sequential dispatch on the client") and `docs/backend-actions.md` for the carve-out conditions this route satisfies. Do not move this back to a Server Action; that would reintroduce single-flight behavior. `revalidatePath("/images")` was dropped, not moved elsewhere: `src/app/images/page.tsx` calls `connection()`, so the gallery is already fully dynamic per request.
+
+**Concurrency cap.** Three is a browser connection-pool constraint, not a provider rate limit: browsers cap concurrent connections per origin at roughly six, and each in-flight generation holds one open for as long as the WaveSpeed polling path can take (up to ~5 minutes). Three leaves headroom for thumbnail requests, navigation, and the prompt-enhancement Server Action. At the cap, the Generate button uses `aria-disabled` rather than `disabled`, so it does not drop keyboard focus.
+
+**Session-only job tray.** `use-generated-image-jobs.ts` tracks generations as client-only `GeneratedImageJob` state (`pending` / `complete` / `failed`) — nothing is persisted, there is no jobs table or migration, and the tray does not survive a reload. The server-prefilled image becomes "job zero" so the rail, stage, and lightbox all read one uniform list. The tray holds at most 12 entries, dropping the oldest settled-and-seen jobs first.
+
+**Rail auto-hide.** `generated-image-job-rail.tsx` renders a vertical thumbnail rail on the stage's right edge, but only when there are 2+ jobs; with 0 or 1 it renders nothing, so single-generation use looks exactly as before. Visible tiles show a pending spinner with `m:ss` elapsed, a completed thumbnail, or a failed alert icon, plus an unseen dot; the rail is a `role="listbox"` with ArrowUp/ArrowDown/Home/End/Escape navigation and focus recovery when a tile is removed.
+
+**Stage focus rule.** A job completing does not steal the stage from whatever is currently staged — it only gets an unseen badge in the rail. The one exception is the very first completion in a session where nothing has been explicitly staged yet, which takes the stage rather than leaving it blank.
+
+**Failures are per-job.** A failed generation shows a Sonner error toast, a failed rail tile, and a stage failure panel with "Try again" when that job is staged. `form.setError("root")` is reserved for prompt-enhancement failures, validation, and the at-cap message — not per-generation failures.
+
+**No cancellation.** Navigating away or closing the tab abandons the `fetch`, but the server-side generation still runs to completion and the image still lands in the gallery and local storage. This is a deliberate scope decision, not a gap to fix reflexively.
 
 ## Logging And Privacy
 

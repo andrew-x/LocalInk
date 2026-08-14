@@ -58,6 +58,17 @@ export const updateScene = publicActionClient
 
 Keep `"use server"` files thin. Put filesystem and data-access details in backend-only helpers under `src/lib/server/` when they grow beyond a small operation.
 
+### Route Handler Carve-Out
+
+A mutation may use a Route Handler instead of `publicActionClient` only when Server Action dispatch itself is the problem: Next dispatches Server Actions one at a time per client, so a workspace that needs several mutations in flight at once (concurrent `executeAsync` calls) would otherwise queue instead of run in parallel. See `node_modules/next/dist/docs/01-app/02-guides/server-actions.md` ("Sequential dispatch on the client"). This does not apply to `/api/story-prose` or `/api/story-chat` — those are non-mutating streaming reads, which is a different, more common reason to use a Route Handler. The carve-out is for a route that genuinely mutates durable state, so it must reproduce everything `publicActionClient` would otherwise enforce:
+
+1. Reuse the same Zod schema the equivalent action would have used.
+2. Wrap the work in `runLoggedAction({ action: "..." }, ...)` with the same metadata shape, for identical start/end/error logs.
+3. Honor the maintenance-mode gate (`IS_MAINTENANCE_MODE`) by throwing an `ActionError("MAINTENANCE", ...)` inside that `runLoggedAction` call.
+4. Pass `ActionError` `code`/`publicMessage` through unchanged in the HTTP response, so user-facing strings match what an action would have returned.
+
+See `/api/generated-images/generate` in `docs/ai-image-generation.md` for a route that follows this pattern.
+
 ## Schema Split
 
 Each feature should use separate form and action schemas:
@@ -98,6 +109,8 @@ action.execute(payload);
 For forms, use React Hook Form, Zod, and `useHookFormAction` from `@next-safe-action/adapter-react-hook-form/hooks`.
 
 React Hook Form owns browser form state and client validation. Zod owns input shape. `next-safe-action` owns server execution, server validation, typed results, and server errors. `useHookFormAction` is the bridge; do not manually wire `useForm` plus `useAction` for forms.
+
+A form whose submit target is a carve-out Route Handler is the one exception: there is no action to bridge to, so it calls `useForm` with `formResolver` directly and posts to the route itself. React Hook Form and Zod still own form state and input shape. `src/components/generated-images/generate-image-form.tsx` is the reference. Note that a schema using Zod `.default()` makes its input and output types differ, so such a form needs the three-generic form of `useForm` (`useForm<z.input<typeof schema>, unknown, FormValues>`).
 
 Use `formResolver` from `src/lib/schemas/resolve.ts` with the form schema:
 
