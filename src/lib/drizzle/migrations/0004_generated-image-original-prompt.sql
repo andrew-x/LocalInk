@@ -1,0 +1,1 @@
+ALTER TABLE `generated_images` ADD `original_prompt` text;

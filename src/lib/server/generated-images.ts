@@ -223,6 +223,8 @@ const generatedImagesLogger = createLogger("generated-images");
 
 type GenerateAndStoreGeneratedImageInput = {
   aspectRatio: GeneratedImageAspectRatio;
+  /** Set only when the enhanced description is the one to send. */
+  enhancedPrompt?: string;
   imageSize: GeneratedImageSize;
   model: GeneratedImageModel;
   prompt: string;
@@ -230,7 +232,11 @@ type GenerateAndStoreGeneratedImageInput = {
   stylePrompt: string;
 };
 
-type EnhanceGeneratedImagePromptInput = GenerateAndStoreGeneratedImageInput;
+// Enhancement produces the enhanced description, so it must never read one.
+type EnhanceGeneratedImagePromptInput = Omit<
+  GenerateAndStoreGeneratedImageInput,
+  "enhancedPrompt"
+>;
 
 type BuildGeneratedImagePromptEnhancementRequestInput =
   EnhanceGeneratedImagePromptInput & {
@@ -394,10 +400,30 @@ export async function getGeneratedImageById(
   return row ? toGeneratedImageDetail(row) : null;
 }
 
+/**
+ * Splits a generation request into the description that reaches the provider
+ * and the user's own wording to keep beside it. `originalPrompt` stays null
+ * unless enhancement actually replaced what the user wrote, so a null reads the
+ * same for a plain generation and for a row written before the column existed:
+ * `prompt` is the user's text.
+ */
+export function resolveGeneratedImagePrompts(input: {
+  enhancedPrompt?: string;
+  prompt: string;
+}): { originalPrompt: string | null; prompt: string } {
+  const originalPrompt = input.prompt.trim();
+  const enhancedPrompt = input.enhancedPrompt?.trim();
+
+  // An enhancement that came back identical is not worth a second copy.
+  return enhancedPrompt && enhancedPrompt !== originalPrompt
+    ? { originalPrompt, prompt: enhancedPrompt }
+    : { originalPrompt: null, prompt: originalPrompt };
+}
+
 export async function generateAndStoreGeneratedImage(
   input: GenerateAndStoreGeneratedImageInput,
 ): Promise<GeneratedImageDetail> {
-  const prompt = input.prompt.trim();
+  const { originalPrompt, prompt } = resolveGeneratedImagePrompts(input);
   const stylePrompt = input.stylePrompt.trim();
   const stylePreset = normalizeGeneratedImageStylePreset({
     stylePreset: input.stylePreset,
@@ -440,6 +466,7 @@ export async function generateAndStoreGeneratedImage(
     imageSize: input.imageSize,
     mimeType: decodedImage.mimeType,
     model: input.model,
+    originalPrompt,
     prompt,
     provider: modelConfig.provider,
     providerResponseId: response.id,
@@ -1844,6 +1871,7 @@ function toGeneratedImageListItem(
     imageSize: row.imageSize,
     mimeType: row.mimeType,
     model: row.model,
+    originalPrompt: row.originalPrompt,
     prompt: row.prompt,
     stylePreset: normalizeRowStylePreset(row.stylePreset, row.stylePrompt),
     stylePrompt: row.stylePrompt,

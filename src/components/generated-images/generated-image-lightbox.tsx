@@ -267,7 +267,7 @@ export function GeneratedImageLightbox({
               }}
             >
               <Image
-                alt={currentImage.prompt}
+                alt={currentImage.originalPrompt ?? currentImage.prompt}
                 className="pointer-events-none object-contain p-4 sm:p-8"
                 data-lightbox-image
                 draggable={false}
@@ -507,7 +507,16 @@ export function GeneratedImageLightbox({
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-panel py-4">
                   <div className="grid gap-5">
-                    <DetailSection label="Prompt" value={currentImage.prompt} />
+                    <DetailSection
+                      label="Prompt"
+                      value={currentImage.originalPrompt ?? currentImage.prompt}
+                    />
+                    {currentImage.originalPrompt ? (
+                      <DetailSection
+                        label="Enhanced prompt"
+                        value={currentImage.prompt}
+                      />
+                    ) : null}
                     <DetailSection
                       label="Style prompt"
                       value={currentImage.stylePrompt || "None"}

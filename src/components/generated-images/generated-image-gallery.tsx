@@ -443,7 +443,7 @@ function GeneratedImageCard({
         type="button"
       >
         <Image
-          alt={image.prompt}
+          alt={image.originalPrompt ?? image.prompt}
           className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           fill
           sizes={
@@ -470,7 +470,7 @@ function GeneratedImageCard({
                 feature ? "text-body" : "text-caption",
               )}
             >
-              {image.prompt}
+              {image.originalPrompt ?? image.prompt}
             </p>
             {feature ? (
               <p className="mt-1 flex items-center gap-1 text-caption text-muted-foreground">
@@ -623,7 +623,13 @@ function PromptPreviewDialog({
 
         {image ? (
           <div className="grid gap-4 overflow-y-auto px-panel pb-panel">
-            <PreviewField label="Image description" value={image.prompt} />
+            <PreviewField
+              label="Image description"
+              value={image.originalPrompt ?? image.prompt}
+            />
+            {image.originalPrompt ? (
+              <PreviewField label="Enhanced prompt" value={image.prompt} />
+            ) : null}
             <PreviewField label="Style" value={stylePresetName ?? ""} />
             <PreviewField label="Style prompt" value={image.stylePrompt} />
             <PreviewField

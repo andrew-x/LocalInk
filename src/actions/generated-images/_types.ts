@@ -14,6 +14,9 @@ export type GeneratedImageListItem = {
   imageSize: string;
   mimeType: string;
   model: string;
+  /** What the user typed, when an enhanced description was sent instead. */
+  originalPrompt: string | null;
+  /** What was sent to the provider. */
   prompt: string;
   stylePreset: GeneratedImageStylePreset;
   stylePrompt: string;

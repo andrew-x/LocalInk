@@ -40,7 +40,19 @@ export const generateImageFormSchema = z.object({
     .max(2000, "Style prompt must be 2,000 characters or fewer."),
 });
 
-export const generateImageActionSchema = generateImageFormSchema;
+/**
+ * Generation carries both descriptions: `prompt` is always what the user typed,
+ * and `enhancedPrompt` is set only when the enhanced version is the one to send.
+ * The server decides which reaches the provider and which is kept as the
+ * original, so the user's own wording survives the generation.
+ */
+export const generateImageActionSchema = generateImageFormSchema.extend({
+  enhancedPrompt: z
+    .string()
+    .trim()
+    .max(4000, "Enhanced description must be 4,000 characters or fewer.")
+    .optional(),
+});
 
 export const enhanceImagePromptActionSchema = generateImageFormSchema;
 

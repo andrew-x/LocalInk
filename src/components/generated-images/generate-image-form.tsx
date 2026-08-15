@@ -15,7 +15,10 @@ import { enhanceImagePrompt } from "@/actions/generated-images/enhance-image-pro
 import { Button } from "@/components/common/button";
 import { Label } from "@/components/common/label";
 import { Textarea } from "@/components/common/textarea";
-import { MAX_CONCURRENT_IMAGE_GENERATIONS } from "@/lib/generated-image-generation-contract";
+import {
+  type GenerateImageRequest,
+  MAX_CONCURRENT_IMAGE_GENERATIONS,
+} from "@/lib/generated-image-generation-contract";
 import {
   GENERATED_IMAGE_ASPECT_RATIOS,
   GENERATED_IMAGE_MODELS,
@@ -31,14 +34,17 @@ type PromptSource = "input" | "enhanced";
 type GenerateImageFormProps = {
   activeCount: number;
   defaultValues: GenerateImageFormValues;
+  /** The enhanced description the prefilled image was generated from, if any. */
+  initialEnhancedPrompt?: string | null;
   isAtConcurrencyLimit: boolean;
   /** Returns the new job id, or null when the concurrency cap is reached. */
-  onGenerate: (values: GenerateImageFormValues) => string | null;
+  onGenerate: (values: GenerateImageRequest) => string | null;
 };
 
 export function GenerateImageForm({
   activeCount,
   defaultValues,
+  initialEnhancedPrompt,
   isAtConcurrencyLimit,
   onGenerate,
 }: GenerateImageFormProps) {
@@ -46,8 +52,14 @@ export function GenerateImageForm({
   const [showMoreRatios, setShowMoreRatios] = useState(
     () => !COMMON_ASPECT_RATIOS.includes(defaultValues.aspectRatio),
   );
-  const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
-  const [promptSource, setPromptSource] = useState<PromptSource>("input");
+  const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(
+    initialEnhancedPrompt ?? null,
+  );
+  // A restored enhancement starts selected so generating an unchanged prefill
+  // reproduces the source image. Editing the description flips it back.
+  const [promptSource, setPromptSource] = useState<PromptSource>(
+    initialEnhancedPrompt ? "enhanced" : "input",
+  );
   // `useHookFormAction` only exists to bridge to next-safe-action. Generation
   // now goes through a Route Handler, so React Hook Form is wired directly.
   //
@@ -87,12 +99,15 @@ export function GenerateImageForm({
   function handleGenerate(values: GenerateImageFormValues) {
     form.clearErrors("root");
 
+    // `prompt` stays the user's own wording. The server sends `enhancedPrompt`
+    // when it is set and keeps `prompt` as the original beside it, so coming
+    // back to this image later prefills what the user actually wrote.
     const jobId = onGenerate({
       ...values,
-      prompt:
+      enhancedPrompt:
         selectedPromptSource === "enhanced" && enhancedPrompt
           ? enhancedPrompt
-          : values.prompt,
+          : undefined,
     });
 
     if (!jobId) {
@@ -199,6 +214,13 @@ export function GenerateImageForm({
                   aria-invalid={fieldState.invalid || undefined}
                   className="min-h-36 resize-none text-label"
                   maxLength={4000}
+                  // Editing the description is a choice to generate from it, so
+                  // an enhancement selected beforehand stops winning silently.
+                  // It stays in the preview, one toggle away.
+                  onChange={(event) => {
+                    field.onChange(event);
+                    setPromptSource("input");
+                  }}
                   placeholder="A rain-slick alley outside a tiny midnight print shop..."
                   rows={6}
                 />

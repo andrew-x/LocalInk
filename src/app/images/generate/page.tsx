@@ -41,6 +41,11 @@ export default async function GenerateImagesPage({
         stylePreset: defaults.stylePreset,
         stylePrompt: defaults.stylePrompt,
       };
+  // Only set when enhancement replaced the description, in which case the
+  // stored `prompt` is the enhanced text and `originalPrompt` is the user's.
+  const initialEnhancedPrompt = prefillImage?.originalPrompt
+    ? prefillImage.prompt
+    : null;
 
   return (
     <main className="h-dvh overflow-hidden bg-background text-foreground">
@@ -48,6 +53,7 @@ export default async function GenerateImagesPage({
         <AppHeader />
         <GenerateImageWorkspace
           defaultValues={defaultValues}
+          initialEnhancedPrompt={initialEnhancedPrompt}
           initialImage={prefillImage}
         />
       </div>
@@ -62,7 +68,8 @@ function toDefaultValues(
     aspectRatio: normalizeGeneratedImageAspectRatio(image.aspectRatio),
     imageSize: normalizeGeneratedImageSize(image.imageSize),
     model: normalizeGeneratedImageModel(image.model),
-    prompt: image.prompt,
+    // The user's own wording is what they came back to edit.
+    prompt: image.originalPrompt ?? image.prompt,
     stylePreset: image.stylePreset,
     stylePrompt: image.stylePrompt,
   };

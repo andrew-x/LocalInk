@@ -3,6 +3,7 @@ import { describe, expect, mock, test } from "bun:test";
 
 import {
   enhanceImagePromptActionSchema,
+  generateImageActionSchema,
   generateImageFormSchema,
 } from "@/actions/generated-images/_schemas";
 import { ActionError } from "@/lib/action-error";
@@ -335,6 +336,62 @@ describe("generated image server helpers", () => {
         stylePrompt: "Natural light.",
       }).success,
     ).toBe(false);
+  });
+
+  test("carries an optional enhanced description on generation only", () => {
+    const withEnhancement = generateImageActionSchema.parse({
+      enhancedPrompt: "A small blue door set into weathered red brick.",
+      prompt: "A small blue door in a brick wall.",
+      stylePrompt: "Natural light.",
+    });
+
+    expect(withEnhancement.prompt).toBe("A small blue door in a brick wall.");
+    expect(withEnhancement.enhancedPrompt).toBe(
+      "A small blue door set into weathered red brick.",
+    );
+
+    expect(
+      generateImageActionSchema.parse({
+        prompt: "A small blue door in a brick wall.",
+        stylePrompt: "Natural light.",
+      }).enhancedPrompt,
+    ).toBeUndefined();
+
+    // Enhancement produces the enhanced description, so its own input drops one.
+    expect(
+      enhanceImagePromptActionSchema.parse({
+        enhancedPrompt: "Already enhanced.",
+        prompt: "A small blue door in a brick wall.",
+        stylePrompt: "Natural light.",
+      }),
+    ).not.toHaveProperty("enhancedPrompt");
+  });
+
+  test("keeps the user's wording beside the description that is sent", async () => {
+    const { resolveGeneratedImagePrompts } = await import(
+      "@/lib/server/generated-images"
+    );
+
+    expect(
+      resolveGeneratedImagePrompts({
+        enhancedPrompt: "  A small blue door set into weathered red brick.  ",
+        prompt: "  A small blue door in a brick wall.  ",
+      }),
+    ).toEqual({
+      originalPrompt: "A small blue door in a brick wall.",
+      prompt: "A small blue door set into weathered red brick.",
+    });
+
+    // No enhancement, a blank one, or one that came back unchanged all mean the
+    // stored prompt is already the user's own text.
+    for (const enhancedPrompt of [undefined, "   ", "A small blue door."]) {
+      expect(
+        resolveGeneratedImagePrompts({
+          enhancedPrompt,
+          prompt: "A small blue door.",
+        }),
+      ).toEqual({ originalPrompt: null, prompt: "A small blue door." });
+    }
   });
 
   test("builds prompt enhancement context around the final image prompt shape", async () => {

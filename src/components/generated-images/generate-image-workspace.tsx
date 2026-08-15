@@ -15,7 +15,10 @@ import {
   type GeneratedImageJob,
   useGeneratedImageJobs,
 } from "@/components/generated-images/use-generated-image-jobs";
-import { MAX_CONCURRENT_IMAGE_GENERATIONS } from "@/lib/generated-image-generation-contract";
+import {
+  type GenerateImageRequest,
+  MAX_CONCURRENT_IMAGE_GENERATIONS,
+} from "@/lib/generated-image-generation-contract";
 import {
   getGeneratedImageDownloadFilename,
   getGeneratedImageDownloadUrl,
@@ -24,11 +27,14 @@ import { cn } from "@/lib/util";
 
 type GenerateImageWorkspaceProps = {
   defaultValues: GenerateImageFormValues;
+  /** The enhanced description the prefilled image was generated from, if any. */
+  initialEnhancedPrompt: string | null;
   initialImage: GeneratedImageListItem | null;
 };
 
 export function GenerateImageWorkspace({
   defaultValues,
+  initialEnhancedPrompt,
   initialImage,
 }: GenerateImageWorkspaceProps) {
   const [stagedJobId, setStagedJobId] = useState<string | null>(null);
@@ -74,7 +80,11 @@ export function GenerateImageWorkspace({
     markJobSeen,
     startJob,
   } = useGeneratedImageJobs({
-    defaultValues,
+    // The seed job carries the enhancement too, so retrying the prefilled image
+    // reproduces it rather than regenerating from the bare description.
+    defaultValues: initialEnhancedPrompt
+      ? { ...defaultValues, enhancedPrompt: initialEnhancedPrompt }
+      : defaultValues,
     initialImage,
     onJobSettled: handleJobSettled,
   });
@@ -99,7 +109,7 @@ export function GenerateImageWorkspace({
     markJobSeen(jobId);
   }
 
-  function retryJob(values: GenerateImageFormValues) {
+  function retryJob(values: GenerateImageRequest) {
     if (!startJob(values)) {
       toast.error(
         `Up to ${MAX_CONCURRENT_IMAGE_GENERATIONS} generations can run at once.`,
@@ -121,6 +131,7 @@ export function GenerateImageWorkspace({
       <GenerateImageForm
         activeCount={activeCount}
         defaultValues={defaultValues}
+        initialEnhancedPrompt={initialEnhancedPrompt}
         isAtConcurrencyLimit={isAtConcurrencyLimit}
         onGenerate={startJob}
       />
@@ -165,7 +176,7 @@ export function GenerateImageWorkspace({
                 type="button"
               >
                 <Image
-                  alt={stagedImage.prompt}
+                  alt={stagedImage.originalPrompt ?? stagedImage.prompt}
                   className="object-contain"
                   fill
                   sizes={

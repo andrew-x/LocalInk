@@ -45,6 +45,8 @@ Prompt shape is chosen per model in `src/lib/generated-images.ts`:
 
 The `/images/generate` workspace can enhance the image description before generation. Enhancement uses the app's main DeepSeek V4 text model through OpenRouter and returns an alternate image-description value. The workspace keeps the user's original input in the text field, shows the enhanced version below it, and lets the user choose which description to send for generation. The enhancement prompt includes the selected style direction, image model, aspect ratio, size, image-only system instruction, and final provider prompt template so the rewrite is optimized for the same prompt structure LocalInk will send to the image provider.
 
+Generating with the enhanced version selected persists both: the server resolves which text reaches the provider and which (if either) was the user's own wording (see [Local Storage](#local-storage)). Returning to a past image via `/images/generate?source=<id>` prefills the text field with the user's own description rather than the AI-expanded prose. If that image was generated from an enhanced version, the enhanced text is also restored into the "Enhanced prompt" preview with the toggle already on, so an unchanged prefill reproduces the same source image; editing the description flips the toggle back to the typed text so an edit is never silently discarded.
+
 Image provider configuration comes from environment variables:
 
 - `WAVESPEED_API_KEY`: required for Qwen Image 3.0 / 3.0 Pro and Grok 2 Image generation.
@@ -60,6 +62,8 @@ Generated image metadata is stored in the `generated_images` SQLite table. The b
 - `data/prod/generated-images/`
 
 The database row stores only metadata and a relative file path. Server-side file resolution rejects absolute paths, parent-directory traversal, and paths outside the generated-images directory before reading or deleting files.
+
+`prompt` is always the description actually sent to the provider. A nullable `original_prompt` column holds the user's own typed description, set only when description enhancement replaced it with different text before generation; a blank, absent, or unchanged enhancement leaves it `null`. `null` therefore means "`prompt` is the user's own wording" — which is also all a row written before this column existed (migration `0004_generated-image-original-prompt.sql`) can say, since those originals are unrecoverable. The lightbox and gallery show `original_prompt` (falling back to `prompt`) as the user-facing description, plus a separate "Enhanced prompt" field when `original_prompt` is set.
 
 For WaveSpeed-generated rows, `provider_response_id` is kept as diagnostic metadata only. After the post-generation WaveSpeed cleanup described above, that ID typically refers to a prediction that no longer exists remotely.
 

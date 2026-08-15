@@ -127,6 +127,10 @@ export const generatedImages = sqliteTable(
     provider: text("provider").notNull(),
     providerResponseId: text("provider_response_id"),
     prompt: text("prompt").notNull(),
+    // The description the user typed when enhancement replaced it. Null means
+    // `prompt` is the user's own text, which is also all a row written before
+    // this column existed can say.
+    originalPrompt: text("original_prompt"),
     stylePreset: text("style_preset").notNull(),
     stylePrompt: text("style_prompt").notNull(),
     model: text("model").notNull(),

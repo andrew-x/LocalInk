@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { GenerateImageFormValues } from "@/actions/generated-images/_schemas";
 import type { GeneratedImageListItem } from "@/actions/generated-images/_types";
 import day from "@/lib/dayjs";
 import {
   GENERATE_IMAGE_ROUTE_PATH,
+  type GenerateImageRequest,
   type GenerateImageRouteError,
   MAX_CONCURRENT_IMAGE_GENERATIONS,
 } from "@/lib/generated-image-generation-contract";
@@ -24,7 +24,7 @@ export type GeneratedImageJob = {
   id: string;
   status: GeneratedImageJobStatus;
   /** Exactly what was sent, so the rail can label and re-fire the job. */
-  values: GenerateImageFormValues;
+  values: GenerateImageRequest;
   startedAt: string;
   /** Set when the job settles, which freezes the elapsed label. */
   settledAt: string | null;
@@ -36,7 +36,7 @@ export type GeneratedImageJob = {
 };
 
 type UseGeneratedImageJobsOptions = {
-  defaultValues: GenerateImageFormValues;
+  defaultValues: GenerateImageRequest;
   initialImage: GeneratedImageListItem | null;
   onJobSettled: (job: GeneratedImageJob) => void;
 };
@@ -103,7 +103,7 @@ export function useGeneratedImageJobs({
   );
 
   const startJob = useCallback(
-    (values: GenerateImageFormValues): string | null => {
+    (values: GenerateImageRequest): string | null => {
       const activeJobCount = jobsRef.current.filter(
         (job) => job.status === "pending",
       ).length;
@@ -181,7 +181,7 @@ export function useGeneratedImageJobs({
 }
 
 async function requestGeneratedImage(
-  values: GenerateImageFormValues,
+  values: GenerateImageRequest,
 ): Promise<GeneratedImageListItem> {
   const response = await fetch(GENERATE_IMAGE_ROUTE_PATH, {
     body: JSON.stringify(values),
@@ -214,7 +214,7 @@ function toUserFacingMessage(error: unknown): string {
  */
 function toSeedJob(
   image: GeneratedImageListItem,
-  values: GenerateImageFormValues,
+  values: GenerateImageRequest,
 ): GeneratedImageJob {
   return {
     id: generateId("image-job"),
