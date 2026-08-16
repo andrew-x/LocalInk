@@ -147,6 +147,24 @@ type OpenRouterImagesModelCapabilities = {
 const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
   Record<GeneratedImageModel, OpenRouterImagesModelCapabilities>
 > = {
+  // FLUX.2 Max declares no `resolution` parameter — it sizes its own output
+  // from the aspect ratio — so the field is omitted rather than clamped, the
+  // same as GPT Image 2. It takes no `quality` either; `seed` is its only other
+  // knob and LocalInk does not expose one.
+  "black-forest-labs/flux.2-max": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: null,
+    supportsQuality: false,
+  },
   "bytedance-seed/seedream-5-0-pro": {
     aspectRatios: new Set([
       "1:1",
@@ -220,6 +238,22 @@ const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
       "16:9",
     ]),
     maxImageSize: "2K",
+    supportsQuality: false,
+  },
+  // Riverflow V2.5 Pro covers the app's full size range, so it is listed only
+  // for its ratio enum, which omits 4:5 and 5:4. It takes no `quality`.
+  "sourceful/riverflow-v2.5-pro": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: "4K",
     supportsQuality: false,
   },
   // Grok Imagine also publishes ultra-tall and ultra-wide ratios (9:19.5, 20:9,

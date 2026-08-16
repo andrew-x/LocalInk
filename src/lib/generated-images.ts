@@ -54,6 +54,20 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "krea/krea-2-large",
   },
   {
+    id: "sourceful/riverflow-v2.5-pro",
+    name: "Riverflow V2.5 Pro",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "sourceful/riverflow-v2.5-pro",
+  },
+  {
+    id: "black-forest-labs/flux.2-max",
+    name: "FLUX.2 Max",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "black-forest-labs/flux.2-max",
+  },
+  {
     id: "qwen/qwen-image-3-pro",
     name: "Qwen Image 3 Pro",
     outputModalities: ["image"],
@@ -253,20 +267,22 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
 // Models that must never receive the negation-based prompt or the long
 // instruction block that goes with it.
 //
-// Diffusion-based image models (Seedream, Qwen Image, Krea) weight the earliest
-// tokens most heavily and treat every token as content, so they
-// ignore "do not" phrasing and negative lists. They get an affirmation-only,
-// photorealism-first prompt instead of the negation-based prompt the
-// instruction-tuned models can follow.
+// Diffusion-based image models (Seedream, Qwen Image, Krea, FLUX.2, Riverflow)
+// weight the earliest tokens most heavily and treat every token as content, so
+// they ignore "do not" phrasing and negative lists. They get an
+// affirmation-only, photorealism-first prompt instead of the negation-based
+// prompt the instruction-tuned models can follow.
 //
 // Grok Imagine Image 2.0 is listed for the second reason: its prompt cap is
 // smaller than the negation-based system instruction alone, so prepending that
 // block would consume the whole budget before the subject was reached.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
+    "black-forest-labs/flux.2-max",
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
     "qwen/qwen-image-3-pro",
+    "sourceful/riverflow-v2.5-pro",
     "x-ai/grok-imagine-image-2.0",
   ]);
 
@@ -282,10 +298,12 @@ const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
 // and work on both endpoints.
 const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
+    "black-forest-labs/flux.2-max",
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
     "openai/gpt-image-2",
     "qwen/qwen-image-3-pro",
+    "sourceful/riverflow-v2.5-pro",
     "x-ai/grok-imagine-image-2.0",
   ]);
 
@@ -300,10 +318,14 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
 // belongs here, and a model that gains a ZDR endpoint should be taken out.
 // Verified 2026-08-16: Seedream 5 Pro (Seed), Krea 2 Large (Krea), and the three
 // Nano Banana models (Google) each have exactly one ZDR endpoint, so they stay
-// out of this set and lose provider fallback instead.
+// out of this set and lose provider fallback instead. Riverflow V2.5 Pro
+// (Sourceful) and FLUX.2 Max (Black Forest Labs) are each served by exactly one
+// provider and neither appears in the ZDR list, so both are exempt.
 const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
+  "black-forest-labs/flux.2-max",
   "openai/gpt-image-2",
   "qwen/qwen-image-3-pro",
+  "sourceful/riverflow-v2.5-pro",
   "x-ai/grok-imagine-image-2.0",
 ]);
 

@@ -669,6 +669,32 @@ describe("generated image server helpers", () => {
     expect(grokBody.aspect_ratio).toBe("4:3");
     expect(grokBody.quality).toBe("medium");
     expect(grokBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+
+    // Riverflow renders the app's full size range, so 4K passes through; it has
+    // no 5:4 and takes no quality.
+    const riverflowBody = buildBody("sourceful/riverflow-v2.5-pro");
+
+    expect(Object.keys(riverflowBody).sort()).toEqual([
+      "aspect_ratio",
+      "model",
+      "prompt",
+      "resolution",
+    ]);
+    expect(riverflowBody.resolution).toBe("4K");
+    expect(riverflowBody.aspect_ratio).toBe("4:3");
+    expect(riverflowBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+
+    // FLUX.2 Max sizes its own output and declares no `resolution`, so the
+    // field is dropped rather than clamped, and it takes no quality either.
+    const fluxBody = buildBody("black-forest-labs/flux.2-max");
+
+    expect(Object.keys(fluxBody).sort()).toEqual([
+      "aspect_ratio",
+      "model",
+      "prompt",
+    ]);
+    expect(fluxBody.aspect_ratio).toBe("4:3");
+    expect(fluxBody.prompt).toBe("A brass key on a rain-dark windowsill.");
   });
 
   test("pins ZDR routing on every OpenRouter image model except the ones with no ZDR endpoint", async () => {
@@ -681,10 +707,12 @@ describe("generated image server helpers", () => {
     } = await import("@/lib/generated-images");
     // Listed literally rather than read back from the predicate, so the test
     // states the intended policy instead of restating the implementation.
-    // These three publish no ZDR endpoint, so asking for one would 404.
+    // These five publish no ZDR endpoint, so asking for one would 404.
     const zdrExempt = new Set([
+      "black-forest-labs/flux.2-max",
       "openai/gpt-image-2",
       "qwen/qwen-image-3-pro",
+      "sourceful/riverflow-v2.5-pro",
       "x-ai/grok-imagine-image-2.0",
     ]);
 
