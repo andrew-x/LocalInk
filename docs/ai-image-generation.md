@@ -26,6 +26,22 @@ Sizes clamp down to the largest supported one; aspect ratios fall back to the ne
 
 A non-ok response from either provider logs an `image-generation-failed` entry with reason `provider-http-error`, carrying the provider, model ID, HTTP status, and the sanitized error code and message pulled out of the body (see [Failure Logging](#failure-logging)). A `401` or `403` surfaces as a distinct "provider rejected the API key" message, since that is fixed by correcting the key rather than by retrying.
 
+### Zero Data Retention Routing
+
+Every OpenRouter image request pins Zero Data Retention provider routing by default, the same as the text path (see `docs/ai-prose-generation.md#provider-notes`). `buildOpenRouterChatRequestBody` and `buildOpenRouterImagesRequestBody` in `src/lib/server/generated-images.ts` both call a private `buildOpenRouterImageProviderRouting(model)` helper and emit a top-level `provider: { zdr: true }` field when it applies.
+
+`generatedImageModelRequiresZdrProvider` in `src/lib/generated-images.ts` decides which models get the field, via an explicit exemption set (`ZDR_EXEMPT_IMAGE_MODELS`) rather than an inference rule — a newly added model defaults to requiring ZDR unless it is added to the set. As of 2026-08-16, three models have zero ZDR-listed endpoints and are exempt: `openai/gpt-image-2`, `qwen/qwen-image-3-pro`, and `x-ai/grok-imagine-image-2.0`. Their request bodies are byte-identical to before this change. The other five models (Nano Banana Pro, Nano Banana 2, Nano Banana 2 Lite, Seedream 5 Pro, Krea 2 Large) each have exactly one ZDR-listed endpoint, so ZDR routing leaves them no fallback to a non-ZDR provider — an outage at that single upstream now surfaces as a generation failure rather than being routed around. Check `https://openrouter.ai/api/v1/endpoints/zdr` before adding a model to decide which side of the exemption it belongs on.
+
+**`/api/v1/images` ignores `provider.zdr`.** Verified 2026-08-16 against the live API: a request for `qwen/qwen-image-3-pro` (which has no ZDR-listed endpoint) with `provider: { zdr: true }` returned an image instead of refusing, where the same constraint on `/api/v1/chat/completions` correctly refuses with "No endpoints found matching your data policy (Zero data retention)". The flag alone is therefore decorative on the images endpoint.
+
+That endpoint does honor `provider.only`, so the two non-exempt images-endpoint models pin their ZDR-listed provider by slug instead of trusting the flag. `ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL` in `src/lib/generated-images.ts` maps `bytedance-seed/seedream-5-0-pro` to `seed` and `krea/krea-2-large` to `krea`, and `buildOpenRouterImageProviderRouting` adds `only` plus `allow_fallbacks: false` alongside `zdr` for them. Both models are currently served by exactly one provider, which is also their ZDR-listed one, so pinning costs no routing breadth today — it keeps the request correct if OpenRouter later adds a non-ZDR provider. Slugs are the `tag` field from `https://openrouter.ai/api/v1/endpoints/zdr`; verify one against the `available_providers` list in a 404 body before adding it.
+
+The chat-style models (the three Nano Banana models) need no slug pin, because `/api/v1/chat/completions` enforces `zdr` correctly.
+
+A 404 whose body matches one of OpenRouter's privacy-routing refusals (`looksLikeOpenRouterZdrUnavailableBody` in `src/lib/ai.ts`, which shares its markers with the AI SDK detector used by the text paths) is treated as ZDR unavailability. Two wordings are matched: the `zdr` refusal ("No endpoints found matching your data policy") and the `provider.only` refusal ("No allowed providers are available"), since LocalInk only ever sends `only` to pin a ZDR provider. Such a 404 is handled as its own case rather than as a generic provider error: `toProviderResponseError` logs it as `openrouter-no-zdr-provider` (see [Failure Logging](#failure-logging)) and returns `ActionError("AI_ZDR_UNAVAILABLE", ...)` telling the user to choose a different model. `enhanceGeneratedImagePrompt` maps the same condition to `AI_ZDR_UNAVAILABLE`. The `/api/generated-images/generate` route maps `AI_ZDR_UNAVAILABLE` to a `503` response.
+
+This routing does not apply to the WaveSpeed path: WaveSpeed has no provider-routing concept, and the path is dormant regardless (see [WaveSpeed (Dormant)](#wavespeed-dormant)).
+
 The provider prompt combines the user's image description with the selected style direction. Built-in style presets are photographic, and custom style text is stored as the style direction for that generation.
 
 Prompt shape is chosen per model in `src/lib/generated-images.ts`:
@@ -33,6 +49,10 @@ Prompt shape is chosen per model in `src/lib/generated-images.ts`:
 - Instruction-tuned models (GPT Image 2, the Nano Banana models) get the negation-based prompt: style, subject, then an `Avoid:` list.
 - Diffusion models (Seedream 5 Pro, Qwen Image 3 Pro, Krea 2 Large) are listed in `AFFIRMATIVE_PROMPT_IMAGE_MODELS` and get an affirmation-only, photorealism-first prompt with no `Avoid:` list. They weight the earliest tokens most and read every token as content, so naming a style to exclude pulls that style into the image. Grok Imagine Image 2.0 is listed there too, for a different reason: its prompt cap is smaller than the negation-based system instruction alone, so prepending that block would spend the whole budget before reaching the subject.
 - Prompt-capped models are listed in `GENERATED_IMAGE_MODEL_PROMPT_LIMITS`. Qwen Image accepts at most 800 characters and Grok about 1,000 (xAI's own cap is 1,024), well under LocalInk's usual composed prompt, so those models get a compact variant: a short photorealism anchor, the subject, as much style direction as still fits, and `PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT`. The subject keeps priority over the style preset, because it carries the user's actual intent; both are trimmed on a word boundary. Description enhancement for these models is also asked to fit the model's own budget rather than the usual 4,000-character ceiling. OpenRouter publishes no prompt-length limit of its own, but it proxies these requests to the same upstreams (Alibaba Cloud, xAI), so the caps still apply.
+
+Skin realism across all three prompt shapes is calibrated by texture rather than by lesions. The style preset, `PHOTOREALISM_INSTRUCTIONS`, and `PHOTOREALISM_AFFIRMATIVE_PROMPT` all reach the model in the same request, and image models read every noun as content, so repeating "blemishes" or "redness" across those layers reads as emphasis and comes back as acne. Skin is described with texture and tone words (pores, fine hairs, faint freckles, light asymmetry); condition nouns live only in `PHOTOREALISM_NEGATIVE_PROMPT`, where negation-capable models can act on them and affirmative-prompt models never see them.
+
+Settings carry the same guard. Words that describe the photography — "unretouched", "uncurated", "candid", "documentary", "everyday clutter" — get generalized by the model to the depicted world, and come back as stained carpets and peeling paint. The prompts therefore state outright that the place is clean and well-kept and only the photograph is unstyled, and the description-enhancement system prompt is told not to invent wear or decay the user did not ask for.
 
 The `/images/generate` workspace can enhance the image description before generation. Enhancement uses the app's main DeepSeek V4 text model through OpenRouter and returns an alternate image-description value. The workspace keeps the user's original input in the text field, shows the enhanced version below it, and lets the user choose which description to send for generation. The enhancement prompt includes the selected style direction, image model, aspect ratio, size, image-only system instruction, and final provider prompt template so the rewrite is optimized for the same prompt structure LocalInk will send to the image provider.
 
@@ -46,6 +66,18 @@ Image provider configuration comes from environment variables:
 - `OPENROUTER_APP_NAME`: optional `X-Title` header value.
 - `OPENROUTER_APP_URL`: optional `HTTP-Referer` header value.
 - `WAVESPEED_API_KEY`: unused while the WaveSpeed path is dormant. Only needed if a model is pointed back at that provider.
+
+### Adding Or Updating A Model
+
+Per-model behavior is listed explicitly rather than inferred, so a new or upgraded model ID needs each of these checked. Model IDs are version-pinned, so a version bump is a new model for every purpose below.
+
+1. **Registry** — add the entry to `GENERATED_IMAGE_MODELS` in `src/lib/generated-images.ts`. The Zod enum in `src/actions/generated-images/_schemas.ts` and the picker in `generate-image-form.tsx` both derive from it.
+2. **Endpoint** — check `https://openrouter.ai/api/v1/models`. A model absent from it is native-only and belongs in `OPENROUTER_IMAGES_ENDPOINT_MODELS` (see [Provider Flow](#provider-flow)).
+3. **ZDR** — check `https://openrouter.ai/api/v1/endpoints/zdr` for that exact ID. No entries means it must go in `ZDR_EXEMPT_IMAGE_MODELS` or it will 404 at generation time; entries plus the images endpoint means it needs a slug in `ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL`, because that endpoint ignores `provider.zdr` (see [Zero Data Retention Routing](#zero-data-retention-routing)).
+4. **Capabilities** — check `https://openrouter.ai/api/v1/images/models/{model}/endpoints` for the `resolution` and `aspect_ratio` enums and whether `quality` is supported, then add `OPENROUTER_IMAGES_MODEL_CAPABILITIES` in `src/lib/server/generated-images.ts`. The endpoint rejects values it does not declare.
+5. **Prompt shape** — diffusion and prompt-capped models belong in `AFFIRMATIVE_PROMPT_IMAGE_MODELS` and `GENERATED_IMAGE_MODEL_PROMPT_LIMITS`.
+
+The enumerating test in `src/lib/server/generated-images.test.ts` walks `GENERATED_IMAGE_MODELS` and asserts the set of unrouted models exactly matches the recorded exemption policy, so it catches a model being exempted in code without that decision being written down, or losing ZDR routing unintentionally. It cannot tell you whether a *new* model actually has ZDR endpoints — only step 3's live check does that. A model missed there fails loudly as a 404 at generation time rather than silently reaching a retaining provider.
 
 ### WaveSpeed (Dormant)
 
@@ -127,7 +159,7 @@ Fields:
 
 | Field | Meaning |
 | --- | --- |
-| `reason` | Which throw site fired, from the `GeneratedImageFailureReason` union — for example `provider-http-error`, `wavespeed-poll-timeout`, `wavespeed-download-unrecognized-format`, `openrouter-missing-image`, `base64-too-large`, `local-persistence-failed`. |
+| `reason` | Which throw site fired, from the `GeneratedImageFailureReason` union — for example `provider-http-error`, `wavespeed-poll-timeout`, `wavespeed-download-unrecognized-format`, `openrouter-missing-image`, `openrouter-no-zdr-provider`, `base64-too-large`, `local-persistence-failed`. |
 | `model` / `provider` | The selected image model and its provider. |
 | `status` | HTTP status, or the WaveSpeed prediction status for an incomplete prediction. |
 | `providerErrorCode` | Short enum-like code from the provider: an error code or type, a `finish_reason`, a MIME type, or `content-rejected` / `provider-error`. |

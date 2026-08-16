@@ -620,13 +620,15 @@ describe("generated image server helpers", () => {
     );
 
     // Seedream tops out at 2K and takes no quality; diffusion models send the
-    // composed provider prompt untouched.
+    // composed provider prompt untouched. It has a ZDR endpoint, so unlike the
+    // three exempt models above and below it also carries `provider`.
     const seedreamBody = buildBody("bytedance-seed/seedream-5-0-pro");
 
     expect(Object.keys(seedreamBody).sort()).toEqual([
       "aspect_ratio",
       "model",
       "prompt",
+      "provider",
       "resolution",
     ]);
     expect(seedreamBody.resolution).toBe("2K");
@@ -667,6 +669,89 @@ describe("generated image server helpers", () => {
     expect(grokBody.aspect_ratio).toBe("4:3");
     expect(grokBody.quality).toBe("medium");
     expect(grokBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+  });
+
+  test("pins ZDR routing on every OpenRouter image model except the ones with no ZDR endpoint", async () => {
+    const { buildOpenRouterChatRequestBody, buildOpenRouterImagesRequestBody } =
+      await import("./generated-images");
+    const {
+      GENERATED_IMAGE_MODELS,
+      generatedImageModelUsesOpenRouterImagesEndpoint,
+      getGeneratedImageModelConfig,
+    } = await import("@/lib/generated-images");
+    // Listed literally rather than read back from the predicate, so the test
+    // states the intended policy instead of restating the implementation.
+    // These three publish no ZDR endpoint, so asking for one would 404.
+    const zdrExempt = new Set([
+      "openai/gpt-image-2",
+      "qwen/qwen-image-3-pro",
+      "x-ai/grok-imagine-image-2.0",
+    ]);
+
+    // Driven off the registry, so the unrouted set below covers every model
+    // LocalInk offers rather than a hand-maintained sample.
+    const unrouted: string[] = [];
+
+    for (const { id } of GENERATED_IMAGE_MODELS) {
+      const buildBody = generatedImageModelUsesOpenRouterImagesEndpoint(id)
+        ? buildOpenRouterImagesRequestBody
+        : buildOpenRouterChatRequestBody;
+      const body = buildBody({
+        aspectRatio: "1:1",
+        imageSize: "1K",
+        modelConfig: getGeneratedImageModelConfig(id),
+        providerPrompt: "A brass key on a rain-dark windowsill.",
+      });
+
+      if (body.provider === undefined) {
+        unrouted.push(id);
+      } else {
+        expect(body.provider).toMatchObject({ zdr: true });
+      }
+    }
+
+    // Exact equality, not a subset: this fails both when a model loses ZDR
+    // routing without being added to the policy list above, and when a model is
+    // exempted in code without that decision being recorded here. It cannot
+    // catch a newly added model that genuinely has no ZDR endpoint — that needs
+    // the live check in `docs/ai-image-generation.md`, and fails loudly as a 404
+    // at generation time rather than silently reaching a retaining provider.
+    expect([...unrouted].sort()).toEqual([...zdrExempt].sort());
+  });
+
+  test("pins the ZDR provider by slug for images-endpoint models, since that endpoint ignores the zdr flag", async () => {
+    const { buildOpenRouterImagesRequestBody } = await import(
+      "./generated-images"
+    );
+    const { getGeneratedImageModelConfig } = await import(
+      "@/lib/generated-images"
+    );
+    const buildBody = (
+      model: Parameters<typeof getGeneratedImageModelConfig>[0],
+    ) =>
+      buildOpenRouterImagesRequestBody({
+        aspectRatio: "1:1",
+        imageSize: "1K",
+        modelConfig: getGeneratedImageModelConfig(model),
+        providerPrompt: "A brass key on a rain-dark windowsill.",
+      });
+
+    // Verified 2026-08-16: /api/v1/images accepts `zdr` and generates anyway, so
+    // `only` plus `allow_fallbacks: false` is what actually holds these two to
+    // their ZDR-listed provider.
+    expect(buildBody("bytedance-seed/seedream-5-0-pro").provider).toEqual({
+      allow_fallbacks: false,
+      only: ["seed"],
+      zdr: true,
+    });
+    expect(buildBody("krea/krea-2-large").provider).toEqual({
+      allow_fallbacks: false,
+      only: ["krea"],
+      zdr: true,
+    });
+
+    // The exempt models have no ZDR endpoint to pin, so they stay unconstrained.
+    expect(buildBody("openai/gpt-image-2").provider).toBeUndefined();
   });
 
   test("clamps image_config for chat-style OpenRouter models", async () => {

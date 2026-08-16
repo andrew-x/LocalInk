@@ -86,13 +86,13 @@ export const GENERATED_IMAGE_STYLE_PRESETS = [
     id: "amateur-photo",
     name: "Amateur photo",
     prompt:
-      "Casual smartphone snapshot, like a photo your friend would take of you. Modern phone wide lens (~26mm equivalent) with HDR-blended exposure, mixed available light (daylight plus warm interior bulbs is fine), slight handheld motion, slightly off-center or crooked framing, mild luminance noise in shadows. The subject is an ordinary real person — relatable, not striking — with natural unstyled hair (a few flyaways, possibly slightly messy), unretouched skin that shows real pores, freckles, redness or minor blemishes, everyday clothing that may be wrinkled or unremarkable, and a candid unposed expression mid-action or mid-conversation. The background is not curated — everyday clutter, mundane interiors, and imperfect composition are welcome.",
+      "Casual smartphone snapshot, like a photo your friend would take of you. Modern phone wide lens (~26mm equivalent) with HDR-blended exposure, mixed available light (daylight plus warm interior bulbs is fine), slight handheld motion, slightly off-center or crooked framing, mild luminance noise in shadows. The subject is an ordinary real person — relatable, not striking — with natural unstyled hair (a few flyaways, possibly slightly messy), unretouched skin that shows real pores, fine hairs, and faint freckles, everyday clothing that may be wrinkled or unremarkable, and a candid unposed expression mid-action or mid-conversation. The background is not styled for the camera — an ordinary room with its everyday objects where they normally live, and imperfect composition, are welcome. The space itself is clean and well-kept; unstaged, not run-down.",
   },
   {
     id: "2000s-point-and-shoot",
     name: "2000s point-and-shoot",
     prompt:
-      "High-quality recreation of an early-2000s consumer digital point-and-shoot photo, like a compact pocket camera snapshot, not a modern phone photo and not a low-resolution file. Built-in direct flash or harsh on-camera fill when appropriate, small-sensor deep focus, 35mm-equivalent wide-normal lens, slightly flattened perspective, crisp edges, hard specular highlights, mild shadow sensor noise, and bright flash foregrounds falling into darker ambient backgrounds. Auto white balance can lean cool indoors or slightly green under fluorescents; colors feel punchy but believable with a JPEG-era consumer-camera response. Casual imperfect crop, ordinary clutter, house-party, mall, bedroom, diner, school, or night-out snapshot energy. Avoid compression artifacts, pixelation, fake nostalgia filters, sepia, heavy blur, disposable-camera light leaks, VHS artifacts, and visible date stamps unless the subject explicitly asks for one.",
+      "High-quality recreation of an early-2000s consumer digital point-and-shoot photo, like a compact pocket camera snapshot, not a modern phone photo and not a low-resolution file. Built-in direct flash or harsh on-camera fill when appropriate, small-sensor deep focus, 35mm-equivalent wide-normal lens, slightly flattened perspective, crisp edges, hard specular highlights, mild shadow sensor noise, and bright flash foregrounds falling into darker ambient backgrounds. Auto white balance can lean cool indoors or slightly green under fluorescents; colors feel punchy but believable with a JPEG-era consumer-camera response. Casual imperfect crop, ordinary well-kept everyday spaces, house-party, mall, bedroom, diner, school, or night-out snapshot energy. Avoid compression artifacts, pixelation, fake nostalgia filters, sepia, heavy blur, disposable-camera light leaks, VHS artifacts, and visible date stamps unless the subject explicitly asks for one.",
   },
   {
     id: "disposable-camera",
@@ -134,7 +134,7 @@ export const GENERATED_IMAGE_STYLE_PRESETS = [
     id: "cinematic-photo",
     name: "Cinematic photo",
     prompt:
-      "Cinematic film still shot on 35mm, in the style of a character-driven contemporary indie film. Anamorphic or fast prime lens with shallow depth of field and oval bokeh, motivated practical-source key light with deep ambient shadow, naturalistic production design, restrained desaturated color grade, fine organic film grain. The subject is cast for realism rather than glamour — an everyday-looking person with naturalistic features, lived-in skin showing real texture and slight imperfections, real hair, and costume that reads as actual clothing rather than fashion editorial. Framing and lighting read as composed by a cinematographer, not rendered by a computer.",
+      "Cinematic film still shot on 35mm, in the style of a character-driven contemporary indie film. Anamorphic or fast prime lens with shallow depth of field and oval bokeh, motivated practical-source key light with deep ambient shadow, naturalistic production design, restrained desaturated color grade, fine organic film grain. The subject is cast for realism rather than glamour — an everyday-looking person with naturalistic features, lived-in skin showing real texture and natural tone variation, real hair, and costume that reads as actual clothing rather than fashion editorial. Framing and lighting read as composed by a cinematographer, not rendered by a computer.",
   },
   {
     id: "classic-film-camera",
@@ -210,16 +210,30 @@ export const IMAGE_ONLY_INSTRUCTIONS = [
   "If text output would normally be included, omit it and return only the generated image.",
 ] as const;
 
+// Skin realism is calibrated by texture, not by lesions. Image models read every
+// noun as content, and the style preset, this block, and the affirmative prompt
+// all reach the model together — so naming "blemishes" or "redness" in more than
+// one place reads as an emphasis directive and comes back as acne. Describe skin
+// with texture and tone words (pores, fine hairs, faint freckles, light
+// asymmetry) and keep condition nouns in PHOTOREALISM_NEGATIVE_PROMPT only, where
+// negation-capable models can act on them.
+//
+// Settings need the same guard for the same reason. "Unretouched", "uncurated",
+// "documentary", and "everyday clutter" all describe photography, but models
+// generalize them to the depicted world and return stained carpets and peeling
+// paint. Say explicitly that the place is clean and only the photograph is
+// unstyled.
 export const PHOTOREALISM_INSTRUCTIONS = [
   "Every output is a real photograph. Do not produce illustrations, paintings, drawings, comics, anime, 3D renders, CGI, or any AI-stylized artwork.",
-  "Render natural skin with visible pores, fine hairs, and minor blemishes or asymmetry. Avoid waxy, plastic, or airbrushed skin.",
+  "Render natural skin with visible pores, fine hairs, and gentle unevenness in tone. Avoid waxy, plastic, or airbrushed skin, and equally avoid the opposite exaggeration: no acne, breakouts, rashes, or emphasized blemishes. Skin should read as ordinary and healthy, simply unretouched.",
+  "Render the setting as a clean, well-maintained ordinary space — lived-in rather than staged for the camera, but not run-down. Unless the description asks for it, do not add stains, grime, water damage, peeling paint, cracks, litter, or worn and broken furnishings. An unretouched, uncurated, or candid style describes the photography, not the condition of the place.",
   "Use physically plausible lighting, shadows, and reflections. Preserve realistic depth of field with lens-shaped (not perfectly circular) bokeh.",
   "Keep colors and contrast believable for the depicted lighting conditions. Avoid oversaturation, HDR halos, and a glossy AI sheen.",
-  "When the subject is a person, render them as an ordinary real human — the kind of person you'd actually know — not a fashion model, influencer, or AI-beautified ideal. Allow realistic skin variation (pores, freckles, minor redness, small blemishes, light asymmetry), realistic hair with natural texture and stray flyaways, realistic body proportions for the implied context, and a relaxed, candid expression. Do not slim, smooth, contour, or idealize the face or body. Faces should be relatable rather than striking.",
+  "When the subject is a person, render them as an ordinary real human — the kind of person you'd actually know — not a fashion model, influencer, or AI-beautified ideal. Allow realistic skin variation (pores, fine hairs, faint freckles, light asymmetry), realistic hair with natural texture and stray flyaways, realistic body proportions for the implied context, and a relaxed, candid expression. Do not slim, smooth, contour, or idealize the face or body. Faces should be relatable rather than striking.",
 ] as const;
 
 export const PHOTOREALISM_NEGATIVE_PROMPT =
-  "supermodel or fashion-model features, influencer face, magazine-cover beauty, idealized or hyper-attractive features, face slimming, skin smoothing, contoured cheekbones, perfect symmetry, salon-perfect hair, plastic or waxy skin, airbrushed faces, heavy makeup glamour look, oversaturated colors, perfectly circular bokeh, generic stock-photo backdrop, AI sheen, CGI, 3D render, illustration, painting, anime, cartoon";
+  "supermodel or fashion-model features, influencer face, magazine-cover beauty, idealized or hyper-attractive features, face slimming, skin smoothing, contoured cheekbones, perfect symmetry, salon-perfect hair, plastic or waxy skin, airbrushed faces, heavy makeup glamour look, acne, pimples, breakouts, inflamed or irritated skin, rashes, scarring, exaggerated pore or blemish detail, stained carpets or upholstery, grimy or dirty surfaces, water stains, peeling paint, cracked or damaged walls and floors, litter and trash, worn or broken furniture, derelict or run-down setting, oversaturated colors, perfectly circular bokeh, generic stock-photo backdrop, AI sheen, CGI, 3D render, illustration, painting, anime, cartoon";
 
 // Affirmation-only photorealism direction for diffusion-style models (Seedream)
 // that do not honor negation. Naming a style to exclude ("anime", "illustration")
@@ -227,14 +241,14 @@ export const PHOTOREALISM_NEGATIVE_PROMPT =
 // it, so this block states only what the photograph should be — it never lists
 // styles to avoid.
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
-  "This is a real, unretouched photograph taken on a physical camera with a real lens. Natural skin shows pores, fine hairs, freckles, and minor blemishes or asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
+  "This is a real, unretouched photograph taken on a physical camera with a real lens. Skin is clear and healthy with ordinary unretouched texture — visible pores, fine hairs, faint freckles, gentle tone variation, and light asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. The setting is a clean, well-kept ordinary space, lived-in rather than staged for the camera. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
 
 // Compact photorealism direction for models with a hard prompt-length cap
 // (Qwen Image 3 Pro). It carries the same affirmation-only intent as
 // PHOTOREALISM_AFFIRMATIVE_PROMPT in roughly a third of the characters, so the
 // subject and style still fit inside the provider's limit.
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
-  "Natural skin with visible pores and small imperfections, physically plausible light and shadow, realistic depth of field, believable color, and ordinary real people with candid expressions.";
+  "Clear healthy skin with ordinary unretouched texture, visible pores, and fine hairs, physically plausible light and shadow, realistic depth of field, believable color, clean well-kept ordinary settings, and ordinary real people with candid expressions.";
 
 // Models that must never receive the negation-based prompt or the long
 // instruction block that goes with it.
@@ -275,6 +289,42 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
     "x-ai/grok-imagine-image-2.0",
   ]);
 
+// Image models allowed to run without Zero Data Retention routing, because
+// OpenRouter publishes no ZDR endpoint for them at all. Requesting ZDR for these
+// does not route them somewhere safer, it just makes them 404, so the field is
+// omitted rather than sent. Every other model, text or image, is sent
+// `provider: { zdr: true }`.
+//
+// The check when adding or reviewing a model is
+// https://openrouter.ai/api/v1/endpoints/zdr: a model absent from that list
+// belongs here, and a model that gains a ZDR endpoint should be taken out.
+// Verified 2026-08-16: Seedream 5 Pro (Seed), Krea 2 Large (Krea), and the three
+// Nano Banana models (Google) each have exactly one ZDR endpoint, so they stay
+// out of this set and lose provider fallback instead.
+const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
+  "openai/gpt-image-2",
+  "qwen/qwen-image-3-pro",
+  "x-ai/grok-imagine-image-2.0",
+]);
+
+// The /api/v1/images endpoint accepts `provider.zdr` but does not act on it.
+// Verified 2026-08-16: a ZDR-only request for a model with no ZDR endpoint still
+// returned an image, where /api/v1/chat/completions correctly refused with "No
+// endpoints found matching your data policy". That endpoint does honor
+// `provider.only`, so the images-endpoint models that must stay ZDR pin their
+// ZDR-listed provider directly instead of trusting the flag.
+//
+// Slugs are the `tag` field from https://openrouter.ai/api/v1/endpoints/zdr.
+// Both models are currently served by exactly one provider, which is also their
+// ZDR-listed one, so pinning costs no routing breadth today — it keeps the
+// request correct if OpenRouter later adds a non-ZDR provider for them.
+const ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL: Partial<
+  Record<GeneratedImageModel, readonly string[]>
+> = {
+  "bytedance-seed/seedream-5-0-pro": ["seed"],
+  "krea/krea-2-large": ["krea"],
+};
+
 // Models that reject or silently truncate prompts past their upstream limit.
 // Qwen Image accepts at most 800 characters and Grok about 1,000 (xAI's own cap
 // is 1,024), both well under LocalInk's usual composed prompt length, so those
@@ -304,6 +354,32 @@ export function generatedImageModelUsesOpenRouterImagesEndpoint(
   model: GeneratedImageModel,
 ): boolean {
   return OPENROUTER_IMAGES_ENDPOINT_MODELS.has(model);
+}
+
+/**
+ * Whether the model's OpenRouter requests should pin ZDR provider routing.
+ *
+ * A model added to the registry without being classified defaults to requiring
+ * ZDR, so the failure mode is a 404 at generation time rather than a request
+ * that quietly reaches a retaining provider.
+ */
+export function generatedImageModelRequiresZdrProvider(
+  model: GeneratedImageModel,
+): boolean {
+  return !ZDR_EXEMPT_IMAGE_MODELS.has(model);
+}
+
+/**
+ * ZDR-listed provider slugs to pin for a model, or null when the `zdr` flag
+ * alone is enough.
+ *
+ * Only the images-endpoint models need this, because that endpoint ignores
+ * `provider.zdr`.
+ */
+export function getGeneratedImageModelZdrProviderSlugs(
+  model: GeneratedImageModel,
+): readonly string[] | null {
+  return ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL[model] ?? null;
 }
 
 export function getGeneratedImageModelPromptLimit(

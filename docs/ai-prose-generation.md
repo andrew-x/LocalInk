@@ -77,6 +77,12 @@ Each generated draft version can reference an ephemeral server-side snapshot of 
 
 Some providers expose reasoning or thinking modes that are useful for analysis but counterproductive for fiction drafting. For DeepSeek through OpenRouter, prose generation should use non-thinking behavior where available so the model spends output budget on the draft rather than hidden or visible reasoning. OpenRouter reasoning-token controls should be considered part of provider configuration, not user-facing draft content.
 
+Every OpenRouter text call LocalInk makes — prose generation, story chat, and image-prompt enhancement — pins Zero Data Retention provider routing by default. `getLocalinkLanguageModel` in `src/lib/ai.ts` passes `provider: OPENROUTER_ZDR_PROVIDER_ROUTING` (`{ zdr: true }`) on every `.chat(...)` call, so this is not opt-in per request. OpenRouter ORs the per-request flag with the account-level setting, so it can only tighten routing, never loosen it; a model with no ZDR-listed endpoint answers `404` "No allowed providers are available for the selected model" instead of silently falling back to a retaining provider. `isOpenRouterZdrUnavailableError` in `src/lib/ai.ts` detects that condition so callers can surface `AI_ZDR_UNAVAILABLE` instead of a generic failure.
+
+This has a real cost for the main model: `deepseek/deepseek-v4-pro-0813` has ZDR-listed endpoints at BaseTen, Fireworks, Novita, Phala, SiliconFlow, and Together, but not at first-party DeepSeek — which is also the only endpoint with implicit prompt caching for this model. ZDR routing therefore changes latency, cost, and quantization, and loses implicit caching on the long full-manuscript prose prompts described above. The fast model, `deepseek/deepseek-v4-flash-0731`, has 21 ZDR-listed endpoints and is not meaningfully constrained by this. Check `https://openrouter.ai/api/v1/endpoints/zdr` before changing either model ID.
+
+`LocalinkProviderOptions` (`src/lib/ai.ts`) is intentionally kept to `reasoning` only: the OpenRouter AI SDK provider spreads `providerOptions.openrouter` over the request body and replaces `provider` wholesale rather than merging it, so a caller passing `openrouter.provider` through that option would silently drop the pinned ZDR routing. Do not add a `provider` key to per-call `providerOptions`.
+
 Provider-specific prompt shape may vary, but the generation contract should stay stable: prose-first output, clear context hierarchy, insertion fidelity, manual draft control, and high-quality fiction craft.
 
 ## Rationale Sources

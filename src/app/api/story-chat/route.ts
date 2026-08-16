@@ -1,5 +1,5 @@
 import { ActionError } from "@/lib/action-error";
-import { streamLocalinkText } from "@/lib/ai";
+import { isOpenRouterZdrUnavailableError, streamLocalinkText } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
 import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
@@ -19,7 +19,11 @@ const storyChatLogger = createLogger("story-chat");
 const ACTION_NAME = "story-chat-generate";
 
 type StoryChatRouteError = {
-  code: "AI_NOT_CONFIGURED" | "BAD_REQUEST" | "GENERATION_FAILED";
+  code:
+    | "AI_NOT_CONFIGURED"
+    | "AI_ZDR_UNAVAILABLE"
+    | "BAD_REQUEST"
+    | "GENERATION_FAILED";
   message: string;
   status: number;
 };
@@ -144,6 +148,15 @@ function toRouteError(error: unknown): StoryChatRouteError {
       code: "AI_NOT_CONFIGURED",
       message:
         "AI generation is not configured. Add the OpenRouter API key and try again.",
+      status: 503,
+    };
+  }
+
+  if (isOpenRouterZdrUnavailableError(error)) {
+    return {
+      code: "AI_ZDR_UNAVAILABLE",
+      message:
+        "AI generation is unavailable because no zero-data-retention provider is currently serving the writing model.",
       status: 503,
     };
   }

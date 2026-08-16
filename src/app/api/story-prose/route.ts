@@ -1,4 +1,8 @@
-import { type LocalinkProviderOptions, streamLocalinkText } from "@/lib/ai";
+import {
+  isOpenRouterZdrUnavailableError,
+  type LocalinkProviderOptions,
+  streamLocalinkText,
+} from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
 import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
@@ -41,6 +45,7 @@ const PROSE_PROVIDER_OPTIONS = {
 type StoryProseRouteError = {
   code:
     | "AI_NOT_CONFIGURED"
+    | "AI_ZDR_UNAVAILABLE"
     | "BAD_REQUEST"
     | "GENERATION_FAILED"
     | "MANUSCRIPT_CONTEXT_TOO_LARGE";
@@ -198,6 +203,15 @@ function toRouteError(error: unknown): StoryProseRouteError {
       code: "AI_NOT_CONFIGURED",
       message:
         "AI generation is not configured. Add the OpenRouter API key and try again.",
+      status: 503,
+    };
+  }
+
+  if (isOpenRouterZdrUnavailableError(error)) {
+    return {
+      code: "AI_ZDR_UNAVAILABLE",
+      message:
+        "AI generation is unavailable because no zero-data-retention provider is currently serving the writing model.",
       status: 503,
     };
   }

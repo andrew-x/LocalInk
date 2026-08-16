@@ -1,5 +1,6 @@
 export type ActionErrorCode =
   | "AI_NOT_CONFIGURED"
+  | "AI_ZDR_UNAVAILABLE"
   | "BAD_REQUEST"
   | "GENERATION_FAILED"
   | "INTERNAL_ERROR"

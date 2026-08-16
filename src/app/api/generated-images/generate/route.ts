@@ -15,6 +15,7 @@ const ACTION_NAME = "generate-image";
 
 const STATUS_BY_ERROR_CODE: Record<ActionErrorCode, number> = {
   AI_NOT_CONFIGURED: 503,
+  AI_ZDR_UNAVAILABLE: 503,
   BAD_REQUEST: 400,
   GENERATION_FAILED: 500,
   INTERNAL_ERROR: 500,
