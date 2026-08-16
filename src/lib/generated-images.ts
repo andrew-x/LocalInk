@@ -33,6 +33,13 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "google/gemini-3.1-flash-image",
   },
   {
+    id: "google/gemini-3.1-flash-lite-image",
+    name: "Nano Banana 2 Lite",
+    outputModalities: ["image", "text"],
+    provider: "openrouter",
+    providerModelId: "google/gemini-3.1-flash-lite-image",
+  },
+  {
     id: "bytedance-seed/seedream-5-0-pro",
     name: "Seedream 5 Pro",
     outputModalities: ["image"],
@@ -47,27 +54,32 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "krea/krea-2-large",
   },
   {
-    id: "alibaba/qwen-image-3.0-pro/text-to-image",
-    name: "Qwen Image 3.0 Pro",
+    id: "qwen/qwen-image-3-pro",
+    name: "Qwen Image 3 Pro",
     outputModalities: ["image"],
-    provider: "wavespeed",
-    providerModelId: "alibaba/qwen-image-3.0-pro/text-to-image",
+    provider: "openrouter",
+    providerModelId: "qwen/qwen-image-3-pro",
   },
   {
-    id: "alibaba/qwen-image-3.0/text-to-image",
-    name: "Qwen Image 3.0",
+    id: "x-ai/grok-imagine-image-2.0",
+    name: "Grok Imagine Image 2.0",
     outputModalities: ["image"],
-    provider: "wavespeed",
-    providerModelId: "alibaba/qwen-image-3.0/text-to-image",
+    provider: "openrouter",
+    providerModelId: "x-ai/grok-imagine-image-2.0",
   },
-  {
-    id: "x-ai/grok-2-image",
-    name: "Grok 2 Image",
-    outputModalities: ["image"],
-    provider: "wavespeed",
-    providerModelId: "x-ai/grok-2-image",
-  },
-] as const;
+] as const satisfies ReadonlyArray<{
+  id: string;
+  name: string;
+  outputModalities: readonly ("image" | "text")[];
+  provider: GeneratedImageProvider;
+  providerModelId: string;
+}>;
+
+// Providers LocalInk can send an image request to. Every shipped model goes
+// through OpenRouter today; "wavespeed" stays in the union so the WaveSpeed
+// request path in src/lib/server/generated-images.ts keeps typechecking and can
+// be re-enabled by pointing a model entry back at it.
+export const GENERATED_IMAGE_PROVIDERS = ["openrouter", "wavespeed"] as const;
 
 export const GENERATED_IMAGE_STYLE_PRESETS = [
   {
@@ -172,23 +184,21 @@ const GENERATED_IMAGE_DOWNLOAD_EXTENSION_BY_MIME_TYPE = {
   "image/webp": "webp",
 } as const;
 
-const LEGACY_GENERATED_IMAGE_MODEL_REPLACEMENTS = {
-  // WaveSpeed-era IDs for models LocalInk now reaches through OpenRouter, plus
-  // the Krea tier this app no longer offers. Stored rows and saved defaults keep
-  // the old ID, so they are mapped onto the current equivalent.
-  "bytedance/seedream-v5.0-pro": "bytedance-seed/seedream-5-0-pro",
-  "google/gemini-2.5-flash-image": "google/gemini-3-pro-image",
-  "google/gemini-3-pro-image-preview": "google/gemini-3-pro-image",
-  "google/gemini-3.1-flash-image-preview": "google/gemini-3.1-flash-image",
-  "krea/krea-2-medium": "krea/krea-2-large",
-  "openai/gpt-image-2/text-to-image": "openai/gpt-image-2",
-} as const;
-
 export type GeneratedImageModel = (typeof GENERATED_IMAGE_MODELS)[number]["id"];
-export type GeneratedImageModelConfig = (typeof GENERATED_IMAGE_MODELS)[number];
 export type GeneratedImageOutputModalities =
   (typeof GENERATED_IMAGE_MODELS)[number]["outputModalities"];
-export type GeneratedImageProvider = GeneratedImageModelConfig["provider"];
+export type GeneratedImageProvider = (typeof GENERATED_IMAGE_PROVIDERS)[number];
+// Declared structurally rather than as `(typeof GENERATED_IMAGE_MODELS)[number]`
+// so `provider` stays the full provider union. Inferring it from the model list
+// would narrow it to the providers currently in use and make the dormant
+// WaveSpeed branches unreachable at the type level.
+export type GeneratedImageModelConfig = {
+  id: GeneratedImageModel;
+  name: string;
+  outputModalities: GeneratedImageOutputModalities;
+  provider: GeneratedImageProvider;
+  providerModelId: string;
+};
 export type GeneratedImageAspectRatio =
   (typeof GENERATED_IMAGE_ASPECT_RATIOS)[number];
 export type GeneratedImageSize = (typeof GENERATED_IMAGE_SIZES)[number];
@@ -220,7 +230,7 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
   "This is a real, unretouched photograph taken on a physical camera with a real lens. Natural skin shows pores, fine hairs, freckles, and minor blemishes or asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
 
 // Compact photorealism direction for models with a hard prompt-length cap
-// (Qwen Image 3.0). It carries the same affirmation-only intent as
+// (Qwen Image 3 Pro). It carries the same affirmation-only intent as
 // PHOTOREALISM_AFFIRMATIVE_PROMPT in roughly a third of the characters, so the
 // subject and style still fit inside the provider's limit.
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
@@ -235,17 +245,15 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
 // photorealism-first prompt instead of the negation-based prompt the
 // instruction-tuned models can follow.
 //
-// Grok 2 Image is autoregressive rather than diffusion, but it is listed for the
-// second reason: its prompt cap is smaller than the negation-based system
-// instruction alone, so prepending that block would consume the whole budget
-// before the subject was reached.
+// Grok Imagine Image 2.0 is listed for the second reason: its prompt cap is
+// smaller than the negation-based system instruction alone, so prepending that
+// block would consume the whole budget before the subject was reached.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
-    "alibaba/qwen-image-3.0-pro/text-to-image",
-    "alibaba/qwen-image-3.0/text-to-image",
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
-    "x-ai/grok-2-image",
+    "qwen/qwen-image-3-pro",
+    "x-ai/grok-imagine-image-2.0",
   ]);
 
 // OpenRouter serves two kinds of image model. Models that behave like chat
@@ -254,25 +262,30 @@ const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
 // outright ("cannot be used with the chat/completions endpoint") and must go to
 // /api/v1/images, which takes a single prompt string and returns base64 image
 // data. This cannot be inferred from the model ID, so it is listed explicitly.
-// These are also the models listed by /api/v1/images/models rather than
-// /api/v1/models.
+// The check when adding a model is /api/v1/models: a model absent from it is
+// native-only and belongs here. Presence in /api/v1/images/models does not
+// decide anything, since the chat-style Nano Banana models are listed there too
+// and work on both endpoints.
 const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
     "openai/gpt-image-2",
+    "qwen/qwen-image-3-pro",
+    "x-ai/grok-imagine-image-2.0",
   ]);
 
-// Providers that reject or silently truncate prompts past a documented limit.
-// Qwen Image 3.0 accepts at most 800 characters and Grok 2 Image about 1,000
-// (xAI's own cap is 1,024), both well under LocalInk's usual composed prompt
-// length, so those models get the compact prompt shape below.
+// Models that reject or silently truncate prompts past their upstream limit.
+// Qwen Image accepts at most 800 characters and Grok about 1,000 (xAI's own cap
+// is 1,024), both well under LocalInk's usual composed prompt length, so those
+// models get the compact prompt shape below. OpenRouter publishes no
+// prompt-length limit of its own, but it proxies these requests to the same
+// upstreams (Alibaba Cloud, xAI), so the caps still apply.
 const GENERATED_IMAGE_MODEL_PROMPT_LIMITS: Partial<
   Record<GeneratedImageModel, number>
 > = {
-  "alibaba/qwen-image-3.0-pro/text-to-image": 800,
-  "alibaba/qwen-image-3.0/text-to-image": 800,
-  "x-ai/grok-2-image": 1000,
+  "qwen/qwen-image-3-pro": 800,
+  "x-ai/grok-imagine-image-2.0": 1000,
 };
 
 const COMPACT_PROMPT_ANCHOR = "Real photograph, shot on a physical camera.";
@@ -368,18 +381,20 @@ export function getGeneratedImageStylePresetPrompt(
   );
 }
 
+/**
+ * Resolves a stored model ID to one the app still offers.
+ *
+ * Stored rows and saved defaults keep whichever ID was current when they were
+ * written, so retired models keep turning up here. Rather than curating a
+ * per-model replacement for each one, every deprecated or unrecognized ID falls
+ * back to the default model. Rows themselves are untouched — `model` still
+ * records what actually produced the image — so this only decides what a
+ * prefilled form selects.
+ */
 export function normalizeGeneratedImageModel(
   model: string,
 ): GeneratedImageModel {
-  if (isGeneratedImageModel(model)) {
-    return model;
-  }
-
-  return (
-    LEGACY_GENERATED_IMAGE_MODEL_REPLACEMENTS[
-      model as keyof typeof LEGACY_GENERATED_IMAGE_MODEL_REPLACEMENTS
-    ] ?? DEFAULT_GENERATED_IMAGE_MODEL
-  );
+  return isGeneratedImageModel(model) ? model : DEFAULT_GENERATED_IMAGE_MODEL;
 }
 
 export function getGeneratedImageModelConfig(
@@ -454,7 +469,7 @@ export function buildGeneratedImageProviderPrompt({
     trimmedStylePrompt ||
     "Unstyled documentary photograph, ~35mm equivalent lens, available light, mild grain, no retouching.";
 
-  // Prompt-capped providers (Qwen Image 3.0) reject or truncate anything past
+  // Prompt-capped models (Qwen Image 3 Pro) reject or truncate anything past
   // their limit, so they get a shorter shape that keeps the photorealism anchor,
   // the subject, and as much style direction as still fits.
   const promptLimit = model ? getGeneratedImageModelPromptLimit(model) : null;

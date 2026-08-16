@@ -23,7 +23,7 @@ Protect user writing and project files as private local data. Prefer durable loc
 - `docs/database.md`: local SQLite data paths, Drizzle schema/migrations, and startup migration behavior.
 - `docs/devdocs-index.md`: recurring documentation sources for framework/API/agent work.
 - `docs/ai-prose-generation.md`: prose generation goals, prompt architecture, context hierarchy, provider behavior, and drafting rationale.
-- `docs/ai-image-generation.md`: image generation via WaveSpeed and OpenRouter, local generated-image storage, routes, and privacy/logging rules.
+- `docs/ai-image-generation.md`: image generation via OpenRouter (plus the dormant WaveSpeed path), local generated-image storage, routes, and privacy/logging rules.
 - `docs/styling.md`: Tailwind v4, SCSS token hub, fonts, shadcn/ui, and common component conventions.
 
 ## Maintenance Rules

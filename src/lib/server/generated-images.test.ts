@@ -509,20 +509,33 @@ describe("generated image server helpers", () => {
     const { getGeneratedImageModelConfig } = await import(
       "@/lib/generated-images"
     );
+    // No shipped model routes to WaveSpeed anymore, so the configs are built by
+    // hand: an app model ID (which decides the prompt shape) paired with the
+    // WaveSpeed provider model ID whose schema is under test. Keeping this
+    // covered means the dormant path still works if a model is pointed back at
+    // it.
     const buildBody = (
       model: Parameters<typeof getGeneratedImageModelConfig>[0],
+      providerModelId: string,
     ) =>
       buildWaveSpeedRequestBody({
         aspectRatio: "16:9",
         imageSize: "4K",
-        modelConfig: getGeneratedImageModelConfig(model),
+        modelConfig: {
+          ...getGeneratedImageModelConfig(model),
+          provider: "wavespeed",
+          providerModelId,
+        },
         providerPrompt: "A brass key on a rain-dark windowsill.",
       });
 
-    // Qwen Image 3.0 declares `additionalProperties: false` and knows nothing
-    // about base64 output, sync mode, output format, or quality, so sending any
-    // of them would be rejected outright.
-    const qwenBody = buildBody("alibaba/qwen-image-3.0/text-to-image");
+    // Qwen Image 3.0 Pro declares `additionalProperties: false` and knows
+    // nothing about base64 output, sync mode, output format, or quality, so
+    // sending any of them would be rejected outright.
+    const qwenBody = buildBody(
+      "qwen/qwen-image-3-pro",
+      "alibaba/qwen-image-3.0-pro/text-to-image",
+    );
 
     expect(Object.keys(qwenBody).sort()).toEqual([
       "aspect_ratio",
@@ -538,13 +551,12 @@ describe("generated image server helpers", () => {
     // the composed provider prompt is sent through untouched.
     expect(qwenBody.prompt).toBe("A brass key on a rain-dark windowsill.");
 
-    expect(
-      Object.keys(buildBody("alibaba/qwen-image-3.0-pro/text-to-image")),
-    ).toEqual(Object.keys(qwenBody));
-
     // Grok 2 Image declares no `aspect_ratio` and no `resolution`, so both are
     // dropped rather than clamped; it sizes every output itself.
-    const grokBody = buildBody("x-ai/grok-2-image");
+    const grokBody = buildBody(
+      "x-ai/grok-imagine-image-2.0",
+      "x-ai/grok-2-image",
+    );
 
     expect(Object.keys(grokBody).sort()).toEqual([
       "enable_base64_output",
@@ -559,7 +571,10 @@ describe("generated image server helpers", () => {
 
     // Models without a capability entry fall back to the conservative defaults:
     // base64 output and sync mode, no quality, no prompt expansion, 2K at most.
-    const fallbackBody = buildBody("google/gemini-3-pro-image");
+    const fallbackBody = buildBody(
+      "google/gemini-3-pro-image",
+      "google/gemini-3-pro-image",
+    );
 
     expect(fallbackBody.enable_base64_output).toBe(true);
     expect(fallbackBody.enable_sync_mode).toBe(false);
@@ -623,6 +638,87 @@ describe("generated image server helpers", () => {
 
     expect(kreaBody.resolution).toBe("1K");
     expect(kreaBody.aspect_ratio).toBe("4:3");
+
+    // Qwen Image 3 Pro caps at 2K, does list 5:4, and takes no quality. Its
+    // prompt is capped, so the compact provider prompt goes through untouched.
+    const qwenBody = buildBody("qwen/qwen-image-3-pro");
+
+    expect(Object.keys(qwenBody).sort()).toEqual([
+      "aspect_ratio",
+      "model",
+      "prompt",
+      "resolution",
+    ]);
+    expect(qwenBody.resolution).toBe("2K");
+    expect(qwenBody.aspect_ratio).toBe("5:4");
+    expect(qwenBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+
+    // Grok Imagine has no 5:4, and its `quality` enum is low/medium.
+    const grokBody = buildBody("x-ai/grok-imagine-image-2.0");
+
+    expect(Object.keys(grokBody).sort()).toEqual([
+      "aspect_ratio",
+      "model",
+      "prompt",
+      "quality",
+      "resolution",
+    ]);
+    expect(grokBody.resolution).toBe("2K");
+    expect(grokBody.aspect_ratio).toBe("4:3");
+    expect(grokBody.quality).toBe("medium");
+    expect(grokBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+  });
+
+  test("clamps image_config for chat-style OpenRouter models", async () => {
+    const { buildOpenRouterChatRequestBody } = await import(
+      "./generated-images"
+    );
+    const { getGeneratedImageModelConfig } = await import(
+      "@/lib/generated-images"
+    );
+    const buildBody = (
+      model: Parameters<typeof getGeneratedImageModelConfig>[0],
+    ) =>
+      buildOpenRouterChatRequestBody({
+        aspectRatio: "5:4",
+        imageSize: "4K",
+        modelConfig: getGeneratedImageModelConfig(model),
+        providerPrompt: "A brass key on a rain-dark windowsill.",
+      });
+
+    // Nano Banana Pro renders every size and shape the app offers, so its
+    // request carries the user's selections untouched.
+    const proBody = buildBody("google/gemini-3-pro-image");
+
+    expect(proBody.image_config).toEqual({
+      aspect_ratio: "5:4",
+      image_size: "4K",
+    });
+    expect(proBody.model).toBe("google/gemini-3-pro-image");
+    expect(proBody.modalities).toEqual(["image", "text"]);
+    // Chat-style models get the system instruction as a real system message
+    // rather than folded into the prompt string.
+    expect(proBody.messages).toEqual([
+      {
+        content: expect.stringContaining("Generate exactly one image."),
+        role: "system",
+      },
+      {
+        content: "A brass key on a rain-dark windowsill.",
+        role: "user",
+      },
+    ]);
+
+    // Nano Banana 2 Lite renders at 1K only, so a 4K request clamps down
+    // instead of asking Google for a size the model cannot produce. Its ratio
+    // enum covers 5:4, so the shape is left alone.
+    const liteBody = buildBody("google/gemini-3.1-flash-lite-image");
+
+    expect(liteBody.image_config).toEqual({
+      aspect_ratio: "5:4",
+      image_size: "1K",
+    });
+    expect(liteBody.model).toBe("google/gemini-3.1-flash-lite-image");
   });
 
   test("clamps OpenRouter images requests to each model's supported enums", async () => {
@@ -655,13 +751,20 @@ describe("generated image server helpers", () => {
         model: "openai/gpt-image-2",
       }),
     ).toBe(null);
-    // Chat-style models have no capability entry, so nothing is clamped.
+    // Most chat-style models have no capability entry, so nothing is clamped.
     expect(
       clampOpenRouterImagesSize({
         imageSize: "4K",
         model: "google/gemini-3-pro-image",
       }),
     ).toBe("4K");
+    // Nano Banana 2 Lite is the exception: it renders at 1K only.
+    expect(
+      clampOpenRouterImagesSize({
+        imageSize: "4K",
+        model: "google/gemini-3.1-flash-lite-image",
+      }),
+    ).toBe("1K");
 
     // Supported ratios pass through untouched.
     expect(
@@ -726,7 +829,7 @@ describe("generated image server helpers", () => {
     } = await import("./generated-images");
 
     const qwenLimit = getEnhancedGeneratedImagePromptLimit(
-      "alibaba/qwen-image-3.0/text-to-image",
+      "qwen/qwen-image-3-pro",
     );
 
     expect(qwenLimit).toBeGreaterThan(0);
@@ -735,19 +838,21 @@ describe("generated image server helpers", () => {
       4000,
     );
 
-    // Grok 2 Image caps prompts around 1,000 characters, so the composed
-    // provider prompt has to fit even when the description and style direction
-    // are both far longer than the budget.
+    // Grok Imagine Image 2.0 caps prompts around 1,000 characters, so the
+    // composed provider prompt has to fit even when the description and style
+    // direction are both far longer than the budget.
     const { buildGeneratedImageProviderPrompt } = await import(
       "@/lib/generated-images"
     );
-    const grokLimit = getEnhancedGeneratedImagePromptLimit("x-ai/grok-2-image");
+    const grokLimit = getEnhancedGeneratedImagePromptLimit(
+      "x-ai/grok-imagine-image-2.0",
+    );
 
     expect(grokLimit).toBeGreaterThan(0);
     expect(grokLimit).toBeLessThan(1000);
     expect(
       buildGeneratedImageProviderPrompt({
-        model: "x-ai/grok-2-image",
+        model: "x-ai/grok-imagine-image-2.0",
         prompt: "A courier waits under ferry lights. ".repeat(40),
         stylePrompt: "Candid documentary street photograph. ".repeat(20),
       }).length,

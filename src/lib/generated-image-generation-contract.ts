@@ -21,8 +21,8 @@ export type GenerateImageRouteError = {
 
 /**
  * Browsers cap concurrent connections per origin at roughly six, and every
- * in-flight generation holds one for its whole life (up to ~5 minutes on the
- * WaveSpeed polling path). Three leaves headroom for thumbnail content
- * requests, route navigations, and the prompt-enhancement Server Action.
+ * in-flight generation holds one for its whole life, which runs to minutes for
+ * a large image. Three leaves headroom for thumbnail content requests, route
+ * navigations, and the prompt-enhancement Server Action.
  */
 export const MAX_CONCURRENT_IMAGE_GENERATIONS = 3;

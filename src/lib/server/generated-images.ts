@@ -62,11 +62,16 @@ const WAVESPEED_OUTPUT_FORMAT = "png";
 const WAVESPEED_OUTPUT_MIME_TYPE = "image/png";
 // Per-model WaveSpeed request capabilities. WaveSpeed model schemas set
 // `additionalProperties: false`, so every field LocalInk sends must be one the
-// selected model actually declares. The Qwen Image 3.0 models accept only
-// prompt, aspect ratio, resolution, prompt expansion, and seed, which also means
-// they cannot return base64 and hand back a CDN URL instead. Grok 2 Image is
+// selected model actually declares. Qwen Image 3.0 Pro accepts only prompt,
+// aspect ratio, resolution, prompt expansion, and seed, which also means it
+// cannot return base64 and hands back a CDN URL instead. Grok 2 Image is
 // narrower still: prompt, image count, sync mode, and base64 output, with no
 // shape or size controls at all. Unknown models fall back to the defaults below.
+//
+// No model in GENERATED_IMAGE_MODELS routes to WaveSpeed today — Qwen and Grok
+// both moved to OpenRouter — so this whole WaveSpeed path is dormant. It is kept
+// intact, along with these two schemas, so a future model can be pointed back at
+// it by setting `provider: "wavespeed"` on its entry.
 type WaveSpeedModelCapabilities = {
   maxResolution: "2k" | "4k";
   supportsAspectRatio: boolean;
@@ -80,16 +85,6 @@ type WaveSpeedModelCapabilities = {
 const WAVESPEED_MODEL_CAPABILITIES: Record<string, WaveSpeedModelCapabilities> =
   {
     "alibaba/qwen-image-3.0-pro/text-to-image": {
-      maxResolution: "2k",
-      supportsAspectRatio: true,
-      supportsBase64Output: false,
-      supportsOutputFormat: false,
-      supportsPromptExpansion: true,
-      supportsQuality: false,
-      supportsResolution: true,
-      supportsSyncMode: false,
-    },
-    "alibaba/qwen-image-3.0/text-to-image": {
       maxResolution: "2k",
       supportsAspectRatio: true,
       supportsBase64Output: false,
@@ -123,14 +118,18 @@ const WAVESPEED_DEFAULT_MODEL_CAPABILITIES = {
   supportsResolution: true,
   supportsSyncMode: true,
 } as const satisfies WaveSpeedModelCapabilities;
-// Per-model capabilities for OpenRouter's images endpoint, mirroring the
-// `supported_parameters` enums that /api/v1/images/models publishes. That
-// endpoint validates every field against those enums and rejects anything
-// outside them, while LocalInk offers one app-wide list of sizes and aspect
-// ratios, so requests are clamped to the closest supported value instead of
-// failing. `maxImageSize: null` means the model has no `resolution` parameter at
-// all and the field must be omitted rather than clamped. Models absent from this
-// map — the chat-style ones — are sent through unclamped.
+// Per-model OpenRouter capabilities, mirroring the `supported_parameters` enums
+// that /api/v1/images/models publishes. The images endpoint validates every
+// field against those enums and rejects anything outside them, while LocalInk
+// offers one app-wide list of sizes and aspect ratios, so requests are clamped
+// to the closest supported value instead of failing. `maxImageSize: null` means
+// the model has no `resolution` parameter at all and the field must be omitted
+// rather than clamped. Models absent from this map are sent through unclamped.
+//
+// The published enums describe what the model can render, not what one endpoint
+// accepts, so the chat path clamps `image_config` against the same entries. Most
+// chat-style models have no entry because they cover every size and ratio the
+// app offers; Nano Banana 2 Lite is the exception.
 type OpenRouterImagesModelCapabilities = {
   aspectRatios: ReadonlySet<GeneratedImageAspectRatio>;
   maxImageSize: GeneratedImageSize | null;
@@ -155,6 +154,26 @@ const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
     maxImageSize: "2K",
     supportsQuality: false,
   },
+  // Nano Banana 2 Lite is the cost-efficient tier and renders at 1K only, unlike
+  // its Pro and non-Lite siblings, so 2K and 4K clamp down rather than reaching
+  // Google as a size it cannot produce. Its ratio enum covers everything the app
+  // offers, so no aspect ratio is ever substituted.
+  "google/gemini-3.1-flash-lite-image": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: "1K",
+    supportsQuality: false,
+  },
   "krea/krea-2-large": {
     aspectRatios: new Set(["1:1", "2:3", "3:2", "4:3", "4:5", "9:16", "16:9"]),
     maxImageSize: "1K",
@@ -176,6 +195,30 @@ const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
       "21:9",
     ]),
     maxImageSize: null,
+    supportsQuality: true,
+  },
+  "qwen/qwen-image-3-pro": {
+    // Every app-wide ratio except 21:9, which falls back to 16:9.
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+    ]),
+    maxImageSize: "2K",
+    supportsQuality: false,
+  },
+  // Grok Imagine also publishes ultra-tall and ultra-wide ratios (9:19.5, 20:9,
+  // 2:1) that LocalInk does not offer, so only the shared ones are listed. Its
+  // `quality` enum is `low`/`medium`, so the app-wide "medium" is in range.
+  "x-ai/grok-imagine-image-2.0": {
+    aspectRatios: new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"]),
+    maxImageSize: "2K",
     supportsQuality: true,
   },
 };
@@ -529,7 +572,7 @@ export async function enhanceGeneratedImagePrompt(
     );
   }
 
-  // Prompt-capped models (Qwen Image 3.0) would have a long enhanced
+  // Prompt-capped models (Qwen Image 3 Pro, Grok Imagine Image 2.0) would have a long enhanced
   // description trimmed away at generation time, so the rewrite is asked to fit
   // the model's own budget instead.
   const maxLength = getEnhancedGeneratedImagePromptLimit(input.model);
@@ -1144,25 +1187,12 @@ async function requestOpenRouterGeneratedImage({
         modelConfig,
         providerPrompt,
       })
-    : {
-        image_config: {
-          aspect_ratio: aspectRatio,
-          image_size: imageSize,
-        },
-        messages: [
-          {
-            content: buildGeneratedImageSystemInstruction(modelConfig.id),
-            role: "system",
-          },
-          {
-            content: providerPrompt,
-            role: "user",
-          },
-        ],
-        modalities: getGeneratedImageOutputModalities(modelConfig.id),
-        model: modelConfig.providerModelId,
-        stream: false,
-      };
+    : buildOpenRouterChatRequestBody({
+        aspectRatio,
+        imageSize,
+        modelConfig,
+        providerPrompt,
+      });
   let response: Response;
 
   try {
@@ -1429,6 +1459,60 @@ function buildSinglePromptRequestValue(
   return [buildGeneratedImageSystemInstruction(model), "", providerPrompt].join(
     "\n",
   );
+}
+
+/**
+ * Builds the chat/completions body for OpenRouter's chat-style image models.
+ *
+ * These models take the system instruction as a real system message and carry
+ * shape and size in `image_config`. Those values are clamped the same way the
+ * images-endpoint path clamps its own, so a model that renders at 1K only is
+ * never asked for 4K.
+ */
+export function buildOpenRouterChatRequestBody({
+  aspectRatio,
+  imageSize,
+  modelConfig,
+  providerPrompt,
+}: {
+  aspectRatio: GeneratedImageAspectRatio;
+  imageSize: GeneratedImageSize;
+  modelConfig: GeneratedImageModelConfig;
+  providerPrompt: string;
+}): Record<string, unknown> {
+  const imageConfig: Record<string, unknown> = {
+    aspect_ratio: clampOpenRouterImagesAspectRatio({
+      aspectRatio,
+      model: modelConfig.id,
+    }),
+  };
+  const clampedImageSize = clampOpenRouterImagesSize({
+    imageSize,
+    model: modelConfig.id,
+  });
+
+  // Null means the model declares no size parameter at all, so the field is
+  // dropped rather than sent with a value the model would have to interpret.
+  if (clampedImageSize) {
+    imageConfig.image_size = clampedImageSize;
+  }
+
+  return {
+    image_config: imageConfig,
+    messages: [
+      {
+        content: buildGeneratedImageSystemInstruction(modelConfig.id),
+        role: "system",
+      },
+      {
+        content: providerPrompt,
+        role: "user",
+      },
+    ],
+    modalities: getGeneratedImageOutputModalities(modelConfig.id),
+    model: modelConfig.providerModelId,
+    stream: false,
+  };
 }
 
 export function buildOpenRouterImagesRequestBody({
@@ -1714,8 +1798,10 @@ async function downloadWaveSpeedGeneratedImage(
  * MIME type of a WaveSpeed base64 output, read from the payload itself.
  *
  * Only models that declare `output_format` are told to render PNG; the rest
- * return whatever their own pipeline produces (Grok 2 Image always answers with
- * JPEG). Decoding just the leading bytes is enough to recognize the container,
+ * return whatever their own pipeline produces (WaveSpeed's Grok 2 Image, the
+ * model this was written for, always answered with JPEG, and no shipped model
+ * uses this path today). Decoding just the leading bytes is enough to recognize
+ * the container,
  * and it keeps the stored file extension and `mime_type` honest without
  * committing a per-model format claim that a provider change could quietly
  * invalidate. Falls back to PNG, which is what this path assumed before, when
