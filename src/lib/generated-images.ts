@@ -12,11 +12,18 @@ export {
 
 export const GENERATED_IMAGE_MODELS = [
   {
-    id: "openai/gpt-image-2",
-    name: "GPT Image 2",
+    id: "openai/gpt-image-2.5-sunburst",
+    name: "GPT Image 2.5 Sunburst",
     outputModalities: ["image"],
     provider: "openrouter",
-    providerModelId: "openai/gpt-image-2",
+    providerModelId: "openai/gpt-image-2.5-sunburst",
+  },
+  {
+    id: "openai/gpt-image-2.5-flare",
+    name: "GPT Image 2.5 Flare",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "openai/gpt-image-2.5-flare",
   },
   {
     id: "google/gemini-3-pro-image",
@@ -186,7 +193,7 @@ export const GENERATED_IMAGE_ASPECT_RATIOS = [
 
 export const GENERATED_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
 
-export const DEFAULT_GENERATED_IMAGE_MODEL = "openai/gpt-image-2";
+export const DEFAULT_GENERATED_IMAGE_MODEL = "google/gemini-3.1-flash-image";
 export const DEFAULT_GENERATED_IMAGE_STYLE_PRESET = "amateur-photo";
 export const DEFAULT_GENERATED_IMAGE_ASPECT_RATIO = "1:1";
 export const DEFAULT_GENERATED_IMAGE_SIZE = "1K";
@@ -301,7 +308,8 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
     "black-forest-labs/flux.2-max",
     "bytedance-seed/seedream-5-0-pro",
     "krea/krea-2-large",
-    "openai/gpt-image-2",
+    "openai/gpt-image-2.5-flare",
+    "openai/gpt-image-2.5-sunburst",
     "qwen/qwen-image-3-pro",
     "sourceful/riverflow-v2.5-pro",
     "x-ai/grok-imagine-image-2.0",
@@ -321,9 +329,13 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
 // out of this set and lose provider fallback instead. Riverflow V2.5 Pro
 // (Sourceful) and FLUX.2 Max (Black Forest Labs) are each served by exactly one
 // provider and neither appears in the ZDR list, so both are exempt.
+// Verified 2026-09-11: both GPT Image 2.5 tiers (OpenAI) have zero ZDR-listed
+// endpoints, the same as the GPT Image 2 they replaced, so both are exempt and
+// neither can pin a ZDR provider slug below.
 const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
   "black-forest-labs/flux.2-max",
-  "openai/gpt-image-2",
+  "openai/gpt-image-2.5-flare",
+  "openai/gpt-image-2.5-sunburst",
   "qwen/qwen-image-3-pro",
   "sourceful/riverflow-v2.5-pro",
   "x-ai/grok-imagine-image-2.0",

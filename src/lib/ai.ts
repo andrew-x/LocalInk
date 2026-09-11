@@ -15,7 +15,7 @@ import {
 
 const LOCALINK_AI_MODELS = {
   main: "deepseek/deepseek-v4-pro-0813",
-  fast: "deepseek/deepseek-v4-flash-0731",
+  fast: "deepseek/deepseek-v4.1-flash",
 } as const;
 
 /**

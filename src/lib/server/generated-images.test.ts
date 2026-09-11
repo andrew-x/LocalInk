@@ -325,7 +325,7 @@ describe("generated image server helpers", () => {
       stylePrompt: "Natural light.",
     });
 
-    expect(parsed.model).toBe("openai/gpt-image-2");
+    expect(parsed.model).toBe("google/gemini-3.1-flash-image");
     expect(parsed.aspectRatio).toBe("1:1");
     expect(parsed.imageSize).toBe("1K");
     expect(parsed.stylePreset).toBe("amateur-photo");
@@ -448,7 +448,7 @@ describe("generated image server helpers", () => {
     const parsed = enhanceImagePromptActionSchema.parse({
       aspectRatio: "4:3",
       imageSize: "1K",
-      model: "openai/gpt-image-2",
+      model: "openai/gpt-image-2.5-sunburst",
       prompt: "A brass key on a rain-dark windowsill.",
       stylePreset: "amateur-photo",
       stylePrompt: "Natural light.",
@@ -460,7 +460,7 @@ describe("generated image server helpers", () => {
       enhanceImagePromptActionSchema.safeParse({
         aspectRatio: "4:3",
         imageSize: "1K",
-        model: "openai/gpt-image-2",
+        model: "openai/gpt-image-2.5-sunburst",
         prompt: "",
         stylePreset: "amateur-photo",
         stylePrompt: "Natural light.",
@@ -601,11 +601,11 @@ describe("generated image server helpers", () => {
         providerPrompt: "A brass key on a rain-dark windowsill.",
       });
 
-    // GPT Image 2 declares no `resolution` at all, so the field is dropped
-    // rather than clamped, and it is the one images-endpoint model that takes
-    // `quality`. It is instruction-tuned, so it still gets the image-only
-    // system instruction folded into the single prompt string.
-    const gptImageBody = buildBody("openai/gpt-image-2");
+    // The GPT Image 2.5 tiers declare no `resolution` at all, so the field is
+    // dropped rather than clamped, and they take `quality`. They are
+    // instruction-tuned, so they still get the image-only system instruction
+    // folded into the single prompt string.
+    const gptImageBody = buildBody("openai/gpt-image-2.5-sunburst");
 
     expect(Object.keys(gptImageBody).sort()).toEqual([
       "aspect_ratio",
@@ -614,7 +614,7 @@ describe("generated image server helpers", () => {
       "quality",
     ]);
     expect(gptImageBody.quality).toBe("medium");
-    expect(gptImageBody.model).toBe("openai/gpt-image-2");
+    expect(gptImageBody.model).toBe("openai/gpt-image-2.5-sunburst");
     expect(String(gptImageBody.prompt)).toContain(
       "Generate exactly one image.",
     );
@@ -707,10 +707,11 @@ describe("generated image server helpers", () => {
     } = await import("@/lib/generated-images");
     // Listed literally rather than read back from the predicate, so the test
     // states the intended policy instead of restating the implementation.
-    // These five publish no ZDR endpoint, so asking for one would 404.
+    // These six publish no ZDR endpoint, so asking for one would 404.
     const zdrExempt = new Set([
       "black-forest-labs/flux.2-max",
-      "openai/gpt-image-2",
+      "openai/gpt-image-2.5-flare",
+      "openai/gpt-image-2.5-sunburst",
       "qwen/qwen-image-3-pro",
       "sourceful/riverflow-v2.5-pro",
       "x-ai/grok-imagine-image-2.0",
@@ -779,7 +780,8 @@ describe("generated image server helpers", () => {
     });
 
     // The exempt models have no ZDR endpoint to pin, so they stay unconstrained.
-    expect(buildBody("openai/gpt-image-2").provider).toBeUndefined();
+    expect(buildBody("openai/gpt-image-2.5-sunburst").provider).toBeUndefined();
+    expect(buildBody("openai/gpt-image-2.5-flare").provider).toBeUndefined();
   });
 
   test("clamps image_config for chat-style OpenRouter models", async () => {
@@ -838,8 +840,8 @@ describe("generated image server helpers", () => {
     const { clampOpenRouterImagesAspectRatio, clampOpenRouterImagesSize } =
       await import("./generated-images");
 
-    // Seedream tops out at 2K; Krea only ever renders 1K; GPT Image 2 has no
-    // `resolution` parameter at all, so the field is dropped.
+    // Seedream tops out at 2K; Krea only ever renders 1K; the GPT Image 2.5
+    // tiers have no `resolution` parameter at all, so the field is dropped.
     expect(
       clampOpenRouterImagesSize({
         imageSize: "4K",
@@ -861,7 +863,7 @@ describe("generated image server helpers", () => {
     expect(
       clampOpenRouterImagesSize({
         imageSize: "4K",
-        model: "openai/gpt-image-2",
+        model: "openai/gpt-image-2.5-sunburst",
       }),
     ).toBe(null);
     // Most chat-style models have no capability entry, so nothing is clamped.
@@ -886,12 +888,12 @@ describe("generated image server helpers", () => {
         model: "bytedance-seed/seedream-5-0-pro",
       }),
     ).toBe("21:9");
-    // GPT Image 2 has no 5:4, and Krea has neither 5:4 nor 3:4, so each falls
-    // back to the closest shape it does support.
+    // The GPT Image 2.5 tiers have no 5:4, and Krea has neither 5:4 nor 3:4, so
+    // each falls back to the closest shape it does support.
     expect(
       clampOpenRouterImagesAspectRatio({
         aspectRatio: "5:4",
-        model: "openai/gpt-image-2",
+        model: "openai/gpt-image-2.5-sunburst",
       }),
     ).toBe("4:3");
     expect(
@@ -947,9 +949,9 @@ describe("generated image server helpers", () => {
 
     expect(qwenLimit).toBeGreaterThan(0);
     expect(qwenLimit).toBeLessThan(800);
-    expect(getEnhancedGeneratedImagePromptLimit("openai/gpt-image-2")).toBe(
-      4000,
-    );
+    expect(
+      getEnhancedGeneratedImagePromptLimit("openai/gpt-image-2.5-sunburst"),
+    ).toBe(4000);
 
     // Grok Imagine Image 2.0 caps prompts around 1,000 characters, so the
     // composed provider prompt has to fit even when the description and style

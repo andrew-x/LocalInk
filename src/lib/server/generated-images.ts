@@ -149,8 +149,8 @@ const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
 > = {
   // FLUX.2 Max declares no `resolution` parameter — it sizes its own output
   // from the aspect ratio — so the field is omitted rather than clamped, the
-  // same as GPT Image 2. It takes no `quality` either; `seed` is its only other
-  // knob and LocalInk does not expose one.
+  // same as the GPT Image tiers. It takes no `quality` either; `seed` is its
+  // only other knob and LocalInk does not expose one.
   "black-forest-labs/flux.2-max": {
     aspectRatios: new Set([
       "1:1",
@@ -206,11 +206,27 @@ const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
     maxImageSize: "1K",
     supportsQuality: false,
   },
-  // GPT Image 2 sizes its own output from the aspect ratio and declares no
-  // `resolution` parameter, so LocalInk's image-size choice cannot be passed
-  // through for this model. It does take `quality`, which is where the extra
-  // rendering effort goes instead.
-  "openai/gpt-image-2": {
+  // Both GPT Image 2.5 tiers size their own output from the aspect ratio and
+  // declare no `resolution` parameter, so LocalInk's image-size choice cannot be
+  // passed through for either. Both take `quality`, which is where the extra
+  // rendering effort goes instead. Their enum reaches `xhigh` and `max`, wider
+  // than GPT Image 2's, but the app-wide "medium" is still in range and the two
+  // tiers already differ by speed-vs-precision, so the request stays at "medium".
+  "openai/gpt-image-2.5-flare": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: null,
+    supportsQuality: true,
+  },
+  "openai/gpt-image-2.5-sunburst": {
     aspectRatios: new Set([
       "1:1",
       "2:3",
@@ -1669,8 +1685,9 @@ export function buildOpenRouterImagesRequestBody({
 
   const providerRouting = buildOpenRouterImageProviderRouting(modelConfig.id);
 
-  // GPT Image 2, Qwen Image 3 Pro, and Grok Imagine have no ZDR endpoint, so
-  // their bodies stay exactly as they were before ZDR routing was introduced.
+  // The GPT Image 2.5 tiers, Qwen Image 3 Pro, and Grok Imagine have no ZDR
+  // endpoint, so their bodies stay exactly as they were before ZDR routing was
+  // introduced.
   if (providerRouting) {
     body.provider = providerRouting;
   }
