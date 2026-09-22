@@ -28,6 +28,7 @@ import {
 import { toast } from "sonner";
 import type { StoryChapterItem } from "@/actions/stories/_types";
 import { deleteChapter } from "@/actions/stories/delete-chapter";
+import { refreshChapterSynopsis } from "@/actions/stories/refresh-chapter-synopsis";
 import { updateChapterContent } from "@/actions/stories/update-chapter-content";
 import { updateChapterTitle } from "@/actions/stories/update-chapter-title";
 import { Button } from "@/components/common/button";
@@ -42,6 +43,12 @@ import { createLogger } from "@/lib/logger";
 import { cn } from "@/lib/util";
 
 const AUTOSAVE_DELAY_MS = 800;
+/**
+ * Longer than the autosave debounce on purpose. The synopsis only has to be
+ * current by the time the writer generates again, and each refresh is a model
+ * call, so it waits for the chapter to settle rather than chasing every save.
+ */
+const SYNOPSIS_REFRESH_DELAY_MS = 10_000;
 const chapterEditorLogger = createLogger("chapter-editor");
 
 const EDITOR_THEME: InitialConfigType["theme"] = {
@@ -74,6 +81,10 @@ type ChapterContentEditorProps = {
   isActive: boolean;
   onDeleted: (chapterId: string, updatedAt: string) => void;
   onFocus: (chapterId: string) => void;
+  onAiDraftSelectionChange: (
+    chapterId: string,
+    hasSelectedText: boolean,
+  ) => void;
   onRegisterAiDraftHandle: (
     chapterId: string,
     handle: ChapterAiDraftHandle | null,
@@ -85,6 +96,7 @@ type ChapterContentEditorProps = {
 export function ChapterContentEditor({
   chapter,
   isActive,
+  onAiDraftSelectionChange,
   onDeleted,
   onFocus,
   onRegisterAiDraftHandle,
@@ -158,6 +170,7 @@ export function ChapterContentEditor({
           <ChapterAiDraftPlugin
             chapterId={chapter.id}
             onRegister={onRegisterAiDraftHandle}
+            onSelectionChange={onAiDraftSelectionChange}
           />
           <ChapterAutosavePlugin
             chapterId={chapter.id}
@@ -546,6 +559,7 @@ function ChapterAutosavePlugin({
 }: ChapterAutosavePluginProps) {
   const { executeAsync } = useAction(updateChapterContent);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const synopsisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef(initialContent);
   const latestContentRef = useRef(initialContent);
   const changeVersionRef = useRef(0);
@@ -561,6 +575,34 @@ function ChapterAutosavePlugin({
       saveTimerRef.current = null;
     }
   }, []);
+
+  /**
+   * Brings the chapter's synopsis back in step in the background.
+   *
+   * Fire-and-forget by design: prose generation reads whatever synopsis is
+   * stored and tolerates a stale one, which is what keeps drafting a single
+   * model call. A failure here is not worth interrupting the writer for, and
+   * the next save retries anyway.
+   */
+  const queueSynopsisRefresh = useCallback(() => {
+    if (synopsisTimerRef.current) {
+      clearTimeout(synopsisTimerRef.current);
+    }
+
+    synopsisTimerRef.current = setTimeout(() => {
+      synopsisTimerRef.current = null;
+
+      // Skip while edits are still outstanding; the save that lands them will
+      // queue another refresh.
+      if (latestContentRef.current !== lastSavedContentRef.current) {
+        return;
+      }
+
+      void refreshChapterSynopsis({ chapterId, storyId }).catch(() => {
+        // Background work. The action re-checks staleness on the next save.
+      });
+    }, SYNOPSIS_REFRESH_DELAY_MS);
+  }, [chapterId, storyId]);
 
   const saveContent = useCallback(
     async (
@@ -611,6 +653,7 @@ function ChapterAutosavePlugin({
       }
 
       lastSavedContentRef.current = result.data.content;
+      queueSynopsisRefresh();
 
       if (options.updateState && isMountedRef.current) {
         onSaved(result.data);
@@ -623,7 +666,14 @@ function ChapterAutosavePlugin({
 
       return true;
     },
-    [chapterId, executeAsync, onSaved, onSaveStateChange, storyId],
+    [
+      chapterId,
+      executeAsync,
+      onSaved,
+      onSaveStateChange,
+      queueSynopsisRefresh,
+      storyId,
+    ],
   );
 
   const enqueueSave = useCallback(
@@ -689,6 +739,10 @@ function ChapterAutosavePlugin({
     return () => {
       void flushPendingWorkRef.current(false);
       isMountedRef.current = false;
+
+      if (synopsisTimerRef.current) {
+        clearTimeout(synopsisTimerRef.current);
+      }
     };
   }, []);
 

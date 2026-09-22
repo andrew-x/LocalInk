@@ -1,5 +1,6 @@
 import {
   isOpenRouterZdrUnavailableError,
+  type LocalinkAiModel,
   type LocalinkProviderOptions,
   streamLocalinkText,
 } from "@/lib/ai";
@@ -33,7 +34,24 @@ const PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH = {
   Exclude<StoryProseGenerationRequest["approximateLength"], "unlimited">,
   number
 >;
-const PROSE_PROVIDER_OPTIONS = {
+/**
+ * A prose model paired with the sampling settings it should be judged at.
+ *
+ * Kept as a unit because temperature is not portable between models: reading a
+ * model at another model's temperature makes it look worse than it is, which
+ * defeats the point of comparing them.
+ */
+type StoryProseModelProfile = {
+  model: LocalinkAiModel;
+  temperature: number;
+  providerOptions?: LocalinkProviderOptions;
+};
+
+// Reasoning modes are useful for analysis but counterproductive for fiction
+// drafting: the output budget should go to the draft, not to hidden or visible
+// thinking. Drop this from an individual profile if that model rejects
+// `effort: "none"` or emits reasoning anyway.
+const NO_REASONING = {
   openrouter: {
     reasoning: {
       effort: "none",
@@ -41,6 +59,64 @@ const PROSE_PROVIDER_OPTIONS = {
     },
   },
 } satisfies LocalinkProviderOptions;
+
+/**
+ * Story prose model candidates, for hand-comparing fiction drafting quality.
+ *
+ * All four start at the same temperature so the first comparison is
+ * like-for-like against the value DeepSeek was tuned at; tune an individual
+ * profile once you have a read on it.
+ *
+ * ZDR endpoints verified 2026-09-21: DeepSeek V4 Pro 6, Kimi K3 18, GLM 5.3 27,
+ * Mistral Medium 3.5 1. Mistral has only a first-party ZDR endpoint, so an
+ * outage there surfaces as AI_ZDR_UNAVAILABLE with no reroute, and its 262k
+ * context is the smallest of the four — still well clear of
+ * STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT.
+ */
+const STORY_PROSE_MODEL_PROFILES = {
+  deepseekV4Pro: {
+    model: "prose-deepseek-v4-pro",
+    temperature: 0.82,
+    providerOptions: NO_REASONING,
+  },
+  kimiK3: {
+    model: "prose-kimi-k3",
+    temperature: 0.82,
+    providerOptions: NO_REASONING,
+  },
+  glm53: {
+    model: "prose-glm-5.3",
+    temperature: 0.82,
+    providerOptions: NO_REASONING,
+  },
+  mistralMedium35: {
+    model: "prose-mistral-medium-3.5",
+    temperature: 0.82,
+    providerOptions: NO_REASONING,
+  },
+} as const satisfies Record<string, StoryProseModelProfile>;
+
+type StoryProseModelKey = keyof typeof STORY_PROSE_MODEL_PROFILES;
+
+// --- Active story prose model. Uncomment exactly one; restart to apply. ---
+//
+// Uncommenting two is a duplicate declaration, so it fails the build rather
+// than silently picking one.
+const ACTIVE_PROSE_MODEL: StoryProseModelKey = "deepseekV4Pro";
+// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "kimiK3";
+// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "glm53";
+// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "mistralMedium35";
+
+const PROSE_PROFILE: StoryProseModelProfile =
+  STORY_PROSE_MODEL_PROFILES[ACTIVE_PROSE_MODEL];
+
+// A fresh alternative reuses the brief, the insertion point, and the whole
+// manuscript, so the only things separating it from the draft the writer just
+// set aside are the prior-attempt block and sampling. Give sampling more room.
+// Added to the active profile's temperature rather than replacing it, so a
+// per-model tuning still carries.
+const PROSE_FRESH_ALTERNATIVE_TEMPERATURE_BOOST = 0.13;
+const PROSE_MAX_TEMPERATURE = 1;
 
 type StoryProseRouteError = {
   code:
@@ -81,6 +157,7 @@ export async function POST(request: Request): Promise<Response> {
     parsedInput = result.data;
     storyProseLogger.info("start", {
       action: ACTION_NAME,
+      model: PROSE_PROFILE.model,
       storyId: parsedInput.story.id,
       chapterId: parsedInput.focusedChapter.id,
       approximateLength: parsedInput.approximateLength,
@@ -113,6 +190,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const systemPrompt = buildStoryProseSystemPrompt(
       settings.systemInstructions,
+      parsedInput.story.systemInstructions,
     );
     const prosePrompt = buildStoryProsePrompt(parsedInput);
     const promptSnapshot = saveStoryProsePromptSnapshot({
@@ -126,13 +204,12 @@ export async function POST(request: Request): Promise<Response> {
     );
 
     const stream = streamLocalinkText({
-      model: "main",
+      ...PROSE_PROFILE,
+      temperature: getProseTemperature(parsedInput),
       system: systemPrompt,
       prompt: prosePrompt,
       abortSignal: request.signal,
       ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-      providerOptions: PROSE_PROVIDER_OPTIONS,
-      temperature: 0.82,
     });
 
     return toLocalinkTextStreamResponse({
@@ -232,7 +309,18 @@ function getErrorName(error: unknown) {
 }
 
 function buildManuscriptContextTooLargeMessage(): string {
-  return `The prose was not generated because this story is too large for full-manuscript context. This is a prompt-size guard, not a model failure. Full-manuscript generation currently supports about ${formatCharacterLimit(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT)} characters of chapter text; reduce or split the manuscript before trying again.`;
+  return `The prose was not generated because this story is too large to send. This is a prompt-size guard, not a model failure. Distant chapters are already reduced to their summaries automatically, but the story still has to fit under about ${formatCharacterLimit(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT)} characters of chapter text in total; split it into separate stories before trying again.`;
+}
+
+function getProseTemperature(input: StoryProseGenerationRequest): number {
+  if (input.regeneration?.mode !== "fresh-alternative") {
+    return PROSE_PROFILE.temperature;
+  }
+
+  return Math.min(
+    PROSE_PROFILE.temperature + PROSE_FRESH_ALTERNATIVE_TEMPERATURE_BOOST,
+    PROSE_MAX_TEMPERATURE,
+  );
 }
 
 function getProseMaxOutputTokens(

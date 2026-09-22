@@ -16,31 +16,41 @@ import type {
   StoryContext,
   StoryEditorData,
 } from "@/actions/stories/_types";
+import { updateStory } from "@/actions/stories/update-story";
 import { Button } from "@/components/common/button";
+import { Input } from "@/components/common/input";
 import { Textarea } from "@/components/common/textarea";
 import type {
   AiDraftInlineAction,
   AiDraftStatus,
   ChapterAiDraftHandle,
-  ChapterAiDraftSnapshot,
+  ChapterAiDraftInsertionContext,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { AI_DRAFT_INLINE_ACTION_EVENT as DRAFT_INLINE_ACTION_EVENT } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { readLocalinkTextStream } from "@/lib/ai-text-stream";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
 
-type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
+// `systemInstructions` rides along with story identity because it reaches the
+// model as system-prompt authority, not as request context like `style`.
+type StoryIdentity = Pick<
+  StoryEditorData,
+  "description" | "id" | "name" | "systemInstructions"
+>;
 type LengthOption = StoryProseGenerationRequest["approximateLength"];
+type PacingOption = StoryProseGenerationRequest["pacing"];
 type StoryProseContextBase = Omit<
   StoryProseGenerationRequest,
-  "approximateLength" | "instructions" | "regeneration"
+  "approximateLength" | "beatGoal" | "instructions" | "pacing" | "regeneration"
 >;
 
 type ActiveDraft = {
   approximateLength: LengthOption;
+  beatGoal: string;
   chapterId: string;
   contextBase: StoryProseContextBase;
   draftId: string;
   instructions: string;
+  pacing: PacingOption;
 };
 
 type AiProseGenerationWidgetProps = {
@@ -48,13 +58,16 @@ type AiProseGenerationWidgetProps = {
   chapters: StoryChapterItem[];
   focusedChapterId: string | null;
   getAiDraftHandle: (chapterId: string) => ChapterAiDraftHandle | null;
+  hasSelectedText: boolean;
   locations: StoryContext["locations"];
+  onContextSaved: (context: StoryContext & { updatedAt: string }) => void;
   onDraftStreamUpdate: (
     draftId: string,
     options?: { resetFollow?: boolean },
   ) => void;
   story: StoryIdentity;
   style: string;
+  voiceExemplars: StoryContext["voiceExemplars"];
 };
 
 const LENGTH_OPTIONS = [
@@ -64,20 +77,37 @@ const LENGTH_OPTIONS = [
   { label: "1,000", value: 1_000 },
   { label: "Unlimited", value: "unlimited" },
 ] as const satisfies ReadonlyArray<{ label: string; value: LengthOption }>;
+// How the beat should move, which the length control cannot express. `auto`
+// leaves the choice to the model and sends no pacing field at all.
+const PACING_OPTIONS = [
+  { label: "Auto pacing", value: "auto" },
+  { label: "Scene", value: "scene" },
+  { label: "Summary", value: "summary" },
+  { label: "Interior", value: "interior" },
+  { label: "Dialogue", value: "dialogue" },
+] as const satisfies ReadonlyArray<{ label: string; value: PacingOption }>;
 const PROMPT_SNAPSHOT_ID_HEADER = "X-Prose-Prompt-Snapshot-Id";
+// Both mirror the caps enforced by the story action schema.
+const MAX_VOICE_EXEMPLARS = 3;
+const MAX_VOICE_EXEMPLAR_CHARS = 4_000;
 
 export function AiProseGenerationWidget({
   characters,
   chapters,
   focusedChapterId,
   getAiDraftHandle,
+  hasSelectedText,
   locations,
+  onContextSaved,
   onDraftStreamUpdate,
   story,
   style,
+  voiceExemplars,
 }: AiProseGenerationWidgetProps) {
   const [instructions, setInstructions] = useState("");
+  const [beatGoal, setBeatGoal] = useState("");
   const [approximateLength, setApproximateLength] = useState<LengthOption>(400);
+  const [pacing, setPacing] = useState<PacingOption>("auto");
   const [status, setStatus] = useState<AiDraftStatus | "idle">("idle");
   const [activeDraft, setActiveDraft] = useState<ActiveDraft | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -113,6 +143,11 @@ export function AiProseGenerationWidget({
 
       if (detail.action === "select") {
         handleSelectDraftVersion(detail.index, detail.text, detail.status);
+        return;
+      }
+
+      if (detail.action === "pin-voice") {
+        void handlePinVoiceExemplar(detail.text);
         return;
       }
 
@@ -152,7 +187,9 @@ export function AiProseGenerationWidget({
       const requestBody: StoryProseGenerationRequest = {
         ...draft.contextBase,
         approximateLength: draft.approximateLength,
+        beatGoal: draft.beatGoal,
         instructions: draft.instructions,
+        pacing: draft.pacing,
         regeneration,
       };
       let streamedText = "";
@@ -209,7 +246,7 @@ export function AiProseGenerationWidget({
           promptSnapshotId,
         );
         onDraftStreamUpdate(draft.draftId);
-        handle.setContentEditable(true);
+        releaseEditorAfterDraft(handle, draft);
         setStatus("complete");
       } catch (error) {
         if (controller.signal.aborted) {
@@ -220,7 +257,7 @@ export function AiProseGenerationWidget({
             promptSnapshotId,
           );
           onDraftStreamUpdate(draft.draftId);
-          handle.setContentEditable(true);
+          releaseEditorAfterDraft(handle, draft);
           setStatus("stopped");
           return;
         }
@@ -233,7 +270,7 @@ export function AiProseGenerationWidget({
           promptSnapshotId,
         );
         onDraftStreamUpdate(draft.draftId);
-        handle.setContentEditable(true);
+        releaseEditorAfterDraft(handle, draft);
         setErrorMessage(message);
         setStatus("error");
         toast.error(message);
@@ -286,18 +323,20 @@ export function AiProseGenerationWidget({
       characters,
       chapters,
       focusedChapter,
+      insertionContext: snapshot,
       locations,
-      snapshot,
       story,
       style,
+      voiceExemplars,
     });
-    const requestInstructions = instructions;
-    const draft = {
+    const draft: ActiveDraft = {
       approximateLength,
+      beatGoal,
       chapterId: focusedChapter.id,
       contextBase,
       draftId: snapshot.draftId,
-      instructions: requestInstructions,
+      instructions,
+      pacing,
     };
 
     setActiveDraft(draft);
@@ -364,9 +403,18 @@ export function AiProseGenerationWidget({
 
     abortControllerRef.current?.abort();
     const handle = getAiDraftHandle(activeDraft.chapterId);
+    const { selectedText } = activeDraft.contextBase.insertion;
 
     handle?.setContentEditable(true);
-    handle?.removeDraft(activeDraft.draftId);
+
+    // Starting a rewrite displaces the selected prose, so rejecting has to
+    // put it back rather than just drop the draft node.
+    if (selectedText) {
+      handle?.restoreRewriteSelection(activeDraft.draftId, selectedText);
+    } else {
+      handle?.removeDraft(activeDraft.draftId);
+    }
+
     resetDraftState();
   }
 
@@ -390,15 +438,103 @@ export function AiProseGenerationWidget({
     }
   }
 
+  /**
+   * Rebuilds the manuscript context around the draft node before regenerating.
+   *
+   * The context captured at first generation goes stale as soon as any chapter
+   * is edited, and the draft node — not the caret, which has moved on by now —
+   * is what still marks the insertion point.
+   */
+  function refreshDraftContext(draft: ActiveDraft): ActiveDraft {
+    const focusedChapter = chapters.find(
+      (chapter) => chapter.id === draft.chapterId,
+    );
+    const insertionContext = getAiDraftHandle(
+      draft.chapterId,
+    )?.readInsertionContext(draft.draftId);
+
+    if (!focusedChapter || !insertionContext) {
+      return draft;
+    }
+
+    return {
+      ...draft,
+      contextBase: buildContextBase({
+        characters,
+        chapters,
+        focusedChapter,
+        insertionContext: {
+          ...insertionContext,
+          // Carried forward rather than re-read: the draft node already
+          // stands where the rewritten span was, so it is no longer in the
+          // chapter to find, but the request still targets it.
+          selectedText: draft.contextBase.insertion.selectedText,
+        },
+        locations,
+        story,
+        style,
+        voiceExemplars,
+      }),
+    };
+  }
+
   async function handleRegenerate(regenerationInstructions = "", text = "") {
     if (!activeDraft || isStreaming) {
       return;
     }
 
+    const refreshedDraft = refreshDraftContext(activeDraft);
+
+    setActiveDraft(refreshedDraft);
+
     await streamDraft(
-      activeDraft,
+      refreshedDraft,
       buildRegenerationRequest(regenerationInstructions, text),
       true,
+    );
+  }
+
+  /**
+   * Keeps a draft the writer liked as a voice sample for this story.
+   *
+   * Almost none of the manuscript is hand-written, so recognising good output
+   * is the realistic way to establish a voice target. The label is a
+   * placeholder; samples are renamed and edited in the context pane.
+   */
+  async function handlePinVoiceExemplar(text: string) {
+    const passage = toVoiceExemplarPassage(text);
+
+    if (!passage) {
+      return;
+    }
+
+    if (voiceExemplars.length >= MAX_VOICE_EXEMPLARS) {
+      toast.error(
+        `This story already has ${MAX_VOICE_EXEMPLARS} voice samples. Remove one in the context pane first.`,
+      );
+      return;
+    }
+
+    const result = await updateStory({
+      description: story.description,
+      id: story.id,
+      name: story.name,
+      voiceExemplars: [
+        ...voiceExemplars,
+        { label: buildVoiceExemplarLabel(voiceExemplars), text: passage },
+      ],
+    });
+
+    if (!result?.data) {
+      toast.error("The voice sample could not be saved.");
+      return;
+    }
+
+    onContextSaved(result.data);
+    toast.success(
+      passage.length < text.trim().length
+        ? "Pinned the opening of this draft as a voice sample."
+        : "Pinned this draft as a voice sample.",
     );
   }
 
@@ -413,61 +549,97 @@ export function AiProseGenerationWidget({
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-page pb-4">
       <div className="pointer-events-auto mx-auto w-full max-w-readable rounded-md border border-border/80 bg-popover/95 p-2 text-popover-foreground shadow-2xl backdrop-blur">
         <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-end"
+          className="flex flex-col gap-2"
           onKeyDown={handleGenerationShortcut}
           onSubmit={handleGenerate}
         >
-          <Textarea
-            aria-label="AI prose instructions"
-            aria-keyshortcuts="Enter Shift+Enter"
-            className="max-h-48 min-h-8 min-w-0 flex-1 resize-none px-3 py-[0.1875rem]"
-            disabled={isGenerationWidgetDisabled}
-            maxLength={2000}
-            onChange={(event) => setInstructions(event.target.value)}
-            onKeyDown={handleInstructionsKeyDown}
-            placeholder="What happens next?"
-            rows={1}
-            value={instructions}
-          />
-          <select
-            aria-label="AI prose length"
-            className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-            disabled={isGenerationWidgetDisabled}
-            onChange={(event) =>
-              setApproximateLength(parseLengthOption(event.target.value))
-            }
-            value={String(approximateLength)}
-          >
-            {LENGTH_OPTIONS.map((option) => (
-              <option key={option.value} value={String(option.value)}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <Textarea
+              aria-label="AI prose instructions"
+              aria-keyshortcuts="Enter Shift+Enter"
+              className="max-h-48 min-h-8 min-w-0 flex-1 resize-none px-3 py-[0.1875rem]"
+              disabled={isGenerationWidgetDisabled}
+              maxLength={2000}
+              onChange={(event) => setInstructions(event.target.value)}
+              onKeyDown={handleInstructionsKeyDown}
+              placeholder={
+                hasSelectedText
+                  ? "How should the selected prose change?"
+                  : "What happens next?"
+              }
+              rows={1}
+              value={instructions}
+            />
+            <select
+              aria-label="AI prose length"
+              className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              disabled={isGenerationWidgetDisabled}
+              onChange={(event) =>
+                setApproximateLength(parseLengthOption(event.target.value))
+              }
+              value={String(approximateLength)}
+            >
+              {LENGTH_OPTIONS.map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="AI prose pacing"
+              className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              disabled={isGenerationWidgetDisabled}
+              onChange={(event) =>
+                setPacing(parsePacingOption(event.target.value))
+              }
+              value={pacing}
+            >
+              {PACING_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
 
-          {isStreaming ? (
-            <Button
-              className="h-8"
-              leftSection={<Square aria-hidden="true" />}
-              onClick={handleStop}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Stop
-            </Button>
-          ) : !activeDraft ? (
-            <Button
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-              className="h-8"
-              disabled={!chapters.length}
-              leftSection={<WandSparkles aria-hidden="true" />}
-              size="sm"
-              type="submit"
-            >
-              Generate
-            </Button>
-          ) : null}
+            {isStreaming ? (
+              <Button
+                className="h-8"
+                leftSection={<Square aria-hidden="true" />}
+                onClick={handleStop}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Stop
+              </Button>
+            ) : !activeDraft ? (
+              <Button
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                className="h-8"
+                disabled={!chapters.length}
+                leftSection={<WandSparkles aria-hidden="true" />}
+                size="sm"
+                type="submit"
+              >
+                Generate
+              </Button>
+            ) : null}
+          </div>
+
+          {/*
+            Optional and secondary to the brief. The brief says what happens;
+            this says what is different afterwards, which is the thing pacing
+            decisions actually hang on.
+          */}
+          <Input
+            aria-label="What changes in this beat"
+            className="h-7 min-w-0 bg-card/60 px-3 text-caption"
+            disabled={isGenerationWidgetDisabled}
+            maxLength={300}
+            onChange={(event) => setBeatGoal(event.target.value)}
+            placeholder="What changes in this beat? (optional)"
+            value={beatGoal}
+          />
         </form>
 
         {errorMessage ? (
@@ -487,35 +659,41 @@ function buildContextBase({
   characters,
   chapters,
   focusedChapter,
+  insertionContext,
   locations,
-  snapshot,
   story,
   style,
+  voiceExemplars,
 }: {
   characters: StoryContext["characters"];
   chapters: StoryChapterItem[];
   focusedChapter: StoryChapterItem;
+  insertionContext: ChapterAiDraftInsertionContext;
   locations: StoryContext["locations"];
-  snapshot: ChapterAiDraftSnapshot;
   story: StoryIdentity;
   style: string;
+  voiceExemplars: StoryContext["voiceExemplars"];
 }): StoryProseContextBase {
   return {
     story,
     style,
     characters,
     locations,
-    focusedChapter: toChapterContext(focusedChapter, snapshot.content),
+    voiceExemplars,
+    focusedChapter: toChapterContext(focusedChapter, insertionContext.content),
     chapters: chapters.map((chapter) =>
       toChapterContext(
         chapter,
-        chapter.id === focusedChapter.id ? snapshot.content : chapter.content,
+        chapter.id === focusedChapter.id
+          ? insertionContext.content
+          : chapter.content,
       ),
     ),
     insertion: {
-      afterText: snapshot.afterText,
-      atChapterEnd: snapshot.atChapterEnd,
-      beforeText: snapshot.beforeText,
+      afterText: insertionContext.afterText,
+      atChapterEnd: insertionContext.atChapterEnd,
+      beforeText: insertionContext.beforeText,
+      selectedText: insertionContext.selectedText,
     },
   };
 }
@@ -529,13 +707,72 @@ function toChapterContext(
     name: chapter.name,
     position: chapter.position,
     content,
+    synopsis: chapter.synopsis,
   };
+}
+
+/**
+ * Trims a draft down to something usable as a voice sample.
+ *
+ * Samples are capped well below a long draft's length, and a sample cut
+ * mid-sentence teaches the model a shape it should not copy, so the passage
+ * is backed up to the last sentence that fits.
+ */
+function toVoiceExemplarPassage(text: string): string {
+  const passage = text.trim();
+
+  if (passage.length <= MAX_VOICE_EXEMPLAR_CHARS) {
+    return passage;
+  }
+
+  const head = passage.slice(0, MAX_VOICE_EXEMPLAR_CHARS);
+  const lastSentenceEnd = Math.max(
+    head.lastIndexOf(". "),
+    head.lastIndexOf("! "),
+    head.lastIndexOf("? "),
+    head.lastIndexOf("\n"),
+  );
+
+  return lastSentenceEnd > 0
+    ? head.slice(0, lastSentenceEnd + 1).trim()
+    : head.trim();
+}
+
+function buildVoiceExemplarLabel(
+  voiceExemplars: StoryContext["voiceExemplars"],
+): string {
+  return `Pinned sample ${voiceExemplars.length + 1}`;
+}
+
+/**
+ * Re-enables editing once a draft stops streaming — unless it is a rewrite.
+ *
+ * A rewrite has displaced the selected prose until the writer accepts or
+ * rejects. Editing in that window would autosave the chapter without it, so
+ * the deletion could outlive a draft that was never accepted. Accept and
+ * reject both resolve the draft and unlock the chapter themselves.
+ */
+function releaseEditorAfterDraft(
+  handle: ChapterAiDraftHandle,
+  draft: ActiveDraft,
+) {
+  if (draft.contextBase.insertion.selectedText) {
+    return;
+  }
+
+  handle.setContentEditable(true);
 }
 
 function parseLengthOption(value: string): LengthOption {
   const option = LENGTH_OPTIONS.find((item) => String(item.value) === value);
 
   return option?.value ?? 400;
+}
+
+function parsePacingOption(value: string): PacingOption {
+  const option = PACING_OPTIONS.find((item) => item.value === value);
+
+  return option?.value ?? "auto";
 }
 
 function buildRegenerationRequest(
@@ -547,6 +784,7 @@ function buildRegenerationRequest(
   if (!regeneration) {
     return {
       mode: "fresh-alternative",
+      priorAttempt: priorDraft,
     };
   }
 

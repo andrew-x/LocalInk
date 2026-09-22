@@ -22,6 +22,14 @@ First-person immersion: When the manuscript is in first person, write deep POV. 
 
 const yaRomanceLeanPreset = `YA romantic short fiction. Move fast — no filler dialogue or scenic dawdling. Every line should advance the beat or reveal character. Distinct, specific personalities; no stock love-interest tropes. In first person, write deep POV: embodied sensation, interior fragments, thought-in-the-moment over external scene description. Keep the voice fresh and slightly wry; avoid purple prose.`;
 
+const craftDefaultsPreset = `Prose craft: ground the scene in concrete action, sensory specificity, precise nouns, and active verbs. Write clean, vivid prose with believable cause and effect instead of abstract summary.
+
+Show-don't-tell as a bias, not a ban: dramatize through action, perception, dialogue, physical response, and choice, and use concise summary or interiority when it improves pace or clarity.
+
+Line level: prefer active voice and direct sentence construction. Avoid weak adverbs, stock intensifiers, cliches, overused phrases, and generic emotional labels. Vary sentence rhythm by mixing short, direct sentences with longer textured ones, and cut filler that dilutes momentum.
+
+Characters and dialogue: keep characters driven by clear goals, pressure, authentic reactions, and distinct voices. Use subtext where it fits and let emotion surface through choices, physicality, and implication. Write dialogue as natural edited speech — purposeful, character-specific, and shaped by tension rather than exposition.`;
+
 export const PROMPT_CATEGORIES: PromptCategory[] = [
   {
     id: "global-presets",
@@ -89,6 +97,29 @@ export const PROMPT_CATEGORIES: PromptCategory[] = [
           "Voice for an 11–14 year old girl. Benchmark: she should feel like a real teen cousin you're actually talking to, not a TV idea of a teen girl. Especially important in first-person POV.",
         content:
           'Young female narrator voice (roughly 11–14): The benchmark is that the reader feels like they\'re hearing a real teen cousin — a specific, present, alive person — not a TV idea of a teen girl. Avoid both failure modes. Do not over-infantilize: no babyish vocabulary, no sing-song cadence, no choppy three-word sentences as a proxy for youth, no "yummy"/"potty"-tier word choice. She is sharper and more observant than adults assume; she notices hypocrisy, social hierarchy, body language, and what isn\'t being said. Equally, do not write her as a smaller adult. Her frame of reference is school, family, friend group, group chats, crushes, and inner life — not careers, mortgages, or politics. Her time scale is compressed: a week is long, a year is forever, a bad lunch period can ruin a day. Her emotions are bigger and less buffered — embarrassment is annihilating, "cringe" is a real threat, a small slight from a friend cuts deep, a crush is total.\n\nFemale-coded texture: friendships are emotionally intense and politically layered — she tracks who\'s in and who\'s out, who texted whom, who\'s mad at whom and why. She\'s increasingly aware of how she\'s seen, comparing herself to other girls, half-performing an identity through clothes, posts, music, and who she sits with. Group chats and DMs are a real social arena, not background. Hyperbole and intensifiers are natural register ("literally," "I\'m gonna die," "I\'m not even joking"). She borrows phrases from older girls and the internet without fully owning them, and sometimes uses a big word slightly wrong. Metaphors come from her actual experience world — school, friends, what she\'s watching, what\'s on her phone — not from literary references.\n\nIn first person, show what she doesn\'t yet have words for by letting her reach for it and approximate; that gap is where the voice lives. Trust her with complexity, but route it through a partial, still-forming frame. Default to specifics over types: not "her crush" but the thing he did in math today; not "her friend" but the friend who\'s been weird since Tuesday. Specificity is what makes her feel like someone you actually know.',
+      },
+    ],
+  },
+  {
+    id: "default-craft",
+    label: "Default Craft",
+    description:
+      "General prose-craft guidance that used to be hardcoded into every generation. It was removed because restating advice models already over-apply pushes prose toward a generic literary register. Paste it back when a story genuinely wants it — here it carries writer authority and can be edited or partly dropped.",
+    prompts: [
+      {
+        id: "craft-general",
+        title: "General prose craft",
+        description:
+          "Show-don't-tell, active voice, concrete nouns, sentence variety, cliche avoidance, dialogue craft. Formerly the built-in defaults.",
+        content: craftDefaultsPreset,
+      },
+      {
+        id: "craft-dialogue",
+        title: "Dialogue craft only",
+        description:
+          "The dialogue half on its own, for when the prose reads fine but the exchanges do not.",
+        content:
+          "Dialogue: let it reveal character, pressure, relationship, and story movement rather than carrying exposition. Keep it lean and active — cut mushy, stalled, or repetitive exchanges, and make each spoken line change the scene's pressure or direction. Use unobtrusive tags or action beats that carry meaning.",
       },
     ],
   },

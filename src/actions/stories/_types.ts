@@ -1,4 +1,8 @@
-import type { StoryCharacter, StoryLocation } from "@/lib/drizzle/schema";
+import type {
+  StoryCharacter,
+  StoryLocation,
+  StoryVoiceExemplar,
+} from "@/lib/drizzle/schema";
 
 export type StoryListItem = {
   id: string;
@@ -11,6 +15,8 @@ export type StoryContext = {
   characters: StoryCharacter[];
   locations: StoryLocation[];
   style: string;
+  systemInstructions: string;
+  voiceExemplars: StoryVoiceExemplar[];
 };
 
 export type StoryUpdateResult = StoryListItem & StoryContext;
@@ -20,6 +26,9 @@ export type StoryChapterItem = {
   name: string;
   position: number;
   content: string;
+  // Background-generated story state for this chapter. Empty until the first
+  // refresh, and briefly stale after an edit; both are expected.
+  synopsis: string;
   updatedAt: string;
 };
 

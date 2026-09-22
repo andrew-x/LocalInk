@@ -10,6 +10,7 @@ import { getDb } from "@/lib/drizzle/db";
 import { stories } from "@/lib/drizzle/schema";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
 import { normalizeStoryLocations } from "@/lib/server/story-locations";
+import { normalizeStoryVoiceExemplars } from "@/lib/server/story-voice-exemplars";
 
 import { updateStoryActionSchema } from "./_schemas";
 import type { StoryUpdateResult } from "./_types";
@@ -39,6 +40,16 @@ export const updateStory = publicActionClient
       storyUpdates.style = parsedInput.style;
     }
 
+    if (parsedInput.systemInstructions !== undefined) {
+      storyUpdates.systemInstructions = parsedInput.systemInstructions;
+    }
+
+    if (parsedInput.voiceExemplars !== undefined) {
+      storyUpdates.voiceExemplars = normalizeStoryVoiceExemplars(
+        parsedInput.voiceExemplars,
+      );
+    }
+
     const [story] = await getDb()
       .update(stories)
       .set(storyUpdates)
@@ -50,6 +61,8 @@ export const updateStory = publicActionClient
         characters: stories.characters,
         locations: stories.locations,
         style: stories.style,
+        systemInstructions: stories.systemInstructions,
+        voiceExemplars: stories.voiceExemplars,
         updatedAt: stories.updatedAt,
       });
 
@@ -64,5 +77,6 @@ export const updateStory = publicActionClient
       ...story,
       characters: normalizeStoryCharacters(story.characters),
       locations: normalizeStoryLocations(story.locations),
+      voiceExemplars: normalizeStoryVoiceExemplars(story.voiceExemplars),
     };
   });

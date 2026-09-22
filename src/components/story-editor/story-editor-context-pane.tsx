@@ -1,6 +1,15 @@
 "use client";
 
-import { Brush, MapPin, Plus, Save, Trash2, UsersRound } from "lucide-react";
+import {
+  Brush,
+  MapPin,
+  NotebookPen,
+  Plus,
+  Quote,
+  Save,
+  Trash2,
+  UsersRound,
+} from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import {
   type ComponentPropsWithoutRef,
@@ -13,7 +22,11 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import type { StoryContext, StoryEditorData } from "@/actions/stories/_types";
+import type {
+  StoryContext,
+  StoryEditorData,
+  StoryUpdateResult,
+} from "@/actions/stories/_types";
 import { updateStory } from "@/actions/stories/update-story";
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
@@ -34,7 +47,14 @@ type StoryLocation = StoryContext["locations"][number];
 type StoryLocationDraft = Pick<StoryLocation, "description" | "name"> &
   Partial<Pick<StoryLocation, "id">>;
 type StoryIdentity = Pick<StoryEditorData, "description" | "id" | "name">;
+type StoryVoiceExemplar = StoryContext["voiceExemplars"][number];
+type StoryVoiceExemplarDraft = Pick<StoryVoiceExemplar, "label" | "text"> &
+  Partial<Pick<StoryVoiceExemplar, "id">>;
 type StoryContextSave = StoryContext & { updatedAt: string };
+
+// A handful of short passages anchors a voice; a pile of them dilutes it and
+// crowds the request. Mirrors the cap enforced in the action schema.
+const MAX_VOICE_EXEMPLARS = 3;
 
 type StoryEditorContextPaneProps = {
   characters: StoryCharacter[];
@@ -44,6 +64,8 @@ type StoryEditorContextPaneProps = {
   onToggleOpen: () => void;
   story: StoryIdentity;
   style: string;
+  systemInstructions: string;
+  voiceExemplars: StoryVoiceExemplar[];
 };
 
 export function StoryEditorContextPane({
@@ -54,6 +76,8 @@ export function StoryEditorContextPane({
   onToggleOpen,
   story,
   style,
+  systemInstructions,
+  voiceExemplars,
 }: StoryEditorContextPaneProps) {
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden border-border/80 border-b bg-sidebar/70 lg:border-r lg:border-b-0">
@@ -67,12 +91,22 @@ export function StoryEditorContextPane({
       {isOpen ? (
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="grid gap-3">
+            <StoryInstructionsContextSection
+              onSaved={onContextSaved}
+              story={story}
+              systemInstructions={systemInstructions}
+            />
             <StyleContextSection
               characters={characters}
               locations={locations}
               onSaved={onContextSaved}
               story={story}
               style={style}
+            />
+            <VoiceExemplarContextSection
+              onSaved={onContextSaved}
+              story={story}
+              voiceExemplars={voiceExemplars}
             />
             <CharacterContextSection
               characters={characters}
@@ -152,12 +186,7 @@ function StyleContextSection({
     });
 
     if (result.data) {
-      onSaved({
-        characters: result.data.characters,
-        locations: result.data.locations,
-        style: result.data.style,
-        updatedAt: result.data.updatedAt,
-      });
+      onSaved(toSavedContext(result.data));
       setIsOpen(false);
       return;
     }
@@ -462,12 +491,7 @@ function CharacterPopover({
     });
 
     if (result.data) {
-      onSaved({
-        characters: result.data.characters,
-        locations: result.data.locations,
-        style: result.data.style,
-        updatedAt: result.data.updatedAt,
-      });
+      onSaved(toSavedContext(result.data));
       setIsOpen(false);
       return;
     }
@@ -503,12 +527,7 @@ function CharacterPopover({
     });
 
     if (result.data) {
-      onSaved({
-        characters: result.data.characters,
-        locations: result.data.locations,
-        style: result.data.style,
-        updatedAt: result.data.updatedAt,
-      });
+      onSaved(toSavedContext(result.data));
       setIsOpen(false);
       return;
     }
@@ -887,12 +906,7 @@ function LocationPopover({
     });
 
     if (result.data) {
-      onSaved({
-        characters: result.data.characters,
-        locations: result.data.locations,
-        style: result.data.style,
-        updatedAt: result.data.updatedAt,
-      });
+      onSaved(toSavedContext(result.data));
       setIsOpen(false);
       return;
     }
@@ -928,12 +942,7 @@ function LocationPopover({
     });
 
     if (result.data) {
-      onSaved({
-        characters: result.data.characters,
-        locations: result.data.locations,
-        style: result.data.style,
-        updatedAt: result.data.updatedAt,
-      });
+      onSaved(toSavedContext(result.data));
       setIsOpen(false);
       return;
     }
@@ -1135,6 +1144,23 @@ type UpdateFailureResult = {
   };
 };
 
+/**
+ * Maps an update result onto the pane's local context state.
+ *
+ * Every section saves the whole story row, so each one has to hand back every
+ * context field or the others would appear to reset until the next load.
+ */
+function toSavedContext(data: StoryUpdateResult): StoryContextSave {
+  return {
+    characters: data.characters,
+    locations: data.locations,
+    style: data.style,
+    systemInstructions: data.systemInstructions,
+    voiceExemplars: data.voiceExemplars,
+    updatedAt: data.updatedAt,
+  };
+}
+
 function getUpdateFailureMessage(
   result: UpdateFailureResult,
   fallback: string,
@@ -1154,5 +1180,523 @@ function ContextFormError({ message }: { message: string }) {
     >
       {message}
     </p>
+  );
+}
+
+type StoryInstructionsContextSectionProps = {
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+  systemInstructions: string;
+};
+
+/**
+ * Durable preferences for this one story.
+ *
+ * Distinct from Style: these reach the model as system-prompt authority
+ * alongside the global writer instructions, where Style is request context.
+ * Unlike the older sections, this saves only its own field — `updateStory`
+ * leaves absent fields alone, so there is no reason to round-trip siblings
+ * that may be stale in props.
+ */
+function StoryInstructionsContextSection({
+  onSaved,
+  story,
+  systemInstructions,
+}: StoryInstructionsContextSectionProps) {
+  const updateStoryAction = useAction(updateStory);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftInstructions, setDraftInstructions] =
+    useState(systemInstructions);
+  const [rootError, setRootError] = useState<string | null>(null);
+  const instructionsFieldId = useId();
+  const hasInstructions = systemInstructions.trim().length > 0;
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDraftInstructions(systemInstructions);
+    }
+  }, [isOpen, systemInstructions]);
+
+  function handleOpenChange(open: boolean) {
+    if (updateStoryAction.isPending) {
+      return;
+    }
+
+    setIsOpen(open);
+    setRootError(null);
+
+    if (open) {
+      setDraftInstructions(systemInstructions);
+    }
+  }
+
+  async function handleSaveInstructions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setRootError(null);
+
+    const result = await updateStoryAction.executeAsync({
+      description: story.description,
+      id: story.id,
+      name: story.name,
+      systemInstructions: draftInstructions.trim(),
+    });
+
+    if (result.data) {
+      onSaved(toSavedContext(result.data));
+      setIsOpen(false);
+      return;
+    }
+
+    const message = getUpdateFailureMessage(
+      result,
+      "The story instructions could not be saved.",
+    );
+    setRootError(message);
+    toast.error(message);
+  }
+
+  return (
+    <section className="rounded-md border border-border/70 bg-card/45 p-3">
+      <h2 className="flex items-center gap-2 text-label">
+        <NotebookPen aria-hidden="true" className="size-3.5" />
+        Story instructions
+      </h2>
+
+      <Popover open={isOpen} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            className="mt-3 w-full rounded-md border border-border/70 bg-background/55 px-3 py-2.5 text-left transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted"
+            type="button"
+          >
+            <span
+              className={cn(
+                "block text-body leading-5",
+                hasInstructions
+                  ? "line-clamp-3 whitespace-pre-line"
+                  : "text-muted-foreground",
+              )}
+            >
+              {hasInstructions
+                ? systemInstructions.trim()
+                : "Add instructions for this story"}
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
+          collisionPadding={12}
+          side="right"
+        >
+          <form
+            autoComplete="off"
+            className="grid gap-4 p-4"
+            onSubmit={handleSaveInstructions}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor={instructionsFieldId}>Story instructions</Label>
+              <p className="text-caption text-muted-foreground">
+                Durable preferences for this story. They carry the same weight
+                as your global instructions and win where the two disagree.
+              </p>
+              <Textarea
+                className="max-h-[50vh] min-h-56 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
+                id={instructionsFieldId}
+                maxLength={8000}
+                onChange={(event) => setDraftInstructions(event.target.value)}
+                value={draftInstructions}
+              />
+            </div>
+
+            {rootError ? <ContextFormError message={rootError} /> : null}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                disabled={updateStoryAction.isPending}
+                onClick={() => handleOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                leftSection={<Save aria-hidden="true" />}
+                loading={updateStoryAction.isPending}
+                type="submit"
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </PopoverContent>
+      </Popover>
+    </section>
+  );
+}
+
+type VoiceExemplarContextSectionProps = {
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+  voiceExemplars: StoryVoiceExemplar[];
+};
+
+/**
+ * Passages that define the target voice.
+ *
+ * Needed because nearly all of the manuscript is model output, so the prose
+ * already on the page is not a voice anchor — matching it just reinforces
+ * whatever the model already does. Samples are pinned deliberately, never
+ * auto-selected from recent prose, which would freeze existing drift in place.
+ */
+function VoiceExemplarContextSection({
+  onSaved,
+  story,
+  voiceExemplars,
+}: VoiceExemplarContextSectionProps) {
+  const hasVoiceExemplars = voiceExemplars.length > 0;
+  const canAddVoiceExemplar = voiceExemplars.length < MAX_VOICE_EXEMPLARS;
+
+  return (
+    <section className="rounded-md border border-border/70 bg-card/45 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-label">
+          <Quote aria-hidden="true" className="size-3.5" />
+          Voice samples
+        </h2>
+
+        {hasVoiceExemplars && canAddVoiceExemplar ? (
+          <VoiceExemplarPopover
+            mode="create"
+            onSaved={onSaved}
+            story={story}
+            trigger={
+              <button
+                aria-label="Add voice sample"
+                className="-my-1 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-[background-color,color] hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:bg-muted data-[state=open]:text-foreground"
+                title="Add voice sample"
+                type="button"
+              >
+                <Plus aria-hidden="true" className="size-3.5" />
+              </button>
+            }
+            voiceExemplars={voiceExemplars}
+          />
+        ) : null}
+      </div>
+
+      {hasVoiceExemplars ? (
+        <ul className="mt-3 grid gap-2">
+          {voiceExemplars.map((voiceExemplar, index) => (
+            <li key={voiceExemplar.id}>
+              <VoiceExemplarPopover
+                mode="edit"
+                onSaved={onSaved}
+                story={story}
+                trigger={<VoiceExemplarWidget voiceExemplar={voiceExemplar} />}
+                voiceExemplar={voiceExemplar}
+                voiceExemplarIndex={index}
+                voiceExemplars={voiceExemplars}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <VoiceExemplarPopover
+          mode="create"
+          onSaved={onSaved}
+          story={story}
+          trigger={
+            <button
+              className="mt-3 w-full rounded-md border border-dashed border-border/70 px-3 py-8 text-center text-body text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/60 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted data-[state=open]:text-foreground"
+              type="button"
+            >
+              Add a voice sample
+            </button>
+          }
+          voiceExemplars={voiceExemplars}
+        />
+      )}
+    </section>
+  );
+}
+
+type VoiceExemplarWidgetProps = ComponentPropsWithoutRef<"button"> & {
+  voiceExemplar: StoryVoiceExemplar;
+};
+
+const VoiceExemplarWidget = forwardRef<
+  HTMLButtonElement,
+  VoiceExemplarWidgetProps
+>(({ className, type = "button", voiceExemplar, ...props }, ref) => {
+  const text = voiceExemplar.text.trim();
+
+  return (
+    <button
+      className={cn(
+        "w-full rounded-md border border-border/70 bg-background/55 px-3 py-2.5 text-left transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted",
+        className,
+      )}
+      ref={ref}
+      type={type}
+      {...props}
+    >
+      <span className="block truncate text-label-sm text-foreground">
+        {voiceExemplar.label}
+      </span>
+      <span className="mt-1 block line-clamp-3 whitespace-pre-line text-body text-muted-foreground leading-5">
+        {text}
+      </span>
+    </button>
+  );
+});
+VoiceExemplarWidget.displayName = "VoiceExemplarWidget";
+
+type VoiceExemplarPopoverProps = {
+  mode: "create" | "edit";
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+  trigger: ReactNode;
+  voiceExemplar?: StoryVoiceExemplar;
+  voiceExemplarIndex?: number;
+  voiceExemplars: StoryVoiceExemplar[];
+};
+
+function VoiceExemplarPopover({
+  mode,
+  onSaved,
+  story,
+  trigger,
+  voiceExemplar,
+  voiceExemplarIndex,
+  voiceExemplars,
+}: VoiceExemplarPopoverProps) {
+  const updateStoryAction = useAction(updateStory);
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftLabel, setDraftLabel] = useState(voiceExemplar?.label ?? "");
+  const [draftText, setDraftText] = useState(voiceExemplar?.text ?? "");
+  const [labelError, setLabelError] = useState<string | null>(null);
+  const [textError, setTextError] = useState<string | null>(null);
+  const [rootError, setRootError] = useState<string | null>(null);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const labelFieldId = useId();
+  const textFieldId = useId();
+
+  useEffect(() => {
+    if (!isOpen) {
+      setDraftLabel(voiceExemplar?.label ?? "");
+      setDraftText(voiceExemplar?.text ?? "");
+      setIsConfirmingDelete(false);
+    }
+  }, [isOpen, voiceExemplar?.label, voiceExemplar?.text]);
+
+  function resetErrors() {
+    setLabelError(null);
+    setTextError(null);
+    setRootError(null);
+  }
+
+  function handleOpenChange(open: boolean) {
+    if (updateStoryAction.isPending) {
+      return;
+    }
+
+    setIsOpen(open);
+    resetErrors();
+    setIsConfirmingDelete(false);
+
+    if (open) {
+      setDraftLabel(voiceExemplar?.label ?? "");
+      setDraftText(voiceExemplar?.text ?? "");
+    }
+  }
+
+  async function saveVoiceExemplars(
+    nextVoiceExemplars: StoryVoiceExemplarDraft[],
+    failureMessage: string,
+    onFailure?: () => void,
+  ) {
+    const result = await updateStoryAction.executeAsync({
+      description: story.description,
+      id: story.id,
+      name: story.name,
+      voiceExemplars: nextVoiceExemplars,
+    });
+
+    if (result.data) {
+      onSaved(toSavedContext(result.data));
+      setIsOpen(false);
+      return;
+    }
+
+    const message = getUpdateFailureMessage(result, failureMessage);
+    setRootError(message);
+    onFailure?.();
+    toast.error(message);
+  }
+
+  async function handleSaveVoiceExemplar(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    resetErrors();
+
+    const nextVoiceExemplar = {
+      id: voiceExemplar?.id,
+      label: draftLabel.trim(),
+      text: draftText.trim(),
+    };
+
+    if (!nextVoiceExemplar.label) {
+      setLabelError("Give the sample a short label.");
+      return;
+    }
+
+    if (!nextVoiceExemplar.text) {
+      setTextError("Paste a passage in the target voice.");
+      return;
+    }
+
+    await saveVoiceExemplars(
+      mode === "create"
+        ? [...voiceExemplars, nextVoiceExemplar]
+        : voiceExemplars.map((currentVoiceExemplar, index) =>
+            index === voiceExemplarIndex
+              ? nextVoiceExemplar
+              : currentVoiceExemplar,
+          ),
+      mode === "create"
+        ? "The voice sample could not be added."
+        : "The voice sample could not be saved.",
+    );
+  }
+
+  async function handleDeleteVoiceExemplar() {
+    if (mode !== "edit" || voiceExemplarIndex === undefined) {
+      return;
+    }
+
+    resetErrors();
+
+    await saveVoiceExemplars(
+      voiceExemplars.filter((_, index) => index !== voiceExemplarIndex),
+      "The voice sample could not be deleted.",
+      () => setIsConfirmingDelete(true),
+    );
+  }
+
+  return (
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
+        collisionPadding={12}
+        side="right"
+      >
+        <form
+          autoComplete="off"
+          className="grid gap-3 p-3"
+          onSubmit={handleSaveVoiceExemplar}
+        >
+          <p className="text-caption text-muted-foreground">
+            A passage in the voice you want. Paste your own writing or prose you
+            admire — the model matches its register and never reuses its
+            content.
+          </p>
+
+          <div className="grid gap-2">
+            <Label className="text-label-sm" htmlFor={labelFieldId}>
+              Label
+            </Label>
+            <Input
+              aria-describedby={
+                labelError ? `${labelFieldId}-error` : undefined
+              }
+              aria-invalid={!!labelError || undefined}
+              autoComplete="off"
+              className="h-8 px-2 text-caption"
+              id={labelFieldId}
+              maxLength={120}
+              onChange={(event) => setDraftLabel(event.target.value)}
+              value={draftLabel}
+            />
+            {labelError ? (
+              <p
+                className="text-caption text-destructive"
+                id={`${labelFieldId}-error`}
+                role="alert"
+              >
+                {labelError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-label-sm" htmlFor={textFieldId}>
+              Passage
+            </Label>
+            <Textarea
+              aria-describedby={textError ? `${textFieldId}-error` : undefined}
+              aria-invalid={!!textError || undefined}
+              className="max-h-[40vh] min-h-40 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
+              id={textFieldId}
+              maxLength={4000}
+              onChange={(event) => setDraftText(event.target.value)}
+              value={draftText}
+            />
+            {textError ? (
+              <p
+                className="text-caption text-destructive"
+                id={`${textFieldId}-error`}
+                role="alert"
+              >
+                {textError}
+              </p>
+            ) : null}
+          </div>
+
+          {rootError ? <ContextFormError message={rootError} /> : null}
+
+          <div className="flex items-center justify-between gap-2">
+            {mode === "edit" ? (
+              <Button
+                disabled={updateStoryAction.isPending}
+                leftSection={<Trash2 aria-hidden="true" />}
+                onClick={() => {
+                  if (isConfirmingDelete) {
+                    void handleDeleteVoiceExemplar();
+                    return;
+                  }
+
+                  setIsConfirmingDelete(true);
+                }}
+                type="button"
+                variant="outline"
+              >
+                {isConfirmingDelete ? "Confirm delete" : "Delete"}
+              </Button>
+            ) : (
+              <span />
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                disabled={updateStoryAction.isPending}
+                onClick={() => handleOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                leftSection={<Save aria-hidden="true" />}
+                loading={updateStoryAction.isPending}
+                type="submit"
+              >
+                Save
+              </Button>
+            </div>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }

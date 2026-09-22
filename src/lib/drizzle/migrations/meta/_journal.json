@@ -36,6 +36,20 @@
       "when": 1786798638905,
       "tag": "0004_generated-image-original-prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790034834581,
+      "tag": "0005_story-voice-fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790036749788,
+      "tag": "0006_chapter-synopses",
+      "breakpoints": true
     }
   ]
 }

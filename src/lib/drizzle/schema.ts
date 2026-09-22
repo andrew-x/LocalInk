@@ -22,6 +22,21 @@ export type StoryLocation = {
   description: string;
 };
 
+/**
+ * A passage the writer marked as representative of the target voice.
+ *
+ * Kept separate from the style guide because a sample is shown to the model as
+ * prose to match rather than instructions to follow, and because the
+ * manuscript cannot serve this purpose: nearly all of it is model output, so
+ * treating it as the voice target just reinforces whatever the model already
+ * does.
+ */
+export type StoryVoiceExemplar = {
+  id: string;
+  label: string;
+  text: string;
+};
+
 export type StoryChatMessageRole = "system" | "user" | "assistant";
 export const metadata = sqliteTable("metadata", {
   key: text("key").primaryKey(),
@@ -42,6 +57,11 @@ export const stories = sqliteTable("stories", {
     .notNull()
     .default(sql`'[]'`),
   style: text("style").notNull().default(""),
+  systemInstructions: text("system_instructions").notNull().default(""),
+  voiceExemplars: text("voice_exemplars", { mode: "json" })
+    .$type<StoryVoiceExemplar[]>()
+    .notNull()
+    .default(sql`'[]'`),
   createdAt: text("created_at").notNull().default(currentTimestampSql),
   updatedAt: text("updated_at").notNull().default(currentTimestampSql),
 });
@@ -113,6 +133,15 @@ export const chapters = sqliteTable(
     name: text("name").notNull(),
     position: integer("position").notNull(),
     content: text("content").notNull(),
+    // A compact, factual account of what this chapter establishes, generated
+    // in the background by the fast model. Prose generation reads it so the
+    // model does not have to re-derive story state from raw text on every
+    // request, and so distant chapters can be carried by summary alone.
+    synopsis: text("synopsis").notNull().default(""),
+    // Hash of the content the synopsis was generated from. Cheaper and more
+    // reliable than a timestamp comparison for deciding staleness.
+    synopsisSourceHash: text("synopsis_source_hash").notNull().default(""),
+    synopsisUpdatedAt: text("synopsis_updated_at"),
     updatedAt: text("updated_at").notNull().default(currentTimestampSql),
   },
   (table) => [

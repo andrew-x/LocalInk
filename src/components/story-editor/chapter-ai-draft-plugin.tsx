@@ -1,17 +1,20 @@
 "use client";
 
-import { $convertToMarkdownString } from "@lexical/markdown";
+import {
+  $convertSelectionToMarkdownString,
+  $convertToMarkdownString,
+} from "@lexical/markdown";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
   $createLineBreakNode,
   $createParagraphNode,
+  $createRangeSelection,
   $createTextNode,
   $getRoot,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isRootNode,
-  $isTextNode,
   $nodesOfType,
   DecoratorNode,
   type EditorConfig,
@@ -28,6 +31,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Quote,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -69,6 +73,11 @@ export type AiDraftInlineAction =
       text: string;
     }
   | {
+      action: "pin-voice";
+      draftId: string;
+      text: string;
+    }
+  | {
       action: "reject";
       draftId: string;
     };
@@ -79,13 +88,26 @@ export type ChapterAiDraftSnapshot = {
   content: string;
   draftId: string;
   afterText: string;
+  selectedText: string;
+};
+
+export type ChapterAiDraftInsertionContext = {
+  atChapterEnd: boolean;
+  beforeText: string;
+  content: string;
+  afterText: string;
+  selectedText: string;
 };
 
 export type ChapterAiDraftHandle = {
   acceptDraft: (draftId: string, text: string) => void;
   beginDraftVersion: (draftId: string) => void;
   createDraftSnapshot: () => ChapterAiDraftSnapshot | null;
+  readInsertionContext: (
+    draftId: string,
+  ) => ChapterAiDraftInsertionContext | null;
   removeDraft: (draftId: string) => void;
+  restoreRewriteSelection: (draftId: string, markdown: string) => void;
   selectDraftVersion: (draftId: string, index: number) => void;
   setContentEditable: (isEditable: boolean) => void;
   updateDraft: (
@@ -386,34 +408,38 @@ export function $isAiDraftNode(
 type ChapterAiDraftPluginProps = {
   chapterId: string;
   onRegister: (chapterId: string, handle: ChapterAiDraftHandle | null) => void;
+  onSelectionChange: (chapterId: string, hasSelectedText: boolean) => void;
 };
 
 export function ChapterAiDraftPlugin({
   chapterId,
   onRegister,
+  onSelectionChange,
 }: ChapterAiDraftPluginProps) {
   const [editor] = useLexicalComposerContext();
 
-  const handle = useMemo<ChapterAiDraftHandle>(
-    () => ({
-      acceptDraft(draftId, text) {
-        editor.update(() => {
-          const draftNode = getAiDraftNode(draftId);
+  const handle = useMemo<ChapterAiDraftHandle>(() => {
+    function spliceDraftText(draftId: string, text: string) {
+      editor.update(() => {
+        const draftNode = getAiDraftNode(draftId);
 
-          if (!draftNode) {
-            return;
-          }
+        if (!draftNode) {
+          return;
+        }
 
-          const acceptedText = normalizeDraftText(text);
+        const acceptedText = normalizeDraftText(text);
 
-          if (!acceptedText) {
-            removeAiDraftNode(draftId);
-            return;
-          }
+        if (!acceptedText) {
+          removeAiDraftNode(draftId);
+          return;
+        }
 
-          replaceAiDraftWithAcceptedText(draftNode, acceptedText);
-        });
-      },
+        replaceAiDraftWithAcceptedText(draftNode, acceptedText);
+      });
+    }
+
+    return {
+      acceptDraft: spliceDraftText,
       beginDraftVersion(draftId) {
         editor.update(
           () => {
@@ -433,31 +459,38 @@ export function ChapterAiDraftPlugin({
 
         editor.update(
           () => {
-            const content = $convertToMarkdownString(
-              CHAPTER_MARKDOWN_TRANSFORMERS,
-              undefined,
-              true,
-            );
-            const selection = prepareInsertionSelection();
-            const split = getSelectionTextSplit(selection);
-            const draftId = createDraftId();
-
+            // Clear stale draft nodes before serializing, so an orphaned
+            // draft's text cannot leak into the manuscript context.
             removeAiDraftNodes();
+
+            const selection = prepareInsertionSelection();
+            const split = getSelectionMarkdownSplit(selection);
+            const draftId = createDraftId();
 
             insertAiDraftNode(selection, draftId);
 
             snapshot = {
-              atChapterEnd: split.afterText.trim().length === 0,
+              atChapterEnd: split.atChapterEnd,
               beforeText: split.beforeText,
-              content,
+              content: split.content,
               draftId,
               afterText: split.afterText,
+              selectedText: split.selectedText,
             };
           },
           { discrete: true, tag: AI_DRAFT_UPDATE_TAG },
         );
 
         return snapshot;
+      },
+      readInsertionContext(draftId) {
+        let insertionContext: ChapterAiDraftInsertionContext | null = null;
+
+        editor.getEditorState().read(() => {
+          insertionContext = readDraftNodeInsertionContext(draftId);
+        });
+
+        return insertionContext;
       },
       removeDraft(draftId) {
         editor.update(
@@ -467,6 +500,15 @@ export function ChapterAiDraftPlugin({
           { tag: AI_DRAFT_UPDATE_TAG },
         );
       },
+      /**
+       * Puts back prose that a rewrite draft displaced.
+       *
+       * Starting a rewrite removes the selected span, because the draft node
+       * takes its place so the writer sees the replacement where it will
+       * land. Rejecting therefore has to restore it, which is the same
+       * splice `acceptDraft` performs with the original Markdown.
+       */
+      restoreRewriteSelection: spliceDraftText,
       selectDraftVersion(draftId, index) {
         editor.update(
           () => {
@@ -498,9 +540,8 @@ export function ChapterAiDraftPlugin({
           { tag: AI_DRAFT_UPDATE_TAG },
         );
       },
-    }),
-    [editor],
-  );
+    };
+  }, [editor]);
 
   useEffect(() => {
     onRegister(chapterId, handle);
@@ -510,6 +551,26 @@ export function ChapterAiDraftPlugin({
       onRegister(chapterId, null);
     };
   }, [chapterId, handle, onRegister]);
+
+  // Lets the generation widget say "Rewrite selection" instead of "Generate"
+  // when a range is selected, so the writer knows which of the two a press
+  // will do before pressing it.
+  useEffect(
+    () =>
+      editor.registerUpdateListener(({ editorState }) => {
+        editorState.read(() => {
+          const selection = $getSelection();
+
+          onSelectionChange(
+            chapterId,
+            $isRangeSelection(selection) &&
+              !selection.isCollapsed() &&
+              selection.getTextContent().trim().length > 0,
+          );
+        });
+      }),
+    [chapterId, editor, onSelectionChange],
+  );
 
   return null;
 }
@@ -641,6 +702,23 @@ function AiDraftInlineView({
               promptSnapshotId={activeDraft.promptSnapshotId}
             />
           ) : null}
+          <button
+            aria-label="Pin AI draft as a voice sample"
+            className="inline-flex h-7 items-center justify-center gap-1 rounded-sm border border-border/70 bg-background/60 px-2 font-sans text-caption text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/35 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
+            disabled={!text.trim()}
+            onClick={() =>
+              dispatchAiDraftInlineAction({
+                action: "pin-voice",
+                draftId,
+                text,
+              })
+            }
+            title="Pin as a voice sample for this story"
+            type="button"
+          >
+            <Quote aria-hidden="true" className="size-3" />
+            Pin voice
+          </button>
           <button
             aria-label="Reject AI draft"
             className="inline-flex h-7 items-center justify-center gap-1 rounded-sm border border-border/70 bg-background/60 px-2 font-sans text-caption text-muted-foreground transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[2px] focus-visible:ring-ring/35 focus-visible:outline-none"
@@ -1130,10 +1208,21 @@ function getAiDraftNode(draftId: string): AiDraftNode | null {
   );
 }
 
+/**
+ * Puts the draft node where the generated prose will land.
+ *
+ * For a rewrite the selection is not collapsed, and Lexical's `insertNodes`
+ * removes the selected content before inserting — which is what should
+ * happen: the draft stands in the place of the prose it replaces, and
+ * rejecting restores the original from the snapshot.
+ */
 function insertAiDraftNode(selection: RangeSelection | null, draftId: string) {
   const draftNode = $createAiDraftNode(draftId);
 
-  if (selection && isSelectionOnEmptyLine(selection)) {
+  if (
+    selection &&
+    (isSelectionOnEmptyLine(selection) || isSingleBlockSelection(selection))
+  ) {
     selection.insertNodes([draftNode]);
     return;
   }
@@ -1147,6 +1236,29 @@ function insertAiDraftNode(selection: RangeSelection | null, draftId: string) {
   }
 
   $getRoot().append(paragraph);
+}
+
+/**
+ * True when a rewrite stays inside one block.
+ *
+ * Those insert the draft inline so the paragraph is not split in two; a
+ * selection spanning blocks gets the usual paragraph wrapper.
+ */
+function isSingleBlockSelection(selection: RangeSelection) {
+  if (selection.isCollapsed()) {
+    return false;
+  }
+
+  const [start, end] = selection.getStartEndPoints() ?? [];
+
+  if (!start || !end) {
+    return false;
+  }
+
+  const startTopLevel = start.getNode().getTopLevelElement();
+  const endTopLevel = end.getNode().getTopLevelElement();
+
+  return Boolean(startTopLevel && endTopLevel && startTopLevel.is(endTopLevel));
 }
 
 function isSelectionOnEmptyLine(selection: RangeSelection) {
@@ -1184,10 +1296,17 @@ function removeAiDraftNodes() {
   }
 }
 
+/**
+ * Resolves where the draft goes: the caret, or a selected span to rewrite.
+ *
+ * A range selection used to be discarded and the caret forced to the chapter
+ * end, so selecting a paragraph and generating silently appended somewhere
+ * else and accepted prose could never be revised.
+ */
 function prepareInsertionSelection(): RangeSelection | null {
   const selection = $getSelection();
 
-  if ($isRangeSelection(selection) && selection.isCollapsed()) {
+  if ($isRangeSelection(selection)) {
     return selection;
   }
 
@@ -1217,115 +1336,161 @@ function selectChapterEnd() {
   paragraph.selectEnd();
 }
 
-function getSelectionTextSplit(selection: RangeSelection | null) {
+type ChapterMarkdownSplit = {
+  atChapterEnd: boolean;
+  beforeText: string;
+  content: string;
+  afterText: string;
+  selectedText: string;
+};
+
+type ChapterMarkdownPoint = {
+  key: NodeKey;
+  offset: number;
+  type: "element" | "text";
+};
+
+/**
+ * Splits the chapter at the caret into the Markdown before and after it.
+ *
+ * Markdown rather than plain text: every other chapter reaches the model as
+ * stored Markdown, and the prose prompt asks the model to match the
+ * surrounding manuscript's formatting. Serializing the focused chapter as
+ * plain text dropped exactly the italics the model was told to match.
+ */
+function getSelectionMarkdownSplit(
+  selection: RangeSelection | null,
+): ChapterMarkdownSplit {
+  if (!selection) {
+    return {
+      atChapterEnd: true,
+      beforeText: convertChapterToMarkdown(),
+      content: convertChapterToMarkdown(),
+      afterText: "",
+      selectedText: "",
+    };
+  }
+
   const root = $getRoot();
-  const text = getRootPlainText(root);
-  const offset = selection
-    ? getPointPlainTextOffset(root, selection.anchor)
-    : null;
-  const splitOffset = offset ?? text.length;
+  // Ordered, so a selection dragged backwards splits the same as a forward
+  // one; for a caret both points are the same.
+  const [start, end] = selection.getStartEndPoints() ?? [
+    selection.anchor,
+    selection.focus,
+  ];
+  const beforeText = convertChapterRangeToMarkdown(
+    getChapterStartPoint(root),
+    toChapterMarkdownPoint(start),
+  );
+  const afterText = convertChapterRangeToMarkdown(
+    toChapterMarkdownPoint(end),
+    getChapterEndPoint(root),
+  );
+  const selectedText = selection.isCollapsed()
+    ? ""
+    : $convertSelectionToMarkdownString(
+        CHAPTER_MARKDOWN_TRANSFORMERS,
+        selection,
+        true,
+      ).trim();
 
   return {
-    beforeText: text.slice(0, splitOffset),
-    afterText: text.slice(splitOffset),
+    // A rewrite replaces a span in place, so it is never an append even when
+    // the selection runs to the end of the chapter.
+    atChapterEnd: !selectedText && afterText.trim().length === 0,
+    beforeText,
+    content: convertChapterToMarkdown(),
+    afterText,
+    selectedText,
   };
 }
 
-function getRootPlainText(root: ElementNode) {
-  return root
-    .getChildren()
-    .map((child) => child.getTextContent())
-    .join("\n\n");
+function toChapterMarkdownPoint(point: PointType): ChapterMarkdownPoint {
+  return { key: point.key, offset: point.offset, type: point.type };
 }
 
-function getPointPlainTextOffset(
-  root: ElementNode,
-  point: PointType,
-): number | null {
-  const pointNode = point.getNode();
+/**
+ * The same split, anchored on an existing draft node instead of the caret.
+ *
+ * Regeneration happens after the caret has moved on, so the draft node itself
+ * is the only reliable record of where the prose is going. This keeps a
+ * regenerated draft reading current chapter content rather than the snapshot
+ * captured when the first version was requested.
+ */
+function readDraftNodeInsertionContext(
+  draftId: string,
+): ChapterAiDraftInsertionContext | null {
+  const draftNode = getAiDraftNode(draftId);
 
-  if ($isRootNode(pointNode)) {
-    return getRootElementPointOffset(root, point.offset);
-  }
-
-  const topLevel = pointNode.getTopLevelElement();
-
-  if (!topLevel) {
+  if (!draftNode) {
     return null;
   }
 
-  let offset = 0;
-  const children = root.getChildren();
+  const root = $getRoot();
+  const draftTopLevel = draftNode.getTopLevelElement();
 
-  for (let index = 0; index < children.length; index += 1) {
-    const child = children[index];
-
-    if (child.is(topLevel)) {
-      return offset + getOffsetWithinNode(child, point);
-    }
-
-    offset += child.getTextContent().length;
-
-    if (index < children.length - 1) {
-      offset += 2;
-    }
+  if (!draftTopLevel) {
+    return null;
   }
 
-  return null;
+  const draftIndex = draftTopLevel.getIndexWithinParent();
+  const beforeText = convertChapterRangeToMarkdown(getChapterStartPoint(root), {
+    key: root.getKey(),
+    offset: draftIndex,
+    type: "element",
+  });
+  const afterText = convertChapterRangeToMarkdown(
+    { key: root.getKey(), offset: draftIndex + 1, type: "element" },
+    getChapterEndPoint(root),
+  );
+
+  return {
+    atChapterEnd: afterText.trim().length === 0,
+    beforeText,
+    content: [beforeText, afterText].filter(Boolean).join("\n"),
+    afterText,
+    // The draft node already stands where the rewritten span was, so the
+    // selection is not part of the chapter to re-read; the caller carries it
+    // forward from the original snapshot.
+    selectedText: "",
+  };
 }
 
-function getRootElementPointOffset(root: ElementNode, pointOffset: number) {
-  const children = root.getChildren();
-  const childLimit = Math.min(pointOffset, children.length);
-  let offset = 0;
-
-  for (let index = 0; index < childLimit; index += 1) {
-    offset += children[index]?.getTextContent().length ?? 0;
-
-    if (index < children.length - 1) {
-      offset += 2;
-    }
-  }
-
-  return offset;
+function convertChapterToMarkdown(): string {
+  return $convertToMarkdownString(
+    CHAPTER_MARKDOWN_TRANSFORMERS,
+    undefined,
+    true,
+  );
 }
 
-function getOffsetWithinNode(node: LexicalNode, point: PointType): number {
-  const pointNode = point.getNode();
+function convertChapterRangeToMarkdown(
+  anchor: ChapterMarkdownPoint,
+  focus: ChapterMarkdownPoint,
+): string {
+  const selection = $createRangeSelection();
 
-  if ($isTextNode(node) && node.is(pointNode)) {
-    return point.offset;
-  }
+  selection.anchor.set(anchor.key, anchor.offset, anchor.type);
+  selection.focus.set(focus.key, focus.offset, focus.type);
 
-  if ($isElementNode(node)) {
-    if (node.is(pointNode) && point.type === "element") {
-      return getElementPointOffset(node, point.offset);
-    }
-
-    let offset = 0;
-
-    for (const child of node.getChildren()) {
-      if (child.is(pointNode) || child.isParentOf(pointNode)) {
-        return offset + getOffsetWithinNode(child, point);
-      }
-
-      offset += child.getTextContent().length;
-    }
-
-    return offset;
-  }
-
-  return node.getTextContent().length;
+  // Matches the `shouldPreserveNewLines` used when chapter content is read and
+  // written, so the focused chapter separates blocks the same way the stored
+  // chapters do.
+  return $convertSelectionToMarkdownString(
+    CHAPTER_MARKDOWN_TRANSFORMERS,
+    selection,
+    true,
+  );
 }
 
-function getElementPointOffset(node: ElementNode, pointOffset: number) {
-  const children = node.getChildren();
-  const childLimit = Math.min(pointOffset, children.length);
-  let offset = 0;
+function getChapterStartPoint(root: ElementNode): ChapterMarkdownPoint {
+  return { key: root.getKey(), offset: 0, type: "element" };
+}
 
-  for (let index = 0; index < childLimit; index += 1) {
-    offset += children[index]?.getTextContent().length ?? 0;
-  }
-
-  return offset;
+function getChapterEndPoint(root: ElementNode): ChapterMarkdownPoint {
+  return {
+    key: root.getKey(),
+    offset: root.getChildrenSize(),
+    type: "element",
+  };
 }

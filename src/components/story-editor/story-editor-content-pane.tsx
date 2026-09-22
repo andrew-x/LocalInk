@@ -28,8 +28,13 @@ type StoryEditorContentPaneProps = {
   onChapterDeleted: (chapterId: string, updatedAt: string) => void;
   onChapterFocus: (chapterId: string) => void;
   onChapterSaved: (chapter: StoryChapterItem) => void;
-  story: Pick<StoryEditorData, "description" | "id" | "name">;
+  onContextSaved: (context: StoryContext & { updatedAt: string }) => void;
+  story: Pick<
+    StoryEditorData,
+    "description" | "id" | "name" | "systemInstructions"
+  >;
   style: string;
+  voiceExemplars: StoryContext["voiceExemplars"];
 };
 
 export function StoryEditorContentPane({
@@ -43,8 +48,10 @@ export function StoryEditorContentPane({
   onChapterDeleted,
   onChapterFocus,
   onChapterSaved,
+  onContextSaved,
   story,
   style,
+  voiceExemplars,
 }: StoryEditorContentPaneProps) {
   const hasChapters = chapters.length > 0;
   const scrollPaneRef = useRef<HTMLDivElement>(null);
@@ -59,6 +66,9 @@ export function StoryEditorContentPane({
   });
   const lastScrollTopRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [chapterIdWithSelection, setChapterIdWithSelection] = useState<
+    string | null
+  >(null);
   const aiDraftHandlesRef = useRef(new Map<string, ChapterAiDraftHandle>());
   const updateScrollToBottomVisibility = useCallback(() => {
     const scrollPane = scrollPaneRef.current;
@@ -101,6 +111,20 @@ export function StoryEditorContentPane({
       }
 
       aiDraftHandlesRef.current.delete(chapterId);
+    },
+    [],
+  );
+  // Tracked per chapter so a stale selection in a chapter the writer has
+  // scrolled away from cannot make the focused chapter's button lie.
+  const handleAiDraftSelectionChange = useCallback(
+    (chapterId: string, hasSelectedText: boolean) => {
+      setChapterIdWithSelection((currentChapterId) => {
+        if (hasSelectedText) {
+          return chapterId;
+        }
+
+        return currentChapterId === chapterId ? null : currentChapterId;
+      });
     },
     [],
   );
@@ -258,6 +282,7 @@ export function StoryEditorContentPane({
                   chapter={chapter}
                   isActive={focusedChapterId === chapter.id}
                   key={chapter.id}
+                  onAiDraftSelectionChange={handleAiDraftSelectionChange}
                   onDeleted={onChapterDeleted}
                   onFocus={onChapterFocus}
                   onRegisterAiDraftHandle={handleRegisterAiDraftHandle}
@@ -320,9 +345,15 @@ export function StoryEditorContentPane({
           focusedChapterId={focusedChapterId}
           getAiDraftHandle={getAiDraftHandle}
           locations={locations}
+          hasSelectedText={
+            chapterIdWithSelection !== null &&
+            chapterIdWithSelection === focusedChapterId
+          }
+          onContextSaved={onContextSaved}
           onDraftStreamUpdate={handleDraftStreamUpdate}
           story={story}
           style={style}
+          voiceExemplars={voiceExemplars}
         />
       ) : null}
     </section>

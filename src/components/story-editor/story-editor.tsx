@@ -18,15 +18,23 @@ type StoryEditorProps = {
   story: StoryEditorData;
 };
 
+function toStoryContext(source: StoryContext): StoryContext {
+  return {
+    characters: source.characters,
+    locations: source.locations,
+    style: source.style,
+    systemInstructions: source.systemInstructions,
+    voiceExemplars: source.voiceExemplars,
+  };
+}
+
 export function StoryEditor({ story }: StoryEditorProps) {
   const [isContextOpen, setIsContextOpen] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [chapters, setChapters] = useState(story.chapters);
-  const [storyContext, setStoryContext] = useState<StoryContext>({
-    characters: story.characters,
-    locations: story.locations,
-    style: story.style,
-  });
+  const [storyContext, setStoryContext] = useState<StoryContext>(() =>
+    toStoryContext(story),
+  );
   const [activeChapterId, setActiveChapterId] = useState<string | null>(
     story.chapters[0]?.id ?? null,
   );
@@ -45,28 +53,47 @@ export function StoryEditor({ story }: StoryEditorProps) {
     }`,
   } as CSSProperties;
 
+  // Destructured so the effect's captures line up with its dependency list:
+  // resyncing on each story field keeps a re-render that did not change the
+  // story from clobbering local edits.
+  const {
+    chapters: storyChapters,
+    characters,
+    locations,
+    style,
+    systemInstructions,
+    voiceExemplars,
+  } = story;
+
   useEffect(() => {
-    setChapters(story.chapters);
-    setStoryContext({
-      characters: story.characters,
-      locations: story.locations,
-      style: story.style,
-    });
+    setChapters(storyChapters);
+    setStoryContext(
+      toStoryContext({
+        characters,
+        locations,
+        style,
+        systemInstructions,
+        voiceExemplars,
+      }),
+    );
     setActiveChapterId((currentChapterId) =>
       currentChapterId &&
-      story.chapters.some((chapter) => chapter.id === currentChapterId)
+      storyChapters.some((chapter) => chapter.id === currentChapterId)
         ? currentChapterId
-        : (story.chapters[0]?.id ?? null),
+        : (storyChapters[0]?.id ?? null),
     );
-  }, [story.chapters, story.characters, story.locations, story.style]);
+  }, [
+    storyChapters,
+    characters,
+    locations,
+    style,
+    systemInstructions,
+    voiceExemplars,
+  ]);
 
   const handleStoryContextSaved = useCallback(
     (context: StoryContext & { updatedAt: string }) => {
-      setStoryContext({
-        characters: context.characters,
-        locations: context.locations,
-        style: context.style,
-      });
+      setStoryContext(toStoryContext(context));
     },
     [],
   );
@@ -165,6 +192,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
           description: story.description,
         }}
         style={storyContext.style}
+        systemInstructions={storyContext.systemInstructions}
+        voiceExemplars={storyContext.voiceExemplars}
       />
 
       <StoryEditorContentPane
@@ -178,12 +207,15 @@ export function StoryEditor({ story }: StoryEditorProps) {
         onChapterDeleted={handleChapterDeleted}
         onChapterFocus={setActiveChapterId}
         onChapterSaved={handleChapterSaved}
+        onContextSaved={handleStoryContextSaved}
         story={{
           id: story.id,
           name: story.name,
           description: story.description,
+          systemInstructions: storyContext.systemInstructions,
         }}
         style={storyContext.style}
+        voiceExemplars={storyContext.voiceExemplars}
       />
 
       <StoryEditorChatPane
