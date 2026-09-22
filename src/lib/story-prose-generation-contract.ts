@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const MAX_CONTEXT_TEXT_LENGTH = 1_000_000;
+export const MAX_STORY_PROSE_INSTRUCTIONS_LENGTH = 10_000;
+export const MAX_STORY_PROSE_BEAT_GOAL_LENGTH = 300;
 
 const storyProseCharacterSchema = z.object({
   id: z.string().trim().max(128).optional(),
@@ -67,11 +69,19 @@ export const storyProseGenerationRequestSchema = z.object({
     beforeText: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
     afterText: z.string().max(MAX_CONTEXT_TEXT_LENGTH),
     atChapterEnd: z.boolean(),
+    // Range identity survives normalized empty/whitespace-only selections.
+    isRewrite: z.boolean().optional(),
     // Prose the writer selected to be replaced. Present only for a rewrite,
     // where the anchors sit either side of this span rather than the caret.
     selectedText: z.string().max(MAX_CONTEXT_TEXT_LENGTH).default(""),
   }),
-  instructions: z.string().trim().max(2_000),
+  instructions: z
+    .string()
+    .trim()
+    .max(
+      MAX_STORY_PROSE_INSTRUCTIONS_LENGTH,
+      "Keep the brief to 10,000 characters or fewer.",
+    ),
   // How the beat should move, as opposed to how long it should be. `auto`
   // leaves the choice to the model and emits no field at all.
   pacing: z
@@ -79,7 +89,14 @@ export const storyProseGenerationRequestSchema = z.object({
     .default("auto"),
   // What is different once the beat is done. The brief says what happens;
   // this says what it changes, which is what pacing decisions hang on.
-  beatGoal: z.string().trim().max(300).default(""),
+  beatGoal: z
+    .string()
+    .trim()
+    .max(
+      MAX_STORY_PROSE_BEAT_GOAL_LENGTH,
+      "Keep the beat change to 300 characters or fewer.",
+    )
+    .default(""),
   approximateLength: z.union([
     z.literal(200),
     z.literal(400),
@@ -89,6 +106,18 @@ export const storyProseGenerationRequestSchema = z.object({
   ]),
   regeneration: storyProseRegenerationSchema.optional(),
 });
+
+export const storyProseGenerationFormSchema =
+  storyProseGenerationRequestSchema.pick({
+    approximateLength: true,
+    beatGoal: true,
+    instructions: true,
+    pacing: true,
+  });
+
+export type StoryProseGenerationFormValues = z.infer<
+  typeof storyProseGenerationFormSchema
+>;
 
 export type StoryProseGenerationRequest = z.infer<
   typeof storyProseGenerationRequestSchema

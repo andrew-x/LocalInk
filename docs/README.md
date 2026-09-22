@@ -13,12 +13,12 @@ Protect user writing and project files as private local data. Prefer durable loc
 - Framework: Next 16 app in `src/app`.
 - Styling/tooling: Tailwind 4, Biome, TypeScript.
 - Package manager: Bun. Use `bun run <script>` for project scripts.
-- Agent setup: root `AGENTS.md`, repo-local skills in `.agents/skills/`, Codex subagents in `.codex/agents/`.
+- Agent setup: shared `AGENTS.md` (included by `CLAUDE.md`), skills in `.agents/skills/` (linked from `.claude/skills/`), and matching librarian agents and startup hooks in `.codex/` and `.claude/`.
 - Scratch space: `.tmp/` is transient and ignored by git.
 
 ## Docs Index
 
-- `docs/agent-setup.md`: project-bound Codex instructions, skills, and subagents.
+- `docs/agent-setup.md`: project-bound Codex and Claude Code instructions, skills, subagents, and startup hooks.
 - `docs/backend-actions.md`: action logging, `next-safe-action` mutation clients, read/write structure, and schema split.
 - `docs/database.md`: local SQLite data paths, Drizzle schema/migrations, and startup migration behavior.
 - `docs/devdocs-index.md`: recurring documentation sources for framework/API/agent work.

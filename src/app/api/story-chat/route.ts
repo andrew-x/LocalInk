@@ -1,5 +1,6 @@
 import { ActionError } from "@/lib/action-error";
 import { isOpenRouterZdrUnavailableError, streamLocalinkText } from "@/lib/ai";
+import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
 import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
@@ -23,7 +24,11 @@ type StoryChatRouteError = {
     | "AI_NOT_CONFIGURED"
     | "AI_ZDR_UNAVAILABLE"
     | "BAD_REQUEST"
-    | "GENERATION_FAILED";
+    | "GENERATION_FAILED"
+    | "STREAM_OUTPUT_LIMIT"
+    | "STREAM_CONTENT_FILTERED"
+    | "STREAM_INCOMPLETE"
+    | "STREAM_FAILED";
   message: string;
   status: number;
 };
@@ -135,6 +140,10 @@ function logEnd(
 }
 
 function toRouteError(error: unknown): StoryChatRouteError {
+  if (error instanceof LocalinkTextStreamFinishError) {
+    return { code: error.code, message: error.message, status: 500 };
+  }
+
   if (error instanceof ActionError && error.code === "BAD_REQUEST") {
     return {
       code: "BAD_REQUEST",

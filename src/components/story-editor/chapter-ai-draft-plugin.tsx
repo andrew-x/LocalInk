@@ -5,6 +5,7 @@ import {
   $convertToMarkdownString,
 } from "@lexical/markdown";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import type { HistoryState } from "@lexical/react/LexicalHistoryPlugin";
 import {
   $createLineBreakNode,
   $createParagraphNode,
@@ -16,15 +17,24 @@ import {
   $isRangeSelection,
   $isRootNode,
   $nodesOfType,
+  $setSelection,
+  CAN_REDO_COMMAND,
+  CAN_UNDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
   DecoratorNode,
   type EditorConfig,
+  type EditorState,
   type ElementNode,
+  HISTORIC_TAG,
+  HISTORY_PUSH_TAG,
   type LexicalEditor,
   type LexicalNode,
   type NodeKey,
   type PointType,
   type RangeSelection,
+  REDO_COMMAND,
   type SerializedLexicalNode,
+  UNDO_COMMAND,
 } from "lexical";
 import {
   Check,
@@ -51,7 +61,12 @@ import { cn } from "@/lib/util";
 export const AI_DRAFT_UPDATE_TAG = "localink-ai-draft";
 export const AI_DRAFT_INLINE_ACTION_EVENT = "localink-ai-draft-inline-action";
 
-export type AiDraftStatus = "streaming" | "stopped" | "complete" | "error";
+export type AiDraftStatus =
+  | "streaming"
+  | "stopped"
+  | "complete"
+  | "incomplete"
+  | "error";
 
 export type AiDraftInlineAction =
   | {
@@ -84,6 +99,7 @@ export type AiDraftInlineAction =
 
 export type ChapterAiDraftSnapshot = {
   atChapterEnd: boolean;
+  isRewrite: boolean;
   beforeText: string;
   content: string;
   draftId: string;
@@ -93,6 +109,7 @@ export type ChapterAiDraftSnapshot = {
 
 export type ChapterAiDraftInsertionContext = {
   atChapterEnd: boolean;
+  isRewrite: boolean;
   beforeText: string;
   content: string;
   afterText: string;
@@ -100,14 +117,13 @@ export type ChapterAiDraftInsertionContext = {
 };
 
 export type ChapterAiDraftHandle = {
-  acceptDraft: (draftId: string, text: string) => void;
+  acceptDraft: (draftId: string, text: string) => boolean;
   beginDraftVersion: (draftId: string) => void;
   createDraftSnapshot: () => ChapterAiDraftSnapshot | null;
   readInsertionContext: (
     draftId: string,
   ) => ChapterAiDraftInsertionContext | null;
   removeDraft: (draftId: string) => void;
-  restoreRewriteSelection: (draftId: string, markdown: string) => void;
   selectDraftVersion: (draftId: string, index: number) => void;
   setContentEditable: (isEditable: boolean) => void;
   updateDraft: (
@@ -191,6 +207,7 @@ const AI_DRAFT_STATUSES = new Set<AiDraftStatus>([
   "streaming",
   "stopped",
   "complete",
+  "incomplete",
   "error",
 ]);
 
@@ -405,143 +422,280 @@ export function $isAiDraftNode(
   return node instanceof AiDraftNode;
 }
 
+export type ChapterRewriteTransaction = {
+  draftId: string;
+  editorState: EditorState;
+  originalMarkdown: string;
+  originalHistory: HistoryState;
+  selection: RangeSelection;
+  insertionContext: ChapterAiDraftInsertionContext;
+  selectedPlainText: string;
+};
+
+export type ChapterRewriteTransactionRef = {
+  current: ChapterRewriteTransaction | null;
+};
+
+/** Reads only committed manuscript content, including while a rewrite preview
+ * has displaced the original selection or the chapter is being unmounted. */
+export function readChapterContentForSave(
+  editorState: EditorState,
+  transaction: ChapterRewriteTransactionRef,
+) {
+  if (transaction.current) {
+    return transaction.current.originalMarkdown;
+  }
+  return editorState.read(convertChapterToMarkdown);
+}
+
+const PREVIEW_TAGS = [AI_DRAFT_UPDATE_TAG, HISTORIC_TAG];
+
 type ChapterAiDraftPluginProps = {
   chapterId: string;
+  historyState: HistoryState;
+  transaction: ChapterRewriteTransactionRef;
   onRegister: (chapterId: string, handle: ChapterAiDraftHandle | null) => void;
   onSelectionChange: (chapterId: string, hasSelectedText: boolean) => void;
 };
 
+/** The same controller is used by the React plugin and headless regressions. */
+export function createChapterAiDraftHandle(
+  editor: LexicalEditor,
+  transaction: ChapterRewriteTransactionRef,
+  historyState: HistoryState,
+): ChapterAiDraftHandle {
+  function restoreHistory(pending: ChapterRewriteTransaction) {
+    // Even an untagged plugin update must not leak a rewrite preview into
+    // undo/redo. Preserve the writer's complete pre-rewrite history.
+    historyState.current = pending.originalHistory.current;
+    historyState.undoStack = [...pending.originalHistory.undoStack];
+    historyState.redoStack = [...pending.originalHistory.redoStack];
+    editor.dispatchCommand(CAN_UNDO_COMMAND, historyState.undoStack.length > 0);
+    editor.dispatchCommand(CAN_REDO_COMMAND, historyState.redoStack.length > 0);
+  }
+
+  function restoreOriginal(draftId: string) {
+    const pending = transaction.current;
+    if (!pending || pending.draftId !== draftId) return;
+    editor.setEditorState(pending.editorState, { tag: HISTORIC_TAG });
+    // Flush the restored snapshot before resolving the transaction. Autosave
+    // continues reading the original throughout this transition.
+    editor.update(() => {}, { discrete: true, tag: PREVIEW_TAGS });
+    restoreHistory(pending);
+    transaction.current = null;
+    editor.setEditable(true);
+  }
+
+  function cleanHistory(draftId: string) {
+    // Ordinary insertion drafts allow editing around the preview. Strip the
+    // decorator from those history snapshots so undo cannot resurrect a draft.
+    const cleanEntry = (entry: HistoryState["current"]) => {
+      if (!entry) return entry;
+      const json = entry.editorState.toJSON();
+      let changed = false;
+      function cleanChildren(node: {
+        children?: Array<{ type: string; children?: unknown[] }>;
+      }) {
+        if (!node.children) return;
+        node.children = node.children.filter((child) => {
+          if (
+            child.type === "ai-draft" &&
+            "draftId" in child &&
+            child.draftId === draftId
+          ) {
+            changed = true;
+            return false;
+          }
+          cleanChildren(child as Parameters<typeof cleanChildren>[0]);
+          return true;
+        });
+      }
+      cleanChildren(json.root);
+      return changed
+        ? { ...entry, editorState: editor.parseEditorState(json) }
+        : entry;
+    };
+    historyState.current = cleanEntry(historyState.current);
+    historyState.undoStack = historyState.undoStack.map(
+      (entry) => cleanEntry(entry) ?? entry,
+    );
+    historyState.redoStack = historyState.redoStack.map(
+      (entry) => cleanEntry(entry) ?? entry,
+    );
+  }
+
+  return {
+    acceptDraft(draftId, text) {
+      const acceptedText = normalizeDraftText(text);
+      if (!acceptedText) return false;
+      const pending = transaction.current;
+      if (pending && pending.draftId !== draftId) return false;
+      let found = false;
+      editor.getEditorState().read(() => {
+        found = Boolean(getAiDraftNode(draftId));
+      });
+      if (!found) return false;
+
+      if (pending) {
+        editor.setEditorState(pending.editorState, { tag: HISTORIC_TAG });
+        editor.update(() => {}, { discrete: true, tag: PREVIEW_TAGS });
+        restoreHistory(pending);
+      } else {
+        cleanHistory(draftId);
+      }
+
+      editor.update(
+        () => {
+          if (pending) {
+            const selection = pending.selection.clone();
+            $setSelection(selection);
+            const nodes = createMarkdownParagraphNodes(acceptedText);
+            // Normalized prompts omit boundary spaces; replacement must not.
+            const leading =
+              pending.selectedPlainText.match(/^[ \t]+/)?.[0] ?? "";
+            const trailing =
+              pending.selectedPlainText.match(/[ \t]+$/)?.[0] ?? "";
+            if (leading)
+              nodes[0].getFirstChild()?.insertBefore($createTextNode(leading));
+            if (trailing) nodes.at(-1)?.append($createTextNode(trailing));
+            selection.insertNodes(nodes);
+          } else {
+            const draftNode = getAiDraftNode(draftId);
+            if (draftNode)
+              replaceAiDraftWithAcceptedText(draftNode, acceptedText);
+          }
+          // Update listeners serialize the accepted manuscript, never the preview.
+          transaction.current = null;
+        },
+        { discrete: true, tag: HISTORY_PUSH_TAG },
+      );
+      editor.setEditable(true);
+      return true;
+    },
+    beginDraftVersion(draftId) {
+      editor.update(
+        () => {
+          getAiDraftNode(draftId)?.beginDraftVersion();
+        },
+        { tag: PREVIEW_TAGS },
+      );
+    },
+    createDraftSnapshot() {
+      if (transaction.current) return null;
+      // Commit pending user typing before keeping the immutable original state.
+      editor.update(() => {}, { discrete: true });
+      const originalState = editor.getEditorState();
+      let snapshot: ChapterAiDraftSnapshot | null = null;
+      editor.update(
+        () => {
+          removeAiDraftNodes();
+          const selection = prepareInsertionSelection();
+          const split = getSelectionMarkdownSplit(selection);
+          const draftId = createDraftId();
+          if (selection && !selection.isCollapsed()) {
+            transaction.current = {
+              draftId,
+              editorState: originalState,
+              originalMarkdown: split.content,
+              originalHistory: {
+                current: { editor, editorState: originalState },
+                undoStack: [...historyState.undoStack],
+                redoStack: [...historyState.redoStack],
+              },
+              selection: selection.clone(),
+              selectedPlainText: selection.getTextContent(),
+              insertionContext: split,
+            };
+            editor.setEditable(false);
+          }
+          // Establish a clean history baseline even before the first user edit.
+          historyState.current = { editor, editorState: originalState };
+          insertAiDraftNode(selection, draftId);
+          snapshot = { ...split, draftId };
+        },
+        { discrete: true, tag: PREVIEW_TAGS },
+      );
+      return snapshot;
+    },
+    readInsertionContext(draftId) {
+      if (transaction.current?.draftId === draftId)
+        return transaction.current.insertionContext;
+      return editor
+        .getEditorState()
+        .read(() => readDraftNodeInsertionContext(draftId));
+    },
+    removeDraft(draftId) {
+      if (transaction.current?.draftId === draftId) {
+        restoreOriginal(draftId);
+        return;
+      }
+      cleanHistory(draftId);
+      editor.update(
+        () => {
+          removeAiDraftNode(draftId);
+        },
+        { discrete: true, tag: PREVIEW_TAGS },
+      );
+    },
+    selectDraftVersion(draftId, index) {
+      editor.update(
+        () => {
+          getAiDraftNode(draftId)?.setActiveDraftIndex(index);
+        },
+        { tag: PREVIEW_TAGS },
+      );
+    },
+    setContentEditable(isEditable) {
+      editor.setEditable(isEditable && !transaction.current);
+    },
+    updateDraft(draftId, text, status, promptSnapshotId) {
+      editor.update(
+        () => {
+          getAiDraftNode(draftId)?.setDraftContent(
+            text,
+            status,
+            promptSnapshotId,
+          );
+        },
+        { tag: PREVIEW_TAGS },
+      );
+    },
+  };
+}
+
+export function registerChapterDraftHistoryGuard(editor: LexicalEditor) {
+  const blockWhilePending = () =>
+    editor.getEditorState().read(() => $nodesOfType(AiDraftNode).length > 0);
+  const removeUndo = editor.registerCommand(
+    UNDO_COMMAND,
+    blockWhilePending,
+    COMMAND_PRIORITY_CRITICAL,
+  );
+  const removeRedo = editor.registerCommand(
+    REDO_COMMAND,
+    blockWhilePending,
+    COMMAND_PRIORITY_CRITICAL,
+  );
+  return () => {
+    removeUndo();
+    removeRedo();
+  };
+}
+
 export function ChapterAiDraftPlugin({
   chapterId,
+  historyState,
+  transaction,
   onRegister,
   onSelectionChange,
 }: ChapterAiDraftPluginProps) {
   const [editor] = useLexicalComposerContext();
+  const handle = useMemo(
+    () => createChapterAiDraftHandle(editor, transaction, historyState),
+    [editor, transaction, historyState],
+  );
 
-  const handle = useMemo<ChapterAiDraftHandle>(() => {
-    function spliceDraftText(draftId: string, text: string) {
-      editor.update(() => {
-        const draftNode = getAiDraftNode(draftId);
-
-        if (!draftNode) {
-          return;
-        }
-
-        const acceptedText = normalizeDraftText(text);
-
-        if (!acceptedText) {
-          removeAiDraftNode(draftId);
-          return;
-        }
-
-        replaceAiDraftWithAcceptedText(draftNode, acceptedText);
-      });
-    }
-
-    return {
-      acceptDraft: spliceDraftText,
-      beginDraftVersion(draftId) {
-        editor.update(
-          () => {
-            const draftNode = getAiDraftNode(draftId);
-
-            if (!draftNode) {
-              return;
-            }
-
-            draftNode.beginDraftVersion();
-          },
-          { tag: AI_DRAFT_UPDATE_TAG },
-        );
-      },
-      createDraftSnapshot() {
-        let snapshot: ChapterAiDraftSnapshot | null = null;
-
-        editor.update(
-          () => {
-            // Clear stale draft nodes before serializing, so an orphaned
-            // draft's text cannot leak into the manuscript context.
-            removeAiDraftNodes();
-
-            const selection = prepareInsertionSelection();
-            const split = getSelectionMarkdownSplit(selection);
-            const draftId = createDraftId();
-
-            insertAiDraftNode(selection, draftId);
-
-            snapshot = {
-              atChapterEnd: split.atChapterEnd,
-              beforeText: split.beforeText,
-              content: split.content,
-              draftId,
-              afterText: split.afterText,
-              selectedText: split.selectedText,
-            };
-          },
-          { discrete: true, tag: AI_DRAFT_UPDATE_TAG },
-        );
-
-        return snapshot;
-      },
-      readInsertionContext(draftId) {
-        let insertionContext: ChapterAiDraftInsertionContext | null = null;
-
-        editor.getEditorState().read(() => {
-          insertionContext = readDraftNodeInsertionContext(draftId);
-        });
-
-        return insertionContext;
-      },
-      removeDraft(draftId) {
-        editor.update(
-          () => {
-            removeAiDraftNode(draftId);
-          },
-          { tag: AI_DRAFT_UPDATE_TAG },
-        );
-      },
-      /**
-       * Puts back prose that a rewrite draft displaced.
-       *
-       * Starting a rewrite removes the selected span, because the draft node
-       * takes its place so the writer sees the replacement where it will
-       * land. Rejecting therefore has to restore it, which is the same
-       * splice `acceptDraft` performs with the original Markdown.
-       */
-      restoreRewriteSelection: spliceDraftText,
-      selectDraftVersion(draftId, index) {
-        editor.update(
-          () => {
-            const draftNode = getAiDraftNode(draftId);
-
-            if (!draftNode) {
-              return;
-            }
-
-            draftNode.setActiveDraftIndex(index);
-          },
-          { tag: AI_DRAFT_UPDATE_TAG },
-        );
-      },
-      setContentEditable(isEditable) {
-        editor.setEditable(isEditable);
-      },
-      updateDraft(draftId, text, status, promptSnapshotId) {
-        editor.update(
-          () => {
-            const draftNode = getAiDraftNode(draftId);
-
-            if (!draftNode) {
-              return;
-            }
-
-            draftNode.setDraftContent(text, status, promptSnapshotId);
-          },
-          { tag: AI_DRAFT_UPDATE_TAG },
-        );
-      },
-    };
-  }, [editor]);
+  useEffect(() => registerChapterDraftHistoryGuard(editor), [editor]);
 
   useEffect(() => {
     onRegister(chapterId, handle);
@@ -563,9 +717,7 @@ export function ChapterAiDraftPlugin({
 
           onSelectionChange(
             chapterId,
-            $isRangeSelection(selection) &&
-              !selection.isCollapsed() &&
-              selection.getTextContent().trim().length > 0,
+            $isRangeSelection(selection) && !selection.isCollapsed(),
           );
         });
       }),
@@ -647,6 +799,21 @@ function AiDraftInlineView({
           ) : null}
         </span>
       )}
+
+      {hasDraftText &&
+      (status === "incomplete" ||
+        status === "stopped" ||
+        status === "error") ? (
+        <output
+          aria-live="polite"
+          className={cn(
+            "mt-2 block font-sans text-caption text-muted-foreground",
+            status === "error" && "text-destructive",
+          )}
+        >
+          {getDraftPlaceholder(status)}
+        </output>
+      ) : null}
 
       {canReview ? (
         <span className="mt-2 flex flex-col gap-2 border-border/70 border-t pt-2 sm:flex-row">
@@ -963,6 +1130,10 @@ function dispatchAiDraftInlineAction(detail: AiDraftInlineAction) {
 function getDraftPlaceholder(status: AiDraftStatus) {
   if (status === "error") {
     return "Draft failed";
+  }
+
+  if (status === "incomplete") {
+    return "Draft incomplete";
   }
 
   if (status === "stopped") {
@@ -1338,6 +1509,7 @@ function selectChapterEnd() {
 
 type ChapterMarkdownSplit = {
   atChapterEnd: boolean;
+  isRewrite: boolean;
   beforeText: string;
   content: string;
   afterText: string;
@@ -1364,6 +1536,7 @@ function getSelectionMarkdownSplit(
   if (!selection) {
     return {
       atChapterEnd: true,
+      isRewrite: false,
       beforeText: convertChapterToMarkdown(),
       content: convertChapterToMarkdown(),
       afterText: "",
@@ -1397,7 +1570,8 @@ function getSelectionMarkdownSplit(
   return {
     // A rewrite replaces a span in place, so it is never an append even when
     // the selection runs to the end of the chapter.
-    atChapterEnd: !selectedText && afterText.trim().length === 0,
+    atChapterEnd: selection.isCollapsed() && afterText.trim().length === 0,
+    isRewrite: !selection.isCollapsed(),
     beforeText,
     content: convertChapterToMarkdown(),
     afterText,
@@ -1427,25 +1601,26 @@ function readDraftNodeInsertionContext(
   }
 
   const root = $getRoot();
-  const draftTopLevel = draftNode.getTopLevelElement();
+  const parent = draftNode.getParent();
 
-  if (!draftTopLevel) {
+  if (!parent) {
     return null;
   }
 
-  const draftIndex = draftTopLevel.getIndexWithinParent();
+  const draftIndex = draftNode.getIndexWithinParent();
   const beforeText = convertChapterRangeToMarkdown(getChapterStartPoint(root), {
-    key: root.getKey(),
+    key: parent.getKey(),
     offset: draftIndex,
     type: "element",
   });
   const afterText = convertChapterRangeToMarkdown(
-    { key: root.getKey(), offset: draftIndex + 1, type: "element" },
+    { key: parent.getKey(), offset: draftIndex + 1, type: "element" },
     getChapterEndPoint(root),
   );
 
   return {
     atChapterEnd: afterText.trim().length === 0,
+    isRewrite: false,
     beforeText,
     content: [beforeText, afterText].filter(Boolean).join("\n"),
     afterText,

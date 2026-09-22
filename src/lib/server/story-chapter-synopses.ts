@@ -1,8 +1,13 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 
+import { ActionError } from "@/lib/action-error";
 import { generateLocalinkText } from "@/lib/ai";
+import day from "@/lib/dayjs";
+import { getDb, type LocalinkDb } from "@/lib/drizzle/db";
+import { chapters } from "@/lib/drizzle/schema";
 
 /**
  * Chapter text below this length is its own best summary — sending it to a
@@ -38,7 +43,12 @@ export type StoryChapterSynopsisResult = {
 };
 
 export function getChapterSynopsisSourceHash(content: string): string {
-  return createHash("sha256").update(content.trim()).digest("hex");
+  // Legacy caches did not verify completion and may describe truncated sources.
+  // Version the hash so they expire without a schema migration or live backfill.
+  return createHash("sha256")
+    .update("chapter-synopsis-v2\0")
+    .update(content.trim())
+    .digest("hex");
 }
 
 /**
@@ -55,7 +65,10 @@ export function isChapterSynopsisStale(
 }
 
 export function isChapterSynopsisWorthGenerating(content: string): boolean {
-  return content.trim().length >= MIN_SYNOPSIS_SOURCE_CHARS;
+  const length = content.trim().length;
+  return (
+    length >= MIN_SYNOPSIS_SOURCE_CHARS && length <= MAX_SYNOPSIS_SOURCE_CHARS
+  );
 }
 
 /**
@@ -69,10 +82,14 @@ export async function generateStoryChapterSynopsis({
   abortSignal,
   content,
   name,
+  generateText = generateLocalinkText,
 }: {
   abortSignal?: AbortSignal;
   content: string;
   name: string;
+  generateText?: (
+    options: Parameters<typeof generateLocalinkText>[0],
+  ) => Promise<{ text: string; finishReason: string }>;
 }): Promise<StoryChapterSynopsisResult | null> {
   const trimmedContent = content.trim();
 
@@ -80,7 +97,7 @@ export async function generateStoryChapterSynopsis({
     return null;
   }
 
-  const result = await generateLocalinkText({
+  const result = await generateText({
     model: "fast",
     system: SYNOPSIS_SYSTEM_PROMPT,
     prompt: buildChapterSynopsisPrompt(name, trimmedContent),
@@ -90,7 +107,7 @@ export async function generateStoryChapterSynopsis({
   });
   const synopsis = result.text.trim();
 
-  if (!synopsis) {
+  if (!synopsis || result.finishReason !== "stop") {
     return null;
   }
 
@@ -106,32 +123,8 @@ function buildChapterSynopsisPrompt(name: string, content: string): string {
   return [
     "<CHAPTER>",
     `<TITLE>\n${escapeXmlText(name)}\n</TITLE>`,
-    `<CHAPTER_TEXT>\n${escapeXmlText(truncateChapterText(content))}\n</CHAPTER_TEXT>`,
+    `<CHAPTER_TEXT>\n${escapeXmlText(content)}\n</CHAPTER_TEXT>`,
     "</CHAPTER>",
-  ].join("\n");
-}
-
-/**
- * Keeps the head and tail of an oversized chapter.
- *
- * The opening establishes the situation and the ending carries the state the
- * next chapter continues from, so both matter more than the middle when the
- * whole thing will not fit.
- */
-function truncateChapterText(content: string): string {
-  if (content.length <= MAX_SYNOPSIS_SOURCE_CHARS) {
-    return content;
-  }
-
-  const headChars = Math.ceil(MAX_SYNOPSIS_SOURCE_CHARS * 0.6);
-  const tailChars = Math.floor(MAX_SYNOPSIS_SOURCE_CHARS * 0.4);
-
-  return [
-    content.slice(0, headChars).trimEnd(),
-    "",
-    "[Middle omitted to fit the model context.]",
-    "",
-    content.slice(content.length - tailChars).trimStart(),
   ].join("\n");
 }
 
@@ -140,4 +133,82 @@ function escapeXmlText(content: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/** Refresh only the source snapshot read here; a late generation cannot win. */
+export async function refreshStoryChapterSynopsis(
+  input: { chapterId: string; storyId: string },
+  dependencies: {
+    db?: LocalinkDb;
+    generate?: typeof generateStoryChapterSynopsis;
+  } = {},
+): Promise<{ didRefresh: boolean }> {
+  const db = dependencies.db ?? getDb();
+  const [chapter] = await db
+    .select({
+      name: chapters.name,
+      content: chapters.content,
+      synopsis: chapters.synopsis,
+      synopsisSourceHash: chapters.synopsisSourceHash,
+      synopsisUpdatedAt: chapters.synopsisUpdatedAt,
+    })
+    .from(chapters)
+    .where(
+      and(
+        eq(chapters.id, input.chapterId),
+        eq(chapters.storyId, input.storyId),
+      ),
+    )
+    .limit(1);
+
+  if (!chapter) {
+    throw new ActionError("BAD_REQUEST", "The chapter could not be found.");
+  }
+
+  const eligible = isChapterSynopsisWorthGenerating(chapter.content);
+  if (
+    eligible &&
+    chapter.synopsis.trim() &&
+    !isChapterSynopsisStale(chapter.content, chapter.synopsisSourceHash)
+  ) {
+    return { didRefresh: false };
+  }
+  if (
+    !eligible &&
+    !chapter.synopsis &&
+    !chapter.synopsisSourceHash &&
+    !chapter.synopsisUpdatedAt
+  ) {
+    return { didRefresh: false };
+  }
+
+  const result = eligible
+    ? await (dependencies.generate ?? generateStoryChapterSynopsis)({
+        content: chapter.content,
+        name: chapter.name,
+      })
+    : null;
+  if (eligible && !result) {
+    return { didRefresh: false };
+  }
+
+  const updated = await db
+    .update(chapters)
+    .set({
+      synopsis: result?.synopsis ?? "",
+      synopsisSourceHash: result?.sourceHash ?? "",
+      synopsisUpdatedAt: result ? day().toISOString() : null,
+    })
+    .where(
+      and(
+        eq(chapters.id, input.chapterId),
+        eq(chapters.storyId, input.storyId),
+        eq(chapters.content, chapter.content),
+        eq(chapters.synopsisSourceHash, chapter.synopsisSourceHash),
+        eq(chapters.synopsis, chapter.synopsis),
+      ),
+    )
+    .returning({ id: chapters.id });
+
+  return { didRefresh: updated.length > 0 };
 }

@@ -1,4 +1,8 @@
 {
+  "env": {
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "12",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3"
+  },
   "hooks": {
     "SessionStart": [
       {

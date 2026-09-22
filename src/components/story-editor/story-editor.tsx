@@ -36,7 +36,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
     toStoryContext(story),
   );
   const [activeChapterId, setActiveChapterId] = useState<string | null>(
-    story.chapters[0]?.id ?? null,
+    // Until the writer chooses an insertion point, continue at the story end.
+    story.chapters.at(-1)?.id ?? null,
   );
   const [chapterCreateError, setChapterCreateError] = useState<string | null>(
     null,
@@ -44,7 +45,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
   const createChapterAction = useAction(createChapter);
   const focusedChapter = useMemo(
     () =>
-      chapters.find((chapter) => chapter.id === activeChapterId) ?? chapters[0],
+      chapters.find((chapter) => chapter.id === activeChapterId) ??
+      chapters.at(-1),
     [activeChapterId, chapters],
   );
   const columnStyle = {
@@ -80,7 +82,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
       currentChapterId &&
       storyChapters.some((chapter) => chapter.id === currentChapterId)
         ? currentChapterId
-        : (storyChapters[0]?.id ?? null),
+        : (storyChapters.at(-1)?.id ?? null),
     );
   }, [
     storyChapters,

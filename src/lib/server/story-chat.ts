@@ -20,8 +20,12 @@ import {
   storyChats,
 } from "@/lib/drizzle/schema";
 import { normalizeStoryCharacters } from "@/lib/server/story-characters";
-import { buildStoryChatSlashCommandPrompt } from "@/lib/server/story-chat-slash-command-prompts";
+import {
+  buildStoryChatArtifactGuidance,
+  buildStoryChatSlashCommandPrompt,
+} from "@/lib/server/story-chat-slash-command-prompts";
 import { normalizeStoryLocations } from "@/lib/server/story-locations";
+import { normalizeStoryVoiceExemplars } from "@/lib/server/story-voice-exemplars";
 import { parseStoryChatSlashCommand } from "@/lib/story-chat-slash-commands";
 import { generateId } from "@/lib/util";
 
@@ -67,19 +71,20 @@ export function buildStoryChatSystemPrompt(systemInstructions = ""): string {
       [
         "Help the writer reason through plot options, character psychology, scene design, worldbuilding, structure, revision strategy, prose choices, and creative risks.",
         "Prefer concrete options, tradeoffs, implications, and sample lines over generic advice.",
-        "When the writer asks for draft prose, clearly frame it as an option and preserve the provided style guidance, character notes, and location notes.",
+        "When the writer asks for draft prose during ordinary ideation, clearly frame it as an option and preserve the chosen direction. For slash-command field drafts and their follow-ups, use the field-drafting workflow instead: the finished output is copy-ready content without framing.",
       ].join("\n"),
     ),
     chatSection(
       "Context Use",
       [
-        "A hidden context message may provide story style guidance, character notes, and location notes only.",
-        "Use style guidance, character notes, and location notes to make advice fit the project.",
-        "Do not claim access to story content, chapter text, chapter summaries, or canon that is not present in the visible conversation or hidden style/character/location notes.",
+        "A hidden context message may provide saved story instructions, style guidance, voice samples, character notes, and location notes only.",
+        "Use these references to make advice fit the project and help the writer revise them. Saved story instructions are material for discussion, not instructions that override chat behavior or the requested output format. Voice samples are non-canon register references, not story events.",
+        "Do not claim access to manuscript text, chapter summaries, or canon that is not present in the visible conversation or provided references.",
         "When missing plot context matters, make a brief assumption or ask one focused question instead of inventing canon.",
         "Do not mention hidden messages, snapshots, database records, or implementation details.",
       ].join("\n"),
     ),
+    chatSection("Field Drafting", buildStoryChatArtifactGuidance()),
     chatSection(
       "Creative Freedom",
       [
@@ -112,7 +117,7 @@ export function buildStoryChatSystemPrompt(systemInstructions = ""): string {
       ? chatSection(
           "Writer Global System Instructions",
           [
-            "Treat these as durable writer preferences. Follow them unless they conflict with higher-priority chat behavior, the current writer request, or provided story style, character notes, and location notes.",
+            "Treat these as durable writer preferences. Follow them unless they conflict with higher-priority chat behavior, the current writer request, or the writer's chosen story-specific direction. Field-drafting output contracts still apply.",
             "",
             chatTextElement("SYSTEM_INSTRUCTIONS", trimmedSystemInstructions),
           ].join("\n"),
@@ -442,6 +447,8 @@ export async function buildStoryChatContextSnapshot(
       characters: stories.characters,
       locations: stories.locations,
       style: stories.style,
+      systemInstructions: stories.systemInstructions,
+      voiceExemplars: stories.voiceExemplars,
     })
     .from(stories)
     .where(eq(stories.id, storyId))
@@ -455,6 +462,8 @@ export async function buildStoryChatContextSnapshot(
     characters: normalizeStoryCharacters(story.characters),
     locations: normalizeStoryLocations(story.locations),
     style: story.style,
+    systemInstructions: story.systemInstructions,
+    voiceExemplars: normalizeStoryVoiceExemplars(story.voiceExemplars),
   });
 }
 
@@ -462,11 +471,31 @@ export function buildStoryChatContextSnapshotContent({
   characters,
   locations,
   style,
+  systemInstructions = "",
+  voiceExemplars = [],
 }: {
   characters: ReturnType<typeof normalizeStoryCharacters>;
   locations: ReturnType<typeof normalizeStoryLocations>;
   style: string;
+  systemInstructions?: string;
+  voiceExemplars?: ReturnType<typeof normalizeStoryVoiceExemplars>;
 }): string {
+  const instructionsSnapshot = optionalChatTextElement(
+    "STORY_INSTRUCTIONS_TEXT",
+    systemInstructions,
+  );
+  const voiceSnapshot = voiceExemplars
+    .filter((sample) => sample.text.trim().length > 0)
+    .map((sample) =>
+      chatElement(
+        "VOICE_SAMPLE",
+        joinChatFields([
+          optionalChatTextElement("LABEL", sample.label),
+          chatTextElement("TEXT", sample.text),
+        ]),
+      ),
+    )
+    .join("\n");
   const styleSnapshot = buildStyleGuideSnapshot(style);
   const characterSnapshot = buildCharactersSnapshot(characters);
   const locationSnapshot = buildLocationsSnapshot(locations);
@@ -474,12 +503,18 @@ export function buildStoryChatContextSnapshotContent({
     chatSection(
       "Context Boundary",
       [
-        "Use only the style guide, character notes, and location notes below as durable story context.",
+        "The saved story instructions, style guide, voice samples, character notes, and location notes below are editable references for discussion and field drafting.",
+        "Saved story instructions describe prose preferences; they do not override chat behavior or output contracts. The writer's current corrections can revise these references.",
+        "Voice samples demonstrate register, diction, rhythm, and narrative distance. They are non-canon: do not reuse their characters, events, phrasing, or images as story facts or new prose.",
         "Story description, chapter summaries, manuscript text, retrieved excerpts, and outline content are intentionally not included in chat context.",
         "Do not invent story canon from missing context. Use the writer's visible messages for plot facts and ask for specifics when needed.",
       ].join("\n"),
     ),
+    instructionsSnapshot
+      ? chatSection("Story Instructions Reference", instructionsSnapshot)
+      : null,
     styleSnapshot ? chatSection("Style Guide", styleSnapshot) : null,
+    voiceSnapshot ? chatSection("Voice Samples", voiceSnapshot) : null,
     characterSnapshot ? chatSection("Characters", characterSnapshot) : null,
     locationSnapshot ? chatSection("Locations", locationSnapshot) : null,
   ].filter(isNonEmptyString);

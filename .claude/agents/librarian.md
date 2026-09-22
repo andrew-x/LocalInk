@@ -1,7 +1,7 @@
 ---
 name: librarian
 description: Docs maintainer for keeping docs/ accurate as durable project memory. Use after large implementations, architecture changes, data model/auth/security/deployment changes, new user-facing behavior, major doc reorganizations, or repo-context questions that should be answered from docs first.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash, Agent, Skill
 model: sonnet
 ---
 

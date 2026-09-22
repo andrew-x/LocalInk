@@ -5,8 +5,10 @@ import {
   History,
   MapPin,
   MessageSquare,
+  NotebookPen,
   PenLine,
   Plus,
+  Quote,
   RefreshCcw,
   Send,
   UserRound,
@@ -721,6 +723,10 @@ export function StoryEditorChatPane({
               <div className="flex min-h-56 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border/70 px-4 text-center text-muted-foreground">
                 <MessageSquare aria-hidden="true" className="size-5" />
                 <p className="text-body">No messages yet</p>
+                <p className="text-caption">
+                  Brainstorm here, then use / to draft text you can copy into
+                  your story information.
+                </p>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -760,7 +766,7 @@ export function StoryEditorChatPane({
                       handleDraftContentChange(event.target.value)
                     }
                     onKeyDown={handleDraftKeyDown}
-                    placeholder="Ask about the story"
+                    placeholder="Brainstorm your story, or type / for drafts"
                     ref={draftTextareaRef}
                     value={draftContent}
                   />
@@ -877,8 +883,12 @@ function SlashCommandIcon({
   commandName: StoryChatSlashCommandName;
 }) {
   switch (commandName) {
+    case "instructions":
+      return <NotebookPen aria-hidden="true" className="size-3.5" />;
     case "style":
       return <PenLine aria-hidden="true" className="size-3.5" />;
+    case "voice":
+      return <Quote aria-hidden="true" className="size-3.5" />;
     case "character":
       return <UserRound aria-hidden="true" className="size-3.5" />;
     case "location":

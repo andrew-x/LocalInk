@@ -1,18 +1,30 @@
 export const STORY_CHAT_SLASH_COMMANDS = [
   {
-    description: "Draft paste-ready writing style guidance",
+    description: "Turn agreed story rules into copy-ready instructions",
+    name: "instructions",
+    title: "Story instructions",
+    token: "/instructions",
+  },
+  {
+    description: "Turn agreed prose choices into a copy-ready style guide",
     name: "style",
     title: "Style Guide",
     token: "/style",
   },
   {
-    description: "Draft a paste-ready character description",
+    description: "Write a copy-ready passage in the agreed voice",
+    name: "voice",
+    title: "Voice sample",
+    token: "/voice",
+  },
+  {
+    description: "Turn agreed character details into a copy-ready description",
     name: "character",
     title: "Character",
     token: "/character",
   },
   {
-    description: "Draft a paste-ready location description",
+    description: "Turn agreed location details into a copy-ready description",
     name: "location",
     title: "Location",
     token: "/location",

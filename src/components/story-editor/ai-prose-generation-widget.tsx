@@ -1,15 +1,17 @@
 "use client";
 
-import { Square, WandSparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Square, WandSparkles } from "lucide-react";
 import {
-  type FormEvent,
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import type { z } from "zod";
 
 import type {
   StoryChapterItem,
@@ -27,8 +29,18 @@ import type {
   ChapterAiDraftInsertionContext,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { AI_DRAFT_INLINE_ACTION_EVENT as DRAFT_INLINE_ACTION_EVENT } from "@/components/story-editor/chapter-ai-draft-plugin";
-import { readLocalinkTextStream } from "@/lib/ai-text-stream";
-import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
+import {
+  isLocalinkIncompleteFinish,
+  readLocalinkTextStream,
+} from "@/lib/ai-text-stream";
+import { formResolver } from "@/lib/schemas/resolve";
+import {
+  MAX_STORY_PROSE_BEAT_GOAL_LENGTH,
+  MAX_STORY_PROSE_INSTRUCTIONS_LENGTH,
+  type StoryProseGenerationFormValues,
+  type StoryProseGenerationRequest,
+  storyProseGenerationFormSchema,
+} from "@/lib/story-prose-generation-contract";
 
 // `systemInstructions` rides along with story identity because it reaches the
 // model as system-prompt authority, not as request context like `style`.
@@ -80,7 +92,7 @@ const LENGTH_OPTIONS = [
 // How the beat should move, which the length control cannot express. `auto`
 // leaves the choice to the model and sends no pacing field at all.
 const PACING_OPTIONS = [
-  { label: "Auto pacing", value: "auto" },
+  { label: "Auto", value: "auto" },
   { label: "Scene", value: "scene" },
   { label: "Summary", value: "summary" },
   { label: "Interior", value: "interior" },
@@ -104,13 +116,39 @@ export function AiProseGenerationWidget({
   style,
   voiceExemplars,
 }: AiProseGenerationWidgetProps) {
-  const [instructions, setInstructions] = useState("");
-  const [beatGoal, setBeatGoal] = useState("");
-  const [approximateLength, setApproximateLength] = useState<LengthOption>(400);
-  const [pacing, setPacing] = useState<PacingOption>("auto");
+  const form = useForm<
+    z.input<typeof storyProseGenerationFormSchema>,
+    unknown,
+    StoryProseGenerationFormValues
+  >({
+    defaultValues: {
+      approximateLength: 400,
+      beatGoal: "",
+      instructions: "",
+      pacing: "auto",
+    },
+    resolver: formResolver(storyProseGenerationFormSchema),
+    shouldUnregister: false,
+  });
+  const { clearErrors, setError } = form;
+  const instructions = form.watch("instructions");
+  const beatGoal = form.watch("beatGoal") ?? "";
+  const errorMessage = form.formState.errors.root?.message;
+  const [showBeatGoal, setShowBeatGoal] = useState(false);
+  const formId = useId();
+  const instructionsId = `${formId}-instructions`;
+  const beatGoalId = `${formId}-beat-goal`;
+  const pacingId = `${formId}-pacing`;
+  const lengthId = `${formId}-length`;
+  const setErrorMessage = useCallback(
+    (message: string | null) => {
+      if (message) setError("root", { message });
+      else clearErrors("root");
+    },
+    [clearErrors, setError],
+  );
   const [status, setStatus] = useState<AiDraftStatus | "idle">("idle");
   const [activeDraft, setActiveDraft] = useState<ActiveDraft | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const draftTextRef = useRef("");
   const isStreaming = status === "streaming";
@@ -118,7 +156,9 @@ export function AiProseGenerationWidget({
 
   useEffect(
     () => () => {
-      abortControllerRef.current?.abort();
+      const controller = abortControllerRef.current;
+      abortControllerRef.current = null;
+      controller?.abort();
     },
     [],
   );
@@ -227,6 +267,11 @@ export function AiProseGenerationWidget({
             "The prose stream ended before generation completed.",
           unavailableMessage: "The prose stream could not be opened.",
           onDelta(text) {
+            if (
+              abortControllerRef.current !== controller ||
+              controller.signal.aborted
+            )
+              return;
             streamedText += text;
             draftTextRef.current = streamedText;
             handle.updateDraft(
@@ -239,6 +284,11 @@ export function AiProseGenerationWidget({
           },
         });
 
+        if (
+          abortControllerRef.current !== controller ||
+          controller.signal.aborted
+        )
+          return;
         handle.updateDraft(
           draft.draftId,
           streamedText,
@@ -249,6 +299,7 @@ export function AiProseGenerationWidget({
         releaseEditorAfterDraft(handle, draft);
         setStatus("complete");
       } catch (error) {
+        if (abortControllerRef.current !== controller) return;
         if (controller.signal.aborted) {
           handle.updateDraft(
             draft.draftId,
@@ -262,17 +313,19 @@ export function AiProseGenerationWidget({
           return;
         }
 
-        const message = getGenerationFailureMessage(error);
+        const incomplete = isLocalinkIncompleteFinish(error);
+        const nextStatus = incomplete ? "incomplete" : "error";
+        const message = `${getGenerationFailureMessage(error)}${incomplete && draftTextRef.current ? " The partial draft is available to review, accept, or regenerate." : ""}`;
         handle.updateDraft(
           draft.draftId,
           draftTextRef.current,
-          "error",
+          nextStatus,
           promptSnapshotId,
         );
         onDraftStreamUpdate(draft.draftId);
         releaseEditorAfterDraft(handle, draft);
         setErrorMessage(message);
-        setStatus("error");
+        setStatus(nextStatus);
         toast.error(message);
       } finally {
         if (abortControllerRef.current === controller) {
@@ -280,12 +333,10 @@ export function AiProseGenerationWidget({
         }
       }
     },
-    [getAiDraftHandle, onDraftStreamUpdate],
+    [getAiDraftHandle, onDraftStreamUpdate, setErrorMessage],
   );
 
-  async function handleGenerate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function handleGenerate(values: StoryProseGenerationFormValues) {
     if (isStreaming || activeDraft) {
       return;
     }
@@ -330,28 +381,17 @@ export function AiProseGenerationWidget({
       voiceExemplars,
     });
     const draft: ActiveDraft = {
-      approximateLength,
-      beatGoal,
+      approximateLength: values.approximateLength,
+      beatGoal: values.beatGoal,
       chapterId: focusedChapter.id,
       contextBase,
       draftId: snapshot.draftId,
-      instructions,
-      pacing,
+      instructions: values.instructions,
+      pacing: values.pacing,
     };
 
     setActiveDraft(draft);
     await streamDraft(draft);
-  }
-
-  function handleInstructionsKeyDown(
-    event: KeyboardEvent<HTMLTextAreaElement>,
-  ) {
-    if (!isPlainEnter(event) || isGenerationWidgetDisabled) {
-      return;
-    }
-
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
   }
 
   function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
@@ -368,10 +408,12 @@ export function AiProseGenerationWidget({
       return;
     }
 
-    abortControllerRef.current?.abort();
+    const controller = abortControllerRef.current;
+    abortControllerRef.current = null;
+    controller?.abort();
     const handle = getAiDraftHandle(activeDraft.chapterId);
 
-    handle?.setContentEditable(true);
+    if (handle) releaseEditorAfterDraft(handle, activeDraft);
     handle?.updateDraft(activeDraft.draftId, draftTextRef.current, "stopped");
     setStatus("stopped");
   }
@@ -390,9 +432,16 @@ export function AiProseGenerationWidget({
       return;
     }
 
+    if (!handle.acceptDraft(activeDraft.draftId, text)) {
+      const message =
+        "The draft could not be accepted. The original chapter has been preserved.";
+      setErrorMessage(message);
+      toast.error(message);
+      return;
+    }
     handle.setContentEditable(true);
-    handle.acceptDraft(activeDraft.draftId, text);
-    setInstructions("");
+    form.resetField("instructions");
+    form.resetField("beatGoal");
     resetDraftState();
   }
 
@@ -401,19 +450,12 @@ export function AiProseGenerationWidget({
       return;
     }
 
-    abortControllerRef.current?.abort();
+    const controller = abortControllerRef.current;
+    abortControllerRef.current = null;
+    controller?.abort();
     const handle = getAiDraftHandle(activeDraft.chapterId);
-    const { selectedText } = activeDraft.contextBase.insertion;
-
+    handle?.removeDraft(activeDraft.draftId);
     handle?.setContentEditable(true);
-
-    // Starting a rewrite displaces the selected prose, so rejecting has to
-    // put it back rather than just drop the draft node.
-    if (selectedText) {
-      handle?.restoreRewriteSelection(activeDraft.draftId, selectedText);
-    } else {
-      handle?.removeDraft(activeDraft.draftId);
-    }
 
     resetDraftState();
   }
@@ -539,6 +581,9 @@ export function AiProseGenerationWidget({
   }
 
   function resetDraftState() {
+    const controller = abortControllerRef.current;
+    abortControllerRef.current = null;
+    controller?.abort();
     setActiveDraft(null);
     draftTextRef.current = "";
     setStatus("idle");
@@ -546,53 +591,143 @@ export function AiProseGenerationWidget({
   }
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-page pb-4">
-      <div className="pointer-events-auto mx-auto w-full max-w-readable rounded-md border border-border/80 bg-popover/95 p-2 text-popover-foreground shadow-2xl backdrop-blur">
-        <form
-          className="flex flex-col gap-2"
-          onKeyDown={handleGenerationShortcut}
-          onSubmit={handleGenerate}
-        >
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <Textarea
-              aria-label="AI prose instructions"
-              aria-keyshortcuts="Enter Shift+Enter"
-              className="max-h-48 min-h-8 min-w-0 flex-1 resize-none px-3 py-[0.1875rem]"
-              disabled={isGenerationWidgetDisabled}
-              maxLength={2000}
-              onChange={(event) => setInstructions(event.target.value)}
-              onKeyDown={handleInstructionsKeyDown}
-              placeholder={
-                hasSelectedText
-                  ? "How should the selected prose change?"
-                  : "What happens next?"
-              }
-              rows={1}
-              value={instructions}
-            />
-            <select
-              aria-label="AI prose length"
-              className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              disabled={isGenerationWidgetDisabled}
-              onChange={(event) =>
-                setApproximateLength(parseLengthOption(event.target.value))
-              }
-              value={String(approximateLength)}
+    <div className="z-30 flex max-h-[60%] min-h-0 shrink-0 flex-col px-page pb-4 pt-2">
+      <form
+        className="mx-auto flex min-h-0 w-full max-w-readable flex-col overflow-hidden rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-lg"
+        noValidate
+        onKeyDown={handleGenerationShortcut}
+        onSubmit={form.handleSubmit(handleGenerate, (errors) => {
+          if (errors.beatGoal) setShowBeatGoal(true);
+        })}
+      >
+        <div className="min-h-0 overflow-y-auto p-3">
+          <label
+            className="mb-2 block text-label font-medium"
+            htmlFor={instructionsId}
+          >
+            {hasSelectedText
+              ? "How should the selected prose change?"
+              : "What happens next?"}
+          </label>
+          <Textarea
+            {...form.register("instructions")}
+            aria-describedby={`${instructionsId}-hint ${instructionsId}-count${form.formState.errors.instructions ? ` ${instructionsId}-error` : ""}`}
+            aria-invalid={Boolean(form.formState.errors.instructions)}
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            className="max-h-64 min-h-0 resize-none overflow-y-auto font-content"
+            disabled={isGenerationWidgetDisabled}
+            id={instructionsId}
+            maxLength={MAX_STORY_PROSE_INSTRUCTIONS_LENGTH}
+            rows={1}
+          />
+          <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 gap-y-1 text-caption text-muted-foreground">
+            <p id={`${instructionsId}-hint`}>
+              Enter for a new line · ⌘/Ctrl+Enter to generate
+            </p>
+            <p id={`${instructionsId}-count`}>
+              {instructions.length.toLocaleString("en-US")} / 10,000
+            </p>
+          </div>
+          {form.formState.errors.instructions ? (
+            <p
+              className="mt-1 text-caption text-destructive"
+              id={`${instructionsId}-error`}
+              role="alert"
             >
-              {LENGTH_OPTIONS.map((option) => (
-                <option key={option.value} value={String(option.value)}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="AI prose pacing"
-              className="h-8 rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              disabled={isGenerationWidgetDisabled}
-              onChange={(event) =>
-                setPacing(parsePacingOption(event.target.value))
+              {form.formState.errors.instructions.message}
+            </p>
+          ) : null}
+          <div className={showBeatGoal ? "mt-2" : "mt-1"}>
+            <Button
+              aria-controls={`${beatGoalId}-details`}
+              aria-expanded={showBeatGoal}
+              className={
+                showBeatGoal
+                  ? "h-auto min-h-7 max-w-full justify-start whitespace-normal px-2 py-1 text-left"
+                  : "h-auto min-h-0 max-w-full justify-start gap-1 whitespace-normal px-0 py-0.5 text-left text-caption"
               }
-              value={pacing}
+              leftSection={
+                showBeatGoal ? (
+                  <ChevronUp aria-hidden="true" />
+                ) : (
+                  <ChevronDown aria-hidden="true" className="size-3" />
+                )
+              }
+              onClick={() => setShowBeatGoal((shown) => !shown)}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <span className="min-w-0">
+                {showBeatGoal || beatGoal.trim()
+                  ? "Beat change"
+                  : "Add beat change"}
+                {showBeatGoal || beatGoal.trim() ? (
+                  <span className="font-normal text-muted-foreground">
+                    {showBeatGoal ? " · Optional" : " · Added"}
+                  </span>
+                ) : null}
+              </span>
+            </Button>
+            <div
+              hidden={!showBeatGoal}
+              id={`${beatGoalId}-details`}
+              className="mt-2 space-y-1.5"
+            >
+              <label className="text-label" htmlFor={beatGoalId}>
+                What changes in this beat?{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </label>
+              <p
+                className="text-caption text-muted-foreground"
+                id={`${beatGoalId}-hint`}
+              >
+                What should be different by the end?
+              </p>
+              <Input
+                {...form.register("beatGoal")}
+                aria-describedby={`${beatGoalId}-hint${form.formState.errors.beatGoal ? ` ${beatGoalId}-error` : ""}`}
+                aria-invalid={Boolean(form.formState.errors.beatGoal)}
+                className="min-w-0"
+                disabled={isGenerationWidgetDisabled}
+                id={beatGoalId}
+                maxLength={MAX_STORY_PROSE_BEAT_GOAL_LENGTH}
+                placeholder="A decision made, a secret revealed, a relationship changed…"
+              />
+              {form.formState.errors.beatGoal ? (
+                <p
+                  className="text-caption text-destructive"
+                  id={`${beatGoalId}-error`}
+                  role="alert"
+                >
+                  {form.formState.errors.beatGoal.message}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          {errorMessage ? (
+            <p
+              className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body text-destructive"
+              role="alert"
+            >
+              {errorMessage}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 bg-muted/30 px-3 py-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+            <label
+              className="text-caption text-muted-foreground"
+              htmlFor={pacingId}
+            >
+              Pacing
+            </label>
+            <select
+              {...form.register("pacing")}
+              aria-invalid={Boolean(form.formState.errors.pacing)}
+              className="h-8 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              disabled={isGenerationWidgetDisabled}
+              id={pacingId}
             >
               {PACING_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -600,57 +735,61 @@ export function AiProseGenerationWidget({
                 </option>
               ))}
             </select>
-
-            {isStreaming ? (
-              <Button
-                className="h-8"
-                leftSection={<Square aria-hidden="true" />}
-                onClick={handleStop}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                Stop
-              </Button>
-            ) : !activeDraft ? (
-              <Button
-                aria-keyshortcuts="Meta+Enter Control+Enter"
-                className="h-8"
-                disabled={!chapters.length}
-                leftSection={<WandSparkles aria-hidden="true" />}
-                size="sm"
-                type="submit"
-              >
-                Generate
-              </Button>
-            ) : null}
           </div>
-
-          {/*
-            Optional and secondary to the brief. The brief says what happens;
-            this says what is different afterwards, which is the thing pacing
-            decisions actually hang on.
-          */}
-          <Input
-            aria-label="What changes in this beat"
-            className="h-7 min-w-0 bg-card/60 px-3 text-caption"
-            disabled={isGenerationWidgetDisabled}
-            maxLength={300}
-            onChange={(event) => setBeatGoal(event.target.value)}
-            placeholder="What changes in this beat? (optional)"
-            value={beatGoal}
-          />
-        </form>
-
-        {errorMessage ? (
-          <p
-            className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body text-destructive"
-            role="alert"
-          >
-            {errorMessage}
-          </p>
-        ) : null}
-      </div>
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+            <label
+              className="text-caption text-muted-foreground"
+              htmlFor={lengthId}
+            >
+              Word count
+            </label>
+            <select
+              {...form.register("approximateLength", {
+                setValueAs: parseLengthOption,
+              })}
+              aria-invalid={Boolean(form.formState.errors.approximateLength)}
+              className="h-8 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              disabled={isGenerationWidgetDisabled}
+              id={lengthId}
+            >
+              {LENGTH_OPTIONS.map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {option.value === "unlimited"
+                    ? option.label
+                    : `≈${option.label}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          {isStreaming ? (
+            <Button
+              className="ml-auto h-8"
+              leftSection={<Square aria-hidden="true" />}
+              onClick={handleStop}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Stop
+            </Button>
+          ) : !activeDraft ? (
+            <Button
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              className="ml-auto h-8"
+              disabled={!chapters.length}
+              leftSection={<WandSparkles aria-hidden="true" />}
+              size="sm"
+              type="submit"
+            >
+              Generate
+            </Button>
+          ) : (
+            <p className="ml-auto text-caption text-muted-foreground">
+              Review the draft in your manuscript.
+            </p>
+          )}
+        </div>
+      </form>
     </div>
   );
 }
@@ -692,6 +831,7 @@ function buildContextBase({
     insertion: {
       afterText: insertionContext.afterText,
       atChapterEnd: insertionContext.atChapterEnd,
+      isRewrite: insertionContext.isRewrite,
       beforeText: insertionContext.beforeText,
       selectedText: insertionContext.selectedText,
     },
@@ -756,7 +896,10 @@ function releaseEditorAfterDraft(
   handle: ChapterAiDraftHandle,
   draft: ActiveDraft,
 ) {
-  if (draft.contextBase.insertion.selectedText) {
+  if (
+    draft.contextBase.insertion.isRewrite ||
+    draft.contextBase.insertion.selectedText
+  ) {
     return;
   }
 
@@ -767,12 +910,6 @@ function parseLengthOption(value: string): LengthOption {
   const option = LENGTH_OPTIONS.find((item) => String(item.value) === value);
 
   return option?.value ?? 400;
-}
-
-function parsePacingOption(value: string): PacingOption {
-  const option = PACING_OPTIONS.find((item) => item.value === value);
-
-  return option?.value ?? "auto";
 }
 
 function buildRegenerationRequest(
@@ -821,17 +958,6 @@ function isGenerationShortcut(event: KeyboardEvent) {
   return (
     event.key === "Enter" &&
     (event.metaKey || event.ctrlKey) &&
-    !event.nativeEvent.isComposing
-  );
-}
-
-function isPlainEnter(event: KeyboardEvent) {
-  return (
-    event.key === "Enter" &&
-    !event.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.shiftKey &&
     !event.nativeEvent.isComposing
   );
 }

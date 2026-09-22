@@ -4,15 +4,17 @@ import {
   type LocalinkProviderOptions,
   streamLocalinkText,
 } from "@/lib/ai";
+import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
 import { toLocalinkTextStreamResponse } from "@/lib/server/ai-text-stream-response";
 import { getAppSettings } from "@/lib/server/app-settings";
+import { prepareStoryProseContext } from "@/lib/server/story-prose-context";
 import {
-  buildStoryProsePrompt,
+  buildBudgetedStoryProsePrompt,
   buildStoryProseSystemPrompt,
-  getStoryProseManuscriptContextCharCount,
-  STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT,
+  StoryProseContextTooLargeError,
+  type StoryProseModelLimits,
 } from "@/lib/server/story-prose-generation";
 import { saveStoryProsePromptSnapshot } from "@/lib/server/story-prose-prompt-snapshots";
 import {
@@ -41,7 +43,7 @@ const PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH = {
  * model at another model's temperature makes it look worse than it is, which
  * defeats the point of comparing them.
  */
-type StoryProseModelProfile = {
+type StoryProseModelProfile = StoryProseModelLimits & {
   model: LocalinkAiModel;
   temperature: number;
   providerOptions?: LocalinkProviderOptions;
@@ -70,27 +72,36 @@ const NO_REASONING = {
  * ZDR endpoints verified 2026-09-21: DeepSeek V4 Pro 6, Kimi K3 18, GLM 5.3 27,
  * Mistral Medium 3.5 1. Mistral has only a first-party ZDR endpoint, so an
  * outage there surfaces as AI_ZDR_UNAVAILABLE with no reroute, and its 262k
- * context is the smallest of the four — still well clear of
- * STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT.
+ * context is the smallest of the four. Context/output limits below use the
+ * lower advertised model/top-provider context from OpenRouter's public models
+ * endpoint, checked 2026-09-22; no request-time metadata lookup is needed.
  */
 const STORY_PROSE_MODEL_PROFILES = {
   deepseekV4Pro: {
     model: "prose-deepseek-v4-pro",
+    contextWindowTokens: 1_024_000,
+    maxCompletionTokens: 384_000,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
   kimiK3: {
     model: "prose-kimi-k3",
+    contextWindowTokens: 1_048_576,
+    maxCompletionTokens: 943_718,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
   glm53: {
     model: "prose-glm-5.3",
+    contextWindowTokens: 1_048_576,
+    maxCompletionTokens: 131_072,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
   mistralMedium35: {
     model: "prose-mistral-medium-3.5",
+    contextWindowTokens: 262_144,
+    maxCompletionTokens: 209_715,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
@@ -124,6 +135,10 @@ type StoryProseRouteError = {
     | "AI_ZDR_UNAVAILABLE"
     | "BAD_REQUEST"
     | "GENERATION_FAILED"
+    | "STREAM_OUTPUT_LIMIT"
+    | "STREAM_CONTENT_FILTERED"
+    | "STREAM_INCOMPLETE"
+    | "STREAM_FAILED"
     | "MANUSCRIPT_CONTEXT_TOO_LARGE";
   message: string;
   status: number;
@@ -163,53 +178,38 @@ export async function POST(request: Request): Promise<Response> {
       approximateLength: parsedInput.approximateLength,
     });
 
-    const manuscriptCharCount =
-      getStoryProseManuscriptContextCharCount(parsedInput);
-
-    if (manuscriptCharCount > STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT) {
-      const routeError: StoryProseRouteError = {
-        code: "MANUSCRIPT_CONTEXT_TOO_LARGE",
-        message: buildManuscriptContextTooLargeMessage(),
-        status: 413,
-      };
-
-      storyProseLogger.info("manuscript-context-too-large", {
-        action: ACTION_NAME,
-        storyId: parsedInput.story.id,
-        chapterId: parsedInput.focusedChapter.id,
-        approximateLength: parsedInput.approximateLength,
-        manuscriptCharCount,
-        manuscriptCharLimit: STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT,
-      });
-      logEnd(startedAt, parsedInput, "error", routeError.code);
-
-      return errorResponse(routeError);
-    }
-
-    const settings = await getAppSettings();
+    const [settings, preparedInput] = await Promise.all([
+      getAppSettings(),
+      prepareStoryProseContext(parsedInput),
+    ]);
 
     const systemPrompt = buildStoryProseSystemPrompt(
       settings.systemInstructions,
       parsedInput.story.systemInstructions,
     );
-    const prosePrompt = buildStoryProsePrompt(parsedInput);
+    const { prompt: prosePrompt, maxOutputTokens } =
+      buildBudgetedStoryProsePrompt(preparedInput, {
+        system: systemPrompt,
+        contextWindowTokens: PROSE_PROFILE.contextWindowTokens,
+        maxCompletionTokens: PROSE_PROFILE.maxCompletionTokens,
+        requestedOutputTokens: getProseMaxOutputTokens(
+          parsedInput.approximateLength,
+        ),
+      });
     const promptSnapshot = saveStoryProsePromptSnapshot({
       approximateLength: parsedInput.approximateLength,
       prompt: prosePrompt,
       regeneration: parsedInput.regeneration,
       system: systemPrompt,
     });
-    const maxOutputTokens = getProseMaxOutputTokens(
-      parsedInput.approximateLength,
-    );
-
     const stream = streamLocalinkText({
-      ...PROSE_PROFILE,
+      model: PROSE_PROFILE.model,
+      providerOptions: PROSE_PROFILE.providerOptions,
       temperature: getProseTemperature(parsedInput),
       system: systemPrompt,
       prompt: prosePrompt,
       abortSignal: request.signal,
-      ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      maxOutputTokens,
     });
 
     return toLocalinkTextStreamResponse({
@@ -275,6 +275,17 @@ function logEnd(
 }
 
 function toRouteError(error: unknown): StoryProseRouteError {
+  if (error instanceof StoryProseContextTooLargeError) {
+    return {
+      code: "MANUSCRIPT_CONTEXT_TOO_LARGE",
+      message: error.message,
+      status: 413,
+    };
+  }
+
+  if (error instanceof LocalinkTextStreamFinishError) {
+    return { code: error.code, message: error.message, status: 500 };
+  }
   if (isMissingOpenRouterApiKeyError(error)) {
     return {
       code: "AI_NOT_CONFIGURED",
@@ -308,10 +319,6 @@ function getErrorName(error: unknown) {
   return error instanceof Error ? error.name : "UnknownError";
 }
 
-function buildManuscriptContextTooLargeMessage(): string {
-  return `The prose was not generated because this story is too large to send. This is a prompt-size guard, not a model failure. Distant chapters are already reduced to their summaries automatically, but the story still has to fit under about ${formatCharacterLimit(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT)} characters of chapter text in total; split it into separate stories before trying again.`;
-}
-
 function getProseTemperature(input: StoryProseGenerationRequest): number {
   if (input.regeneration?.mode !== "fresh-alternative") {
     return PROSE_PROFILE.temperature;
@@ -331,10 +338,6 @@ function getProseMaxOutputTokens(
   }
 
   return PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[approximateLength];
-}
-
-function formatCharacterLimit(limit: number): string {
-  return limit.toLocaleString("en-US");
 }
 
 function errorResponse(error: StoryProseRouteError): Response {

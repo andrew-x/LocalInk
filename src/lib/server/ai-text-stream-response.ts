@@ -3,6 +3,7 @@ import "server-only";
 import {
   encodeLocalinkTextStreamEvent,
   LOCALINK_TEXT_STREAM_CONTENT_TYPE,
+  LocalinkTextStreamFinishError,
 } from "@/lib/ai-text-stream";
 
 type LocalinkTextStreamPart = {
@@ -43,6 +44,14 @@ export function toLocalinkTextStreamResponse<
   toRouteError,
 }: LocalinkTextStreamResponseOptions<TRouteError>): Response {
   const encoder = new TextEncoder();
+  let canceled = false;
+  let didTerminate = false;
+
+  function reportAbort() {
+    if (didTerminate) return;
+    didTerminate = true;
+    onAbort();
+  }
 
   return new Response(
     new ReadableStream<Uint8Array>({
@@ -50,81 +59,88 @@ export function toLocalinkTextStreamResponse<
         const sendEvent = (
           event: Parameters<typeof encodeLocalinkTextStreamEvent>[0],
         ) => {
-          controller.enqueue(
-            encoder.encode(encodeLocalinkTextStreamEvent(event)),
-          );
+          if (!canceled) {
+            controller.enqueue(
+              encoder.encode(encodeLocalinkTextStreamEvent(event)),
+            );
+          }
+        };
+        const sendError = (error: unknown) => {
+          const routeError = toRouteError(error);
+          didTerminate = true;
+          onError(error, routeError);
+          sendEvent({
+            code: routeError.code,
+            finishReason:
+              error instanceof LocalinkTextStreamFinishError
+                ? error.finishReason
+                : undefined,
+            message: routeError.message,
+            type: "error",
+          });
+        };
+        const sendAbort = () => {
+          reportAbort();
+          sendEvent({ type: "aborted" });
         };
 
         try {
           for await (const part of stream.fullStream) {
+            if (canceled) return;
+            if (requestSignal?.aborted) {
+              sendAbort();
+              return;
+            }
+
             if (part.type === "text-delta" && typeof part.text === "string") {
               sendEvent({ text: part.text, type: "delta" });
               continue;
             }
 
             if (part.type === "error") {
-              const routeError = toRouteError(part.error);
-
-              onError(part.error, routeError);
-              sendEvent({
-                code: routeError.code,
-                message: routeError.message,
-                type: "error",
-              });
+              sendError(part.error);
               return;
             }
 
             if (part.type === "finish") {
-              if (part.finishReason === "error") {
-                const error = new Error("AI stream finished with an error.");
-                const routeError = toRouteError(error);
-
-                onError(error, routeError);
-                sendEvent({
-                  code: routeError.code,
-                  message: routeError.message,
-                  type: "error",
-                });
+              if (part.finishReason !== "stop") {
+                sendError(new LocalinkTextStreamFinishError(part.finishReason));
                 return;
               }
 
+              didTerminate = true;
               onComplete();
-              sendEvent({ type: "complete" });
+              sendEvent({ finishReason: "stop", type: "complete" });
               return;
             }
 
             if (part.type === "abort") {
-              onAbort();
+              sendAbort();
               return;
             }
           }
 
-          const error = new Error("AI stream ended before completion.");
-          const routeError = toRouteError(error);
-
-          onError(error, routeError);
-          sendEvent({
-            code: routeError.code,
-            message: routeError.message,
-            type: "error",
-          });
-        } catch (error) {
+          if (canceled) return;
           if (requestSignal?.aborted) {
-            onAbort();
+            sendAbort();
+            return;
+          }
+          sendError(new LocalinkTextStreamFinishError());
+        } catch (error) {
+          if (canceled) return;
+          if (requestSignal?.aborted) {
+            sendAbort();
             return;
           }
 
-          const routeError = toRouteError(error);
-
-          onError(error, routeError);
-          sendEvent({
-            code: routeError.code,
-            message: routeError.message,
-            type: "error",
-          });
+          sendError(error);
         } finally {
-          controller.close();
+          if (!canceled) controller.close();
         }
+      },
+      cancel() {
+        canceled = true;
+        reportAbort();
       },
     }),
     {

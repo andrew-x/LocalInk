@@ -164,14 +164,14 @@ describe("story AI system prompts", () => {
     expect(countOccurrences(prompt, "Return prose only.")).toBe(2);
     expect(countOccurrences(prompt, "content warnings")).toBe(2);
     expect(prompt).toContain("Current generation or regeneration instructions");
-    expect(prompt).toContain("immediate manuscript continuity");
+    expect(prompt).toContain("protect all surrounding text");
     expect(prompt).toContain("Full-story continuity and current story state");
     // Voice outranks the app's own craft opinions rather than sitting below
     // them, and the two are collapsed into one level each.
     expectPrecedenceOrder(prompt, [
       "Hard output rules",
-      "Insertion boundaries and immediate manuscript continuity",
-      "Current generation or regeneration instructions",
+      "Insertion boundaries: replace only the selected span or insert at the marked point; protect all surrounding text",
+      "Current generation or regeneration instructions, including explicit changes to voice and mechanics within the requested span",
       "Writer voice: story system instructions, writer global system instructions, voice samples, story style guide, and character and location notes",
       "Full-story continuity and current story state",
       "Generation discipline, style and line discipline, and craft defaults",
@@ -185,7 +185,7 @@ describe("story AI system prompts", () => {
     expect(prompt).toContain(
       "The system prompt contains static generation rules",
     );
-    expect(prompt).toContain("Use dynamic request data in this order");
+    expect(prompt).toContain("Resolve conflicts by purpose");
     expect(prompt).toContain(
       "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location",
     );
@@ -436,7 +436,7 @@ describe("story chat slash commands", () => {
     expect(getSection(prompt, "FOCUS_AREAS")).toContain(
       "Behavior under stress",
     );
-    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Relationships");
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("relationships");
     expect(prompt).not.toContain("<USER_EXTRA_INSTRUCTIONS>");
     expect(prompt).not.toMatch(/<([A-Z_]+)>\s*<\/\1>/);
   });
@@ -463,7 +463,7 @@ describe("story chat slash commands", () => {
       "Return only one paste-ready location description.",
     );
     expect(getSection(prompt, "FOCUS_AREAS")).toContain("Physical layout");
-    expect(getSection(prompt, "FOCUS_AREAS")).toContain("Scene-use guidance");
+    expect(getSection(prompt, "FOCUS_AREAS")).toContain("blocking");
     expect(getSection(prompt, "USER_EXTRA_INSTRUCTIONS")).toContain(
       "emphasize &lt;claustrophobic platforms&gt; &amp; rain",
     );
@@ -615,10 +615,10 @@ describe("story prose request prompt", () => {
     const prompt = buildStoryProsePrompt(createProseRequest());
 
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
-      "full story manuscript across chapters",
+      "established manuscript facts at the cursor outrank notes",
     );
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
-      "supporting defaults when they do not contradict current manuscript state",
+      "notes supply defaults where the manuscript has not established a fact",
     );
     expect(getSection(systemPrompt, "DYNAMIC_REQUEST_USE")).toContain(
       "For canon and continuity, prefer the current manuscript state over notes",
@@ -708,73 +708,6 @@ describe("story prose request prompt", () => {
     expect(prompt).not.toContain("<ANCHOR>");
     expect(prompt).not.toContain("<slow>");
     expect(prompt).not.toContain("<Below>");
-  });
-
-  test("counts the deduped current manuscript context for size guarding", async () => {
-    const {
-      getStoryProseManuscriptContextCharCount,
-      STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT,
-    } = await import("./story-prose-generation");
-    const request = createProseRequest({
-      chapters: [
-        {
-          ...createProseRequest().chapters[0],
-          content: "First",
-        },
-        {
-          ...createProseRequest().chapters[1],
-          content: "Stale focused content",
-        },
-      ],
-      focusedChapter: {
-        ...createProseRequest().focusedChapter,
-        content: "Current focused content",
-      },
-    });
-
-    expect(getStoryProseManuscriptContextCharCount(request)).toBe(
-      "First".length + "Current focused content".length,
-    );
-    expect(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT).toBeGreaterThan(0);
-  });
-
-  test("rejects oversized full-manuscript prose requests before generation", async () => {
-    const { STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT } = await import(
-      "./story-prose-generation"
-    );
-    const { POST } = await import("@/app/api/story-prose/route");
-    // Spread across chapters because the aggregate guard now sits above the
-    // per-chapter contract cap, so no single chapter can breach it alone.
-    const chapterChars = 900_000;
-    const chapterCount =
-      Math.ceil(STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT / chapterChars) + 1;
-    const oversizedRequest = createProseRequest({
-      chapters: Array.from({ length: chapterCount }, (_, index) => ({
-        id: `oversized-chapter-${index + 1}`,
-        name: `Oversized ${index + 1}`,
-        position: index + 1,
-        content: "x".repeat(chapterChars),
-        synopsis: "",
-      })),
-    });
-    const response = await POST(
-      new Request("http://localink.test/api/story-prose", {
-        body: JSON.stringify(oversizedRequest),
-        headers: {
-          "Content-Type": "application/json",
-        },
-        method: "POST",
-      }),
-    );
-    const data = (await response.json()) as {
-      code?: string;
-      message?: string;
-    };
-
-    expect(response.status).toBe(413);
-    expect(data.code).toBe("MANUSCRIPT_CONTEXT_TOO_LARGE");
-    expect(data.message).toContain("prompt-size guard");
-    expect(data.message).toContain("1,500,000");
   });
 
   test("preserves insertion anchors with long focused chapter text", async () => {
@@ -1072,7 +1005,7 @@ describe("story prose request prompt", () => {
     expect(countOccurrences(prompt, "<SELECTION_END/>")).toBe(1);
   });
 
-  test("restates the story so far after the manuscript, up to the focused chapter", async () => {
+  test("restates only completed chapters before a mid-chapter insertion", async () => {
     const { buildStoryProsePrompt } = await import("./story-prose-generation");
     const prompt = buildStoryProsePrompt(createProseRequest());
 
@@ -1086,7 +1019,7 @@ describe("story prose request prompt", () => {
     expect(getSection(prompt, "STORY_STATE")).toContain(
       "Elena arrives at the station in the rain",
     );
-    expect(getSection(prompt, "STORY_STATE")).toContain(
+    expect(getSection(prompt, "STORY_STATE")).not.toContain(
       "Elena reaches the locked office",
     );
     // Chapters after the insertion point are not part of the story so far.
@@ -1513,10 +1446,11 @@ function expectPrecedenceOrder(prompt: string, rules: string[]) {
   const section = getSection(prompt, "INSTRUCTION_PRECEDENCE");
   const numberedRules = rules.map((rule, index) => `${index + 1}. ${rule}`);
 
-  expect(section).toBe(
-    ["When instructions conflict, follow this order:", ...numberedRules].join(
-      "\n",
-    ),
+  expect(
+    section.startsWith("When instructions conflict, follow this order:"),
+  ).toBe(true);
+  expect(section.split("\n").filter((line) => /^\d+\. /.test(line))).toEqual(
+    numberedRules,
   );
 }
 

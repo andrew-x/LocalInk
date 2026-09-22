@@ -1,17 +1,7 @@
 import "server-only";
 
+import type { PreparedStoryProseGenerationRequest } from "@/lib/server/story-prose-context";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
-
-/**
- * Absolute ceiling on chapter text, after distant chapters have been reduced
- * to their synopses.
- *
- * This is a backstop against a pathological request, not a limit a story is
- * expected to reach: with degradation in play, only the chapters around the
- * insertion point ship in full. Before synopses existed this was 300,000 and
- * a novel-length manuscript simply hit a wall.
- */
-export const STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT = 1_500_000;
 
 /**
  * Total chapter text that ships verbatim before distant chapters fall back to
@@ -23,12 +13,12 @@ export const STORY_PROSE_MANUSCRIPT_CONTEXT_CHAR_LIMIT = 1_500_000;
 const FULL_TEXT_BUDGET_CHARS = 140_000;
 
 /**
- * Chapters on either side of the focused one that always ship in full, even
- * when the budget is spent.
+ * Prefer full text for these neighbours within the soft allocation budget.
+ * The complete rendered request still has to fit the model's hard limit.
  *
  * Immediate neighbours carry the voice and the cause-and-effect the next
  * passage continues from, so a summary is not an acceptable substitute for
- * them however long the manuscript gets.
+ * them unless the hard request budget requires an excerpt or valid synopsis.
  */
 const ALWAYS_FULL_TEXT_NEIGHBOUR_CHAPTERS = 2;
 
@@ -44,6 +34,19 @@ const ALWAYS_FULL_TEXT_NEIGHBOUR_CHAPTERS = 2;
 const MAX_TRIMMED_CHAPTER_CHARS = 8_000;
 
 type ChapterTextMode = "full" | "synopsis-only" | "trimmed";
+
+type ChapterTextAllocation = {
+  mode: ChapterTextMode;
+  maxChars?: number;
+};
+
+type ChapterTextPlan = ReadonlyMap<string, ChapterTextAllocation>;
+
+// UTF-8 bytes conservatively bound token usage for the configured text models.
+// Reserve additional room for message framing and provider-specific wrappers.
+const PROMPT_FRAMING_TOKEN_RESERVE = 4_096;
+const UNBOUNDED_MIN_OUTPUT_TOKEN_RESERVE = 8_192;
+const MIN_CHAPTER_EXCERPT_CHARS = 512;
 
 const MAX_IMMEDIATE_BEFORE_ANCHOR_CHARS = 500;
 const MAX_IMMEDIATE_AFTER_ANCHOR_CHARS = 500;
@@ -74,8 +77,8 @@ const HARD_OUTPUT_RULES = [
 // the previous ordering had it three levels below them.
 const PRECEDENCE_RULES = [
   "Hard output rules",
-  "Insertion boundaries and immediate manuscript continuity",
-  "Current generation or regeneration instructions",
+  "Insertion boundaries: replace only the selected span or insert at the marked point; protect all surrounding text",
+  "Current generation or regeneration instructions, including explicit changes to voice and mechanics within the requested span",
   "Writer voice: story system instructions, writer global system instructions, voice samples, story style guide, and character and location notes",
   "Full-story continuity and current story state",
   "Generation discipline, style and line discipline, and craft defaults",
@@ -86,18 +89,19 @@ const STORY_CONTINUITY_RULES = [
   "Continue from the latest established state at the insertion point. When an early detail has been revised, resolved, contradicted, transformed, or made obsolete by later chapters, follow the later development unless the current instructions explicitly ask for memory, flashback, rumor, or mistaken belief.",
   "Carry forward continuity that matters to the current moment: unresolved promises, injuries, locations, objects, resources, relationships, emotional states, plans, consequences, mysteries, and constraints.",
   "Do not forget or reset established details, but do not treat outdated earlier information as still true when the manuscript has moved past it.",
+  "Text after the insertion point and chapters whose <RELATION_TO_INSERTION> is `after` constrain what this passage must lead into. They are later events, not facts the characters already know or events that have already happened at the cursor.",
 ] as const;
 
 const DYNAMIC_REQUEST_RULES = [
   "The system prompt contains static generation rules. Treat the user prompt as dynamic request data: task metadata, writer brief, insertion anchors, story metadata, style guide, character notes, location notes, manuscript chapters, prior draft text, and final insertion reminders.",
-  "Use dynamic request data in this order when details compete: immediate insertion anchors and final insertion data; current writer instructions and regeneration edit instructions; full story manuscript across chapters, especially the focused chapter around the insertion point; explicit story premise, character notes, location notes, and style guide as supporting defaults when they do not contradict current manuscript state.",
+  "Resolve conflicts by purpose. Insertion anchors define the span and its connections; they do not override explicit requests to change its voice or mechanics. For canon and character knowledge, established manuscript facts at the cursor outrank notes unless the current request explicitly revises those facts within the selected span. For voice, follow current instructions, then story system instructions, global system instructions, voice samples, and style guidance rather than inferred manuscript register. Story and character notes supply defaults where the manuscript has not established a fact.",
   "Inside the focused chapter's <CHAPTER_TEXT>, <INSERTION_POINT/> marks the exact insertion location. For a rewrite, <SELECTION_START/> and <SELECTION_END/> instead bracket the existing prose being replaced.",
   "When <SELECTION_TO_REWRITE> is present, the writer is replacing existing manuscript prose rather than adding new prose. Output only the replacement for that span. It is canon being revised, so keep what the surrounding text depends on and leave the prose on both sides reading continuously. Follow the current instructions over the original phrasing, and do not restate the text outside the selection.",
   "Read the chapters in order to follow the full cause-and-effect flow. For canon and continuity, prefer the current manuscript state over notes; for voice, description style, and reusable craft guidance, prefer explicit style, character, and location notes when they are more specific than diffuse manuscript cues.",
   "When <PRIOR_DRAFT_TEXT> is present, it is editable material from a selected generated draft, not canon. Use it only as the draft to revise, and output full replacement prose.",
   "When <PRIOR_ATTEMPT_TEXT> is present, the writer set that attempt aside. It is not canon and not material to revise. Serve the same brief, insertion point, and continuity, but take a materially different approach: a different entry point, structure, ordering, or emphasis. Do not reuse its phrasing, images, or beat-by-beat shape.",
-  "<CHAPTER_TEXT_INCLUDED> is `true` when a chapter ships in full, `partial` when a distant chapter was cut down to an excerpt, and `false` when only its <CHAPTER_SYNOPSIS> is present. Anything less than `true` means the request was kept to a workable size, not that the chapter is short or empty: treat it as established and real, and rely on the synopsis for what it contains.",
-  "<STORY_STATE> restates what each chapter up to the insertion point establishes. Use it as an index to the manuscript, not as a replacement for it: where the two disagree, the chapter text is current and the summary may lag an edit.",
+  "<CHAPTER_TEXT_INCLUDED> is `true` when a chapter ships in full, `partial` when it was cut down to an excerpt, and `false` when only its verified <CHAPTER_SYNOPSIS> is present. Reduced context does not mean the chapter is short or empty. Use the supplied synopsis or excerpt, and do not invent facts about omitted passages.",
+  "<STORY_STATE> restates verified summaries of chapters before the insertion point. The focused chapter appears there only for an end append, never for a rewrite or mid-chapter insertion. Use it as an index to established facts; if a summary misrepresents the manuscript, the manuscript wins.",
   "When <VOICE_EXEMPLARS> is present, those passages define the target voice. Prefer them over the manuscript's register, and never treat their content as story canon.",
   "Field value conventions: <GENERATION_MODE> is one of `first-generation`, `fresh-alternative`, `revise-prior-draft`. <INSERTION_MODE> is one of `append-to-focused-chapter-end`, `between-before-and-after-anchors`, `replace-selected-text`. <TARGET_WORD_COUNT> is omitted for unbounded generation; when present, it is a single integer word count. <TARGET_SCALE> names the scope that word count buys. <PACING_MODE> is one of `scene`, `summary`, `interior`, `dialogue`, and is omitted when the choice is left open. <BEAT_GOAL> is omitted when the writer did not state one.",
 ] as const;
@@ -157,13 +161,14 @@ export function buildStoryProseSystemPrompt(
       [
         "When instructions conflict, follow this order:",
         ...PRECEDENCE_RULES.map((rule, index) => `${index + 1}. ${rule}`),
+        "Apply voice preferences to voice, not to canon: manuscript facts and character knowledge outrank conflicting notes unless explicitly revised by the current request. Manuscript mechanics are defaults unless the current request changes them. General craft rules never override a specific writer instruction.",
       ].join("\n"),
     ),
     trimmedSystemInstructions
       ? proseSection(
           "Writer Global System Instructions",
           [
-            "Treat these as durable writer preferences. Follow them unless hard output rules, insertion boundaries, the current request, or the story's established style are more specific.",
+            "Treat these as durable writer preferences. For voice, they override inferred manuscript style unless the current request or story system instructions are more specific. They do not change established facts or authorize edits outside the insertion span.",
             "",
             xmlTextElement("SYSTEM_INSTRUCTIONS", trimmedSystemInstructions),
           ].join("\n"),
@@ -206,11 +211,15 @@ export function buildStoryProseSystemPrompt(
 
 export function buildStoryProsePrompt(
   request: StoryProseGenerationRequest,
+  chapterTextPlan?: ChapterTextPlan,
 ): string {
   const styleSection = buildStyleGuideSection(request);
   const charactersSection = buildCharactersSection(request);
   const locationsSection = buildLocationsSection(request);
-  const fullStorySection = buildFullStoryManuscriptSection(request);
+  const fullStorySection = buildFullStoryManuscriptSection(
+    request,
+    chapterTextPlan,
+  );
   const immediateInsertionAnchorSection =
     buildImmediateInsertionAnchorSection(request);
   const selectionToRewriteSection = buildSelectionToRewriteSection(request);
@@ -257,12 +266,126 @@ export function buildStoryProsePrompt(
   return sections.join("\n\n");
 }
 
-export function getStoryProseManuscriptContextCharCount(
-  request: StoryProseGenerationRequest,
-): number {
-  return getStoryManuscriptChapters(request).reduce(
-    (total, chapter) => total + chapter.content.trim().length,
-    0,
+export class StoryProseContextTooLargeError extends Error {
+  constructor() {
+    super(
+      "The prose request cannot fit the writing model's context after reducing distant chapters. Shorten the focused passage or reference instructions, or refresh chapter summaries before trying again. This is a prompt-size guard; your manuscript has not been changed.",
+    );
+    this.name = "StoryProseContextTooLargeError";
+  }
+}
+
+export type StoryProseModelLimits = {
+  contextWindowTokens: number;
+  maxCompletionTokens: number;
+};
+
+/**
+ * Budget the actual escaped and bookended request, not the source manuscript.
+ * Keep all fixed writer instructions and the focused chapter intact. Distant
+ * chapters retain either their verified synopsis or an explicitly partial
+ * excerpt; even close neighbours may be reduced at the hard context ceiling.
+ */
+export function buildBudgetedStoryProsePrompt(
+  request: PreparedStoryProseGenerationRequest,
+  {
+    system,
+    contextWindowTokens,
+    maxCompletionTokens,
+    requestedOutputTokens,
+  }: StoryProseModelLimits & {
+    system: string;
+    requestedOutputTokens?: number;
+  },
+): { prompt: string; maxOutputTokens: number; inputTokenUpperBound: number } {
+  const outputReserve = Math.min(
+    requestedOutputTokens ?? UNBOUNDED_MIN_OUTPUT_TOKEN_RESERVE,
+    maxCompletionTokens,
+  );
+  const inputBudget = contextWindowTokens - outputReserve;
+  const chapters = getStoryManuscriptChapters(request);
+  const allocations = getChapterTextPlan(request, chapters);
+  let prompt = buildStoryProsePrompt(request, allocations);
+  let inputTokenUpperBound = getPromptTokenUpperBound(system, prompt);
+  const byDistanceDescending = chapters
+    .filter((chapter) => chapter.id !== request.focusedChapter.id)
+    .sort(
+      (a, b) =>
+        Math.abs(b.position - request.focusedChapter.position) -
+        Math.abs(a.position - request.focusedChapter.position),
+    );
+
+  const reduceChapter = (
+    chapter: StoryProseGenerationRequest["focusedChapter"],
+    allocation: ChapterTextAllocation,
+  ) => {
+    const previous = allocations.get(chapter.id) ?? { mode: "full" };
+    const relation = getChapterRelationToInsertion(
+      chapter,
+      request.focusedChapter,
+    );
+    const render = (value: ChapterTextAllocation) =>
+      buildStoryManuscriptChapter(chapter, relation, request.insertion, value);
+    const savedBytes =
+      Buffer.byteLength(render(previous), "utf8") -
+      Buffer.byteLength(render(allocation), "utf8");
+
+    if (savedBytes > 0) {
+      allocations.set(chapter.id, allocation);
+      inputTokenUpperBound -= savedBytes;
+    }
+  };
+
+  // First trade full chapters for summaries/excerpts, farthest first. This
+  // includes neighbours only when required to fit the model's hard limit.
+  for (const chapter of byDistanceDescending) {
+    if (inputTokenUpperBound <= inputBudget) break;
+    reduceChapter(
+      chapter,
+      chapter.synopsis.trim()
+        ? { mode: "synopsis-only" }
+        : { mode: "trimmed", maxChars: MAX_TRIMMED_CHAPTER_CHARS },
+    );
+  }
+
+  // Unsummarized manuscripts still need representation of every chapter.
+  // Reduce excerpt sizes in rounds, preserving at least the head and tail.
+  for (const maxChars of [4_000, 2_000, 1_000, MIN_CHAPTER_EXCERPT_CHARS]) {
+    for (const chapter of byDistanceDescending) {
+      if (inputTokenUpperBound <= inputBudget) break;
+      if (!chapter.synopsis.trim()) {
+        reduceChapter(chapter, { mode: "trimmed", maxChars });
+      }
+    }
+    if (inputTokenUpperBound <= inputBudget) break;
+  }
+
+  if (inputTokenUpperBound > inputBudget) {
+    throw new StoryProseContextTooLargeError();
+  }
+
+  // Recount the final rendered request as a backstop to the incremental budget.
+  prompt = buildStoryProsePrompt(request, allocations);
+  inputTokenUpperBound = getPromptTokenUpperBound(system, prompt);
+  if (inputTokenUpperBound > inputBudget) {
+    throw new StoryProseContextTooLargeError();
+  }
+
+  return {
+    prompt,
+    inputTokenUpperBound,
+    maxOutputTokens: Math.min(
+      requestedOutputTokens ?? contextWindowTokens - inputTokenUpperBound,
+      maxCompletionTokens,
+    ),
+  };
+}
+
+function getPromptTokenUpperBound(system: string, prompt: string): number {
+  return (
+    Buffer.byteLength(system, "utf8") +
+    Buffer.byteLength(prompt, "utf8") +
+    PROMPT_FRAMING_TOKEN_RESERVE
   );
 }
 
@@ -282,7 +405,7 @@ function buildTaskCapsuleSection(request: StoryProseGenerationRequest): string {
  * alternative or revised with instructions.
  */
 function describeInsertionMode(request: StoryProseGenerationRequest): string {
-  if (request.insertion.selectedText.trim()) {
+  if (isSelectionRewrite(request.insertion)) {
     return "replace-selected-text";
   }
 
@@ -299,14 +422,15 @@ function buildSelectionToRewriteSection(
     request.insertion.selectedText,
   );
 
-  if (!selectedText) {
+  if (!isSelectionRewrite(request.insertion)) {
     return null;
   }
 
   return [
     "The writer selected this existing prose to be replaced. Output replacement prose for this span only. It is already part of the manuscript, so preserve what the surrounding text depends on and keep the continuity on both sides intact. Follow the current instructions over the original phrasing.",
     "",
-    selectedText,
+    selectedText ??
+      "The selected span contains only whitespace or paragraph boundaries.",
   ].join("\n");
 }
 
@@ -402,7 +526,7 @@ function buildLocationsSection(
  *
  * The manuscript itself sits in the middle of a long prompt, which is where
  * continuity details are least reliably retrieved. Restating the state each
- * chapter leaves behind — up to and including the one being written — puts
+ * chapter leaves behind before the cursor — puts
  * the facts a continuation depends on next to the instructions that use them.
  */
 function buildStoryStateSection(
@@ -410,7 +534,12 @@ function buildStoryStateSection(
 ): string | null {
   const focusedPosition = request.focusedChapter.position;
   const stateSections = getStoryManuscriptChapters(request)
-    .filter((chapter) => chapter.position <= focusedPosition)
+    .filter(
+      (chapter) =>
+        chapter.position < focusedPosition ||
+        (chapter.id === request.focusedChapter.id &&
+          isFocusedChapterEndAppend(request.insertion)),
+    )
     .map((chapter) =>
       chapter.synopsis.trim()
         ? xmlElement(
@@ -430,7 +559,7 @@ function buildStoryStateSection(
   }
 
   return [
-    "The story so far, chapter by chapter, up to and including the one being written. Use it to track what has already happened and what is still open. Where it disagrees with the manuscript text, the manuscript wins: this is a summary and may lag a recent edit.",
+    "Verified summaries of completed chapters before the cursor, including the focused chapter only for an end append. Track what has already happened and what is still open. Later prose is a future continuity constraint, not current character knowledge. If a summary misrepresents the manuscript, the manuscript wins.",
     "",
     stateSections.join("\n"),
   ].join("\n");
@@ -464,16 +593,17 @@ function buildVoiceExemplarsSection(
 
 function buildFullStoryManuscriptSection(
   request: StoryProseGenerationRequest,
+  chapterTextPlan?: ChapterTextPlan,
 ): string | null {
   const chapters = getStoryManuscriptChapters(request);
-  const textModesByChapterId = getChapterTextModes(request, chapters);
+  const allocations = chapterTextPlan ?? getChapterTextPlan(request, chapters);
   const chapterSections = chapters
     .map((chapter) =>
       buildStoryManuscriptChapter(
         chapter,
         getChapterRelationToInsertion(chapter, request.focusedChapter),
         request.insertion,
-        textModesByChapterId.get(chapter.id) ?? "full",
+        allocations.get(chapter.id) ?? { mode: "full" },
       ),
     )
     .filter(isNonEmptyString);
@@ -493,17 +623,17 @@ function buildFullStoryManuscriptSection(
  * entirely; one without is trimmed instead of dropped, so it neither vanishes
  * from the model's view nor blows the budget on its own.
  */
-function getChapterTextModes(
+function getChapterTextPlan(
   request: StoryProseGenerationRequest,
   chapters: StoryProseGenerationRequest["chapters"],
-): Map<string, ChapterTextMode> {
+): Map<string, ChapterTextAllocation> {
   const focusedPosition = request.focusedChapter.position;
   const byDistanceFromInsertion = [...chapters].sort(
     (firstChapter, secondChapter) =>
       Math.abs(firstChapter.position - focusedPosition) -
       Math.abs(secondChapter.position - focusedPosition),
   );
-  const textModes = new Map<string, ChapterTextMode>();
+  const allocations = new Map<string, ChapterTextAllocation>();
   let usedChars = 0;
 
   for (const chapter of byDistanceFromInsertion) {
@@ -513,21 +643,24 @@ function getChapterTextModes(
       ALWAYS_FULL_TEXT_NEIGHBOUR_CHAPTERS;
 
     if (isNeighbour || usedChars + contentChars <= FULL_TEXT_BUDGET_CHARS) {
-      textModes.set(chapter.id, "full");
+      allocations.set(chapter.id, { mode: "full" });
       usedChars += contentChars;
       continue;
     }
 
     if (chapter.synopsis.trim()) {
-      textModes.set(chapter.id, "synopsis-only");
+      allocations.set(chapter.id, { mode: "synopsis-only" });
       continue;
     }
 
-    textModes.set(chapter.id, "trimmed");
+    allocations.set(chapter.id, {
+      mode: "trimmed",
+      maxChars: MAX_TRIMMED_CHAPTER_CHARS,
+    });
     usedChars += Math.min(contentChars, MAX_TRIMMED_CHAPTER_CHARS);
   }
 
-  return textModes;
+  return allocations;
 }
 
 function getStoryManuscriptChapters(
@@ -550,9 +683,10 @@ function buildStoryManuscriptChapter(
   chapter: StoryProseGenerationRequest["focusedChapter"],
   relationToInsertion: "after" | "before" | "focused",
   insertion: StoryProseGenerationRequest["insertion"],
-  textMode: ChapterTextMode,
+  allocation: ChapterTextAllocation,
 ): string {
   const isFocused = relationToInsertion === "focused";
+  const includeSynopsis = !isFocused || isFocusedChapterEndAppend(insertion);
 
   return xmlElement(
     "STORY_CHAPTER",
@@ -562,13 +696,31 @@ function buildStoryManuscriptChapter(
       xmlElement("IS_FOCUSED_CHAPTER", String(isFocused)),
       xmlElement(
         "CHAPTER_TEXT_INCLUDED",
-        isFocused ? "true" : describeChapterTextInclusion(textMode),
+        isFocused ? "true" : describeChapterTextInclusion(allocation.mode),
       ),
-      optionalXmlTextElement("CHAPTER_SYNOPSIS", chapter.synopsis),
+      includeSynopsis
+        ? optionalXmlTextElement("CHAPTER_SYNOPSIS", chapter.synopsis)
+        : null,
       isFocused ? buildFocusedChapterText(insertion) : null,
-      isFocused ? null : buildChapterTextElement(chapter, textMode),
+      isFocused ? null : buildChapterTextElement(chapter, allocation),
     ]),
   );
+}
+
+function isFocusedChapterEndAppend(
+  insertion: StoryProseGenerationRequest["insertion"],
+): boolean {
+  return (
+    insertion.atChapterEnd &&
+    !insertion.afterText.trim() &&
+    !isSelectionRewrite(insertion)
+  );
+}
+
+function isSelectionRewrite(
+  insertion: StoryProseGenerationRequest["insertion"],
+): boolean {
+  return insertion.isRewrite === true || insertion.selectedText.length > 0;
 }
 
 function describeChapterTextInclusion(textMode: ChapterTextMode): string {
@@ -581,16 +733,19 @@ function describeChapterTextInclusion(textMode: ChapterTextMode): string {
 
 function buildChapterTextElement(
   chapter: StoryProseGenerationRequest["focusedChapter"],
-  textMode: ChapterTextMode,
+  allocation: ChapterTextAllocation,
 ): string | null {
-  if (textMode === "synopsis-only") {
+  if (allocation.mode === "synopsis-only") {
     return null;
   }
 
   return optionalXmlTextElement(
     "CHAPTER_TEXT",
-    textMode === "trimmed"
-      ? trimPromptSection(chapter.content, MAX_TRIMMED_CHAPTER_CHARS)
+    allocation.mode === "trimmed"
+      ? trimPromptSection(
+          chapter.content,
+          allocation.maxChars ?? MAX_TRIMMED_CHAPTER_CHARS,
+        )
       : chapter.content,
   );
 }
@@ -751,7 +906,7 @@ function buildFocusedChapterText(
       insertion.beforeText.trim() ? escapeXmlText(insertion.beforeText) : null,
       // A rewrite marks the span being replaced in place, so the model can see
       // the selection in its surroundings rather than only as a loose excerpt.
-      ...(selectedText
+      ...(isSelectionRewrite(insertion)
         ? [
             "<SELECTION_START/>",
             escapeXmlText(selectedText),

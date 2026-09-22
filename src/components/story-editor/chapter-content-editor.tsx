@@ -1,16 +1,16 @@
 "use client";
 
-import {
-  $convertFromMarkdownString,
-  $convertToMarkdownString,
-} from "@lexical/markdown";
+import { $convertFromMarkdownString } from "@lexical/markdown";
 import {
   type InitialConfigType,
   LexicalComposer,
 } from "@lexical/react/LexicalComposer";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
-import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
+import {
+  createEmptyHistoryState,
+  HistoryPlugin,
+} from "@lexical/react/LexicalHistoryPlugin";
 import { MarkdownShortcutPlugin } from "@lexical/react/LexicalMarkdownShortcutPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
@@ -37,6 +37,8 @@ import {
   AiDraftNode,
   type ChapterAiDraftHandle,
   ChapterAiDraftPlugin,
+  type ChapterRewriteTransactionRef,
+  readChapterContentForSave,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { CHAPTER_MARKDOWN_TRANSFORMERS } from "@/components/story-editor/chapter-markdown";
 import { createLogger } from "@/lib/logger";
@@ -103,6 +105,8 @@ export function ChapterContentEditor({
   onSaved,
   storyId,
 }: ChapterContentEditorProps) {
+  const transaction = useRef<ChapterRewriteTransactionRef["current"]>(null);
+  const historyState = useMemo(createEmptyHistoryState, []);
   const [contentSaveState, setContentSaveState] = useState<SaveState>("saved");
   const [titleSaveState, setTitleSaveState] = useState<SaveState>("saved");
   const saveState = getCombinedSaveState(titleSaveState, contentSaveState);
@@ -163,17 +167,20 @@ export function ChapterContentEditor({
             }
             ErrorBoundary={LexicalErrorBoundary}
           />
-          <HistoryPlugin />
+          <HistoryPlugin externalHistoryState={historyState} />
           <MarkdownShortcutPlugin
             transformers={CHAPTER_MARKDOWN_TRANSFORMERS}
           />
           <ChapterAiDraftPlugin
             chapterId={chapter.id}
+            historyState={historyState}
+            transaction={transaction}
             onRegister={onRegisterAiDraftHandle}
             onSelectionChange={onAiDraftSelectionChange}
           />
           <ChapterAutosavePlugin
             chapterId={chapter.id}
+            transaction={transaction}
             initialContent={chapter.content}
             isActive={isActive}
             onSaved={onSaved}
@@ -541,6 +548,7 @@ function RichTextContentEditable({ chapterName }: { chapterName: string }) {
 }
 
 type ChapterAutosavePluginProps = {
+  transaction: ChapterRewriteTransactionRef;
   chapterId: string;
   initialContent: string;
   isActive: boolean;
@@ -550,6 +558,7 @@ type ChapterAutosavePluginProps = {
 };
 
 function ChapterAutosavePlugin({
+  transaction,
   chapterId,
   initialContent,
   isActive,
@@ -579,10 +588,9 @@ function ChapterAutosavePlugin({
   /**
    * Brings the chapter's synopsis back in step in the background.
    *
-   * Fire-and-forget by design: prose generation reads whatever synopsis is
-   * stored and tolerates a stale one, which is what keeps drafting a single
-   * model call. A failure here is not worth interrupting the writer for, and
-   * the next save retries anyway.
+   * Generation uses only server-verified summaries. Refresh settled active
+   * chapters as well as saved edits so legacy summaries rebuild lazily.
+   * The next save or activation retries background refresh failures.
    */
   const queueSynopsisRefresh = useCallback(() => {
     if (synopsisTimerRef.current) {
@@ -603,6 +611,10 @@ function ChapterAutosavePlugin({
       });
     }, SYNOPSIS_REFRESH_DELAY_MS);
   }, [chapterId, storyId]);
+
+  useEffect(() => {
+    if (isActive) queueSynopsisRefresh();
+  }, [isActive, queueSynopsisRefresh]);
 
   const saveContent = useCallback(
     async (
@@ -752,15 +764,7 @@ function ChapterAutosavePlugin({
         return;
       }
 
-      let markdown = "";
-
-      editorState.read(() => {
-        markdown = $convertToMarkdownString(
-          CHAPTER_MARKDOWN_TRANSFORMERS,
-          undefined,
-          true,
-        );
-      });
+      const markdown = readChapterContentForSave(editorState, transaction);
 
       latestContentRef.current = markdown;
       changeVersionRef.current += 1;
@@ -777,7 +781,7 @@ function ChapterAutosavePlugin({
       onSaveStateChange("pending");
       queueSave(markdown, changeVersionRef.current);
     },
-    [clearSaveTimer, onSaveStateChange, queueSave],
+    [clearSaveTimer, onSaveStateChange, queueSave, transaction],
   );
 
   return <OnChangePlugin ignoreSelectionChange onChange={handleChange} />;

@@ -14,7 +14,7 @@ import type { ChapterAiDraftHandle } from "@/components/story-editor/chapter-ai-
 import { ChapterContentEditor } from "@/components/story-editor/chapter-content-editor";
 
 const SCROLL_BOTTOM_THRESHOLD_PX = 24;
-const DRAFT_FOLLOW_BOTTOM_PADDING_PX = 120;
+const DRAFT_FOLLOW_BOTTOM_PADDING_PX = 24;
 const USER_SCROLL_UP_THRESHOLD_PX = 2;
 
 type StoryEditorContentPaneProps = {
@@ -65,6 +65,7 @@ export function StoryEditorContentPane({
     isEnabled: false,
   });
   const lastScrollTopRef = useRef(0);
+  const lastViewportHeightRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [chapterIdWithSelection, setChapterIdWithSelection] = useState<
     string | null
@@ -90,15 +91,20 @@ export function StoryEditorContentPane({
     const scrollPane = scrollPaneRef.current;
 
     if (scrollPane) {
+      const didResize =
+        scrollPane.clientHeight !== lastViewportHeightRef.current;
       const didScrollUp =
         scrollPane.scrollTop <
         lastScrollTopRef.current - USER_SCROLL_UP_THRESHOLD_PX;
 
-      if (didScrollUp) {
+      // A taller viewport can clamp scrollTop downward when the composer
+      // collapses. That is layout movement, not the writer scrolling away.
+      if (didScrollUp && !didResize) {
         followedDraftRef.current.isEnabled = false;
       }
 
       lastScrollTopRef.current = scrollPane.scrollTop;
+      lastViewportHeightRef.current = scrollPane.clientHeight;
     }
 
     updateScrollToBottomVisibility();
@@ -238,10 +244,22 @@ export function StoryEditorContentPane({
     }
 
     lastScrollTopRef.current = scrollPane.scrollTop;
+    lastViewportHeightRef.current = scrollPane.clientHeight;
     updateScrollToBottomVisibility();
 
     const resizeObserver = new ResizeObserver(() => {
+      if (scrollPane.clientHeight !== lastViewportHeightRef.current) {
+        lastScrollTopRef.current = scrollPane.scrollTop;
+        lastViewportHeightRef.current = scrollPane.clientHeight;
+      }
       updateScrollToBottomVisibility();
+      const { draftId, isEnabled } = followedDraftRef.current;
+
+      // Expanding the composer resizes the manuscript viewport. Keep following
+      // the draft only while the writer has not scrolled away from it.
+      if (draftId && isEnabled) {
+        handleDraftStreamUpdate(draftId);
+      }
     });
 
     resizeObserver.observe(scrollPane);
@@ -253,7 +271,7 @@ export function StoryEditorContentPane({
     return () => {
       resizeObserver.disconnect();
     };
-  }, [updateScrollToBottomVisibility]);
+  }, [handleDraftStreamUpdate, updateScrollToBottomVisibility]);
 
   useEffect(
     () => () => {
@@ -265,78 +283,80 @@ export function StoryEditorContentPane({
   );
 
   return (
-    <section className="relative flex min-h-0 flex-col bg-background">
-      <div
-        className="min-h-0 flex-1 overflow-auto px-page pt-6 pb-28"
-        onScroll={handleScrollPaneScroll}
-        ref={scrollPaneRef}
-      >
+    <section className="relative flex min-h-0 min-w-0 flex-col bg-background">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className="mx-auto flex min-h-full w-full max-w-readable flex-col"
-          ref={contentRef}
+          className="min-h-0 flex-1 overflow-auto px-page pt-6 pb-6"
+          onScroll={handleScrollPaneScroll}
+          ref={scrollPaneRef}
         >
-          {hasChapters ? (
-            <ol className="grid gap-5">
-              {chapters.map((chapter) => (
-                <ChapterContentEditor
-                  chapter={chapter}
-                  isActive={focusedChapterId === chapter.id}
-                  key={chapter.id}
-                  onAiDraftSelectionChange={handleAiDraftSelectionChange}
-                  onDeleted={onChapterDeleted}
-                  onFocus={onChapterFocus}
-                  onRegisterAiDraftHandle={handleRegisterAiDraftHandle}
-                  onSaved={onChapterSaved}
-                  storyId={story.id}
-                />
-              ))}
-            </ol>
-          ) : (
-            <div className="flex min-h-80 flex-1 items-center justify-center rounded-md border border-dashed border-border/70 px-4 text-center font-content text-[1.125rem] leading-8 text-muted-foreground">
-              No chapters yet
-            </div>
-          )}
+          <div
+            className="mx-auto flex min-h-full w-full max-w-readable flex-col"
+            ref={contentRef}
+          >
+            {hasChapters ? (
+              <ol className="grid gap-5">
+                {chapters.map((chapter) => (
+                  <ChapterContentEditor
+                    chapter={chapter}
+                    isActive={focusedChapterId === chapter.id}
+                    key={chapter.id}
+                    onAiDraftSelectionChange={handleAiDraftSelectionChange}
+                    onDeleted={onChapterDeleted}
+                    onFocus={onChapterFocus}
+                    onRegisterAiDraftHandle={handleRegisterAiDraftHandle}
+                    onSaved={onChapterSaved}
+                    storyId={story.id}
+                  />
+                ))}
+              </ol>
+            ) : (
+              <div className="flex min-h-80 flex-1 items-center justify-center rounded-md border border-dashed border-border/70 px-4 text-center font-content text-[1.125rem] leading-8 text-muted-foreground">
+                No chapters yet
+              </div>
+            )}
 
-          <div className="mt-5 grid gap-3">
-            <Button
-              className={hasChapters ? "justify-self-center" : "w-full"}
-              leftSection={<Plus aria-hidden="true" />}
-              loading={isCreatingChapter}
-              onClick={onAddChapter}
-              size={hasChapters ? "sm" : "lg"}
-              type="button"
-              variant={hasChapters ? "ghost" : "default"}
-            >
-              Add Chapter
-            </Button>
-            {chapterCreateError ? (
-              <p
-                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body text-destructive"
-                role="alert"
+            <div className="mt-5 grid gap-3">
+              <Button
+                className={hasChapters ? "justify-self-center" : "w-full"}
+                leftSection={<Plus aria-hidden="true" />}
+                loading={isCreatingChapter}
+                onClick={onAddChapter}
+                size={hasChapters ? "sm" : "lg"}
+                type="button"
+                variant={hasChapters ? "ghost" : "default"}
               >
-                {chapterCreateError}
-              </p>
-            ) : null}
+                Add Chapter
+              </Button>
+              {chapterCreateError ? (
+                <p
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body text-destructive"
+                  role="alert"
+                >
+                  {chapterCreateError}
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      {showScrollToBottom ? (
-        <div className="pointer-events-none absolute right-4 bottom-4 z-40">
-          <Button
-            aria-label="Scroll to bottom"
-            className="pointer-events-auto size-10 rounded-full border-border/80 bg-card/95 text-foreground shadow-lg backdrop-blur hover:bg-muted"
-            onClick={handleScrollToBottom}
-            size="icon"
-            tooltip="Scroll to bottom"
-            tooltipSide="left"
-            type="button"
-            variant="outline"
-          >
-            <ArrowDown aria-hidden="true" />
-          </Button>
-        </div>
-      ) : null}
+        {showScrollToBottom ? (
+          <div className="pointer-events-none absolute right-4 bottom-4 z-40">
+            <Button
+              aria-label="Scroll to bottom"
+              className="pointer-events-auto size-10 rounded-full border-border/80 bg-card/95 text-foreground shadow-lg backdrop-blur hover:bg-muted"
+              onClick={handleScrollToBottom}
+              size="icon"
+              tooltip="Scroll to bottom"
+              tooltipSide="left"
+              type="button"
+              variant="outline"
+            >
+              <ArrowDown aria-hidden="true" />
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       {hasChapters ? (
         <AiProseGenerationWidget

@@ -1,18 +1,32 @@
 export const LOCALINK_TEXT_STREAM_CONTENT_TYPE =
   "application/x-ndjson; charset=utf-8";
 
+export type LocalinkTextStreamFinishReason =
+  | "stop"
+  | "length"
+  | "content-filter"
+  | "tool-calls"
+  | "error"
+  | "other"
+  | "unknown";
+
 export type LocalinkTextStreamEvent =
   | {
       text: string;
       type: "delta";
     }
   | {
+      finishReason: "stop";
       type: "complete";
     }
   | {
       code: string;
+      finishReason?: LocalinkTextStreamFinishReason;
       message: string;
       type: "error";
+    }
+  | {
+      type: "aborted";
     };
 
 export type LocalinkTextStreamReadOptions = {
@@ -28,6 +42,67 @@ export class LocalinkTextStreamError extends Error {
     super(message);
     this.name = "LocalinkTextStreamError";
     this.code = code;
+  }
+}
+
+export type LocalinkTextStreamFinishErrorCode =
+  | "STREAM_OUTPUT_LIMIT"
+  | "STREAM_CONTENT_FILTERED"
+  | "STREAM_FAILED"
+  | "STREAM_INCOMPLETE";
+
+export class LocalinkTextStreamFinishError extends LocalinkTextStreamError {
+  declare readonly code: LocalinkTextStreamFinishErrorCode;
+  readonly finishReason: LocalinkTextStreamFinishReason | undefined;
+
+  constructor(finishReason?: string, message?: string) {
+    const reason = normalizeLocalinkTextStreamFinishReason(finishReason);
+    const [code, defaultMessage]: [LocalinkTextStreamFinishErrorCode, string] =
+      reason === "length"
+        ? [
+            "STREAM_OUTPUT_LIMIT",
+            "Generation reached its output limit before finishing.",
+          ]
+        : reason === "content-filter"
+          ? [
+              "STREAM_CONTENT_FILTERED",
+              "Generation was interrupted by the provider's content filter.",
+            ]
+          : reason === "error"
+            ? ["STREAM_FAILED", "Generation failed before it could finish."]
+            : ["STREAM_INCOMPLETE", "Generation ended before completion."];
+
+    super(code, message ?? defaultMessage);
+    this.name = "LocalinkTextStreamFinishError";
+    this.finishReason = reason;
+  }
+}
+
+export function isLocalinkIncompleteFinish(error: unknown): boolean {
+  return (
+    error instanceof LocalinkTextStreamError &&
+    (error.code === "STREAM_OUTPUT_LIMIT" ||
+      error.code === "STREAM_CONTENT_FILTERED" ||
+      error.code === "STREAM_INCOMPLETE")
+  );
+}
+
+export function normalizeLocalinkTextStreamFinishReason(
+  reason: string | undefined,
+): LocalinkTextStreamFinishReason | undefined {
+  if (reason === undefined) return undefined;
+
+  switch (reason) {
+    case "stop":
+    case "length":
+    case "content-filter":
+    case "tool-calls":
+    case "error":
+    case "other":
+    case "unknown":
+      return reason;
+    default:
+      return "unknown";
   }
 }
 
@@ -57,8 +132,13 @@ export async function readLocalinkTextStream(
   function handleLine(line: string) {
     const trimmedLine = line.trim();
 
-    if (!trimmedLine) {
-      return;
+    if (!trimmedLine) return;
+
+    if (didComplete) {
+      throw new LocalinkTextStreamError(
+        "STREAM_INVALID",
+        "The generation stream returned data after completion.",
+      );
     }
 
     const event = parseLocalinkTextStreamEvent(trimmedLine);
@@ -73,34 +153,52 @@ export async function readLocalinkTextStream(
       return;
     }
 
+    if (event.type === "aborted") {
+      throw new LocalinkTextStreamError(
+        "STREAM_ABORTED",
+        "Generation was stopped.",
+      );
+    }
+
+    if (
+      event.finishReason !== undefined ||
+      event.code === "STREAM_INCOMPLETE"
+    ) {
+      throw new LocalinkTextStreamFinishError(
+        event.finishReason,
+        event.message,
+      );
+    }
+
     throw new LocalinkTextStreamError(event.code, event.message);
   }
 
-  while (true) {
-    const { done, value } = await reader.read();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
 
-    if (done) {
-      break;
+      if (done) break;
+
+      bufferedText += decoder.decode(value, { stream: true });
+
+      const lines = bufferedText.split("\n");
+      bufferedText = lines.pop() ?? "";
+
+      for (const line of lines) handleLine(line);
     }
 
-    bufferedText += decoder.decode(value, { stream: true });
+    bufferedText += decoder.decode();
 
-    const lines = bufferedText.split("\n");
-    bufferedText = lines.pop() ?? "";
+    if (bufferedText.trim()) handleLine(bufferedText);
 
-    for (const line of lines) {
-      handleLine(line);
+    if (!didComplete) {
+      throw new LocalinkTextStreamFinishError(undefined, incompleteMessage);
     }
-  }
-
-  bufferedText += decoder.decode();
-
-  if (bufferedText.trim()) {
-    handleLine(bufferedText);
-  }
-
-  if (!didComplete) {
-    throw new LocalinkTextStreamError("STREAM_INCOMPLETE", incompleteMessage);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -110,18 +208,10 @@ function parseLocalinkTextStreamEvent(line: string): LocalinkTextStreamEvent {
   try {
     value = JSON.parse(line);
   } catch {
-    throw new LocalinkTextStreamError(
-      "STREAM_INVALID",
-      "The generation stream returned invalid data.",
-    );
+    throw invalidStreamError();
   }
 
-  if (!value || typeof value !== "object") {
-    throw new LocalinkTextStreamError(
-      "STREAM_INVALID",
-      "The generation stream returned invalid data.",
-    );
-  }
+  if (!value || typeof value !== "object") throw invalidStreamError();
 
   const event = value as Partial<LocalinkTextStreamEvent>;
 
@@ -129,19 +219,30 @@ function parseLocalinkTextStreamEvent(line: string): LocalinkTextStreamEvent {
     return event as LocalinkTextStreamEvent;
   }
 
-  if (event.type === "complete") {
+  if (event.type === "complete" && event.finishReason === "stop") {
     return event as LocalinkTextStreamEvent;
   }
+
+  if (event.type === "aborted") return event as LocalinkTextStreamEvent;
 
   if (
     event.type === "error" &&
     typeof event.code === "string" &&
-    typeof event.message === "string"
+    typeof event.message === "string" &&
+    (event.finishReason === undefined ||
+      (typeof event.finishReason === "string" && event.finishReason !== "stop"))
   ) {
-    return event as LocalinkTextStreamEvent;
+    return {
+      ...event,
+      finishReason: normalizeLocalinkTextStreamFinishReason(event.finishReason),
+    } as LocalinkTextStreamEvent;
   }
 
-  throw new LocalinkTextStreamError(
+  throw invalidStreamError();
+}
+
+function invalidStreamError() {
+  return new LocalinkTextStreamError(
     "STREAM_INVALID",
     "The generation stream returned invalid data.",
   );
