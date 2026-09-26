@@ -36,6 +36,10 @@ export const updateStory = publicActionClient
       storyUpdates.locations = normalizeStoryLocations(parsedInput.locations);
     }
 
+    if (parsedInput.backstory !== undefined) {
+      storyUpdates.backstory = parsedInput.backstory;
+    }
+
     if (parsedInput.style !== undefined) {
       storyUpdates.style = parsedInput.style;
     }
@@ -59,6 +63,7 @@ export const updateStory = publicActionClient
         name: stories.name,
         description: stories.description,
         characters: stories.characters,
+        backstory: stories.backstory,
         locations: stories.locations,
         style: stories.style,
         systemInstructions: stories.systemInstructions,

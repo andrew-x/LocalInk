@@ -26,6 +26,7 @@ function fixture(): PreparedStoryProseGenerationRequest {
       id: "story",
       name: "The Door",
       description: "",
+      backstory: "",
       systemInstructions: "",
     },
     chapters: [focusedChapter],
@@ -167,6 +168,8 @@ describe("assembled prose prompt budget", () => {
       content: "x".repeat(30_000),
       synopsis: "",
     }));
+    request.story.backstory =
+      "Mara and Ivo survived the flood together. Only Mara knows who opened the gate.";
     const result = buildBudgetedStoryProsePrompt(request, {
       ...limits,
       system: "Write fiction.",
@@ -180,6 +183,7 @@ describe("assembled prose prompt budget", () => {
     expect(result.prompt).toContain("middle omitted");
     expect(result.prompt).toContain("Mara waited.");
     expect(result.prompt).toContain("The password was revealed later.");
+    expect(result.prompt).toContain(request.story.backstory);
   });
 
   test("neighbouring chapters cannot bypass the hard model budget", async () => {
@@ -209,7 +213,8 @@ describe("assembled prose prompt budget", () => {
     const { buildBudgetedStoryProsePrompt, StoryProseContextTooLargeError } =
       await import("./story-prose-generation");
     const request = fixture();
-    request.style = "&<".repeat(4_000);
+    request.style = "&<".repeat(2_000);
+    request.story.backstory = "&<".repeat(2_000);
     request.insertion.beforeText = "語".repeat(10_000);
     const system = "Global preference. ".repeat(1_000);
     expect(() =>
@@ -227,6 +232,27 @@ describe("assembled prose prompt budget", () => {
       Buffer.byteLength(system + result.prompt, "utf8"),
     );
     expect(result.prompt).toContain("&amp;&lt;");
+  });
+
+  test("counts escaped backstory and rejects it when fixed reference context cannot fit", async () => {
+    const { buildBudgetedStoryProsePrompt, StoryProseContextTooLargeError } =
+      await import("./story-prose-generation");
+    const request = fixture();
+    const options = { ...limits, system: "Write fiction." };
+    const withoutBackstory = buildBudgetedStoryProsePrompt(request, options);
+    request.story.backstory = "&<語".repeat(1_000);
+    const withBackstory = buildBudgetedStoryProsePrompt(request, options);
+    const renderedBackstory = "&amp;&lt;語".repeat(1_000);
+    expect(withBackstory.prompt).toContain(renderedBackstory);
+    expect(
+      withBackstory.inputTokenUpperBound -
+        withoutBackstory.inputTokenUpperBound,
+    ).toBeGreaterThanOrEqual(Buffer.byteLength(renderedBackstory, "utf8"));
+
+    request.story.backstory = "&<".repeat(30_000);
+    expect(() => buildBudgetedStoryProsePrompt(request, options)).toThrow(
+      StoryProseContextTooLargeError,
+    );
   });
 
   test("rejects irreducible insertion context rather than trimming the requested span", async () => {

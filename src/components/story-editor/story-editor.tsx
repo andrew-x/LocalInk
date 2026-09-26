@@ -21,6 +21,7 @@ type StoryEditorProps = {
 function toStoryContext(source: StoryContext): StoryContext {
   return {
     characters: source.characters,
+    backstory: source.backstory,
     locations: source.locations,
     style: source.style,
     systemInstructions: source.systemInstructions,
@@ -61,6 +62,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
   const {
     chapters: storyChapters,
     characters,
+    backstory,
     locations,
     style,
     systemInstructions,
@@ -72,6 +74,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
     setStoryContext(
       toStoryContext({
         characters,
+        backstory,
         locations,
         style,
         systemInstructions,
@@ -87,6 +90,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
   }, [
     storyChapters,
     characters,
+    backstory,
     locations,
     style,
     systemInstructions,
@@ -183,6 +187,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
       style={columnStyle}
     >
       <StoryEditorContextPane
+        backstory={storyContext.backstory}
         characters={storyContext.characters}
         isOpen={isContextOpen}
         locations={storyContext.locations}
@@ -215,6 +220,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
           name: story.name,
           description: story.description,
           systemInstructions: storyContext.systemInstructions,
+          backstory: storyContext.backstory,
         }}
         style={storyContext.style}
         voiceExemplars={storyContext.voiceExemplars}

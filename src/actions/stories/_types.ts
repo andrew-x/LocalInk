@@ -13,6 +13,7 @@ export type StoryListItem = {
 
 export type StoryContext = {
   characters: StoryCharacter[];
+  backstory: string;
   locations: StoryLocation[];
   style: string;
   systemInstructions: string;

@@ -344,6 +344,7 @@ function request(source: string): StoryProseGenerationRequest {
       name: "Story",
       description: "",
       systemInstructions: "",
+      backstory: "",
     },
     style: "",
     characters: [],

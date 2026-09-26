@@ -42,11 +42,11 @@ import {
   storyProseGenerationFormSchema,
 } from "@/lib/story-prose-generation-contract";
 
-// `systemInstructions` rides along with story identity because it reaches the
-// model as system-prompt authority, not as request context like `style`.
+// Story-level values share the request's nested story object. Backstory is
+// reference context; systemInstructions supplies system-prompt authority.
 type StoryIdentity = Pick<
   StoryEditorData,
-  "description" | "id" | "name" | "systemInstructions"
+  "backstory" | "description" | "id" | "name" | "systemInstructions"
 >;
 type LengthOption = StoryProseGenerationRequest["approximateLength"];
 type PacingOption = StoryProseGenerationRequest["pacing"];

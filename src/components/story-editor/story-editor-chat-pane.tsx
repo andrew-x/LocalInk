@@ -891,6 +891,8 @@ function SlashCommandIcon({
       return <Quote aria-hidden="true" className="size-3.5" />;
     case "character":
       return <UserRound aria-hidden="true" className="size-3.5" />;
+    case "backstory":
+      return <History aria-hidden="true" className="size-3.5" />;
     case "location":
       return <MapPin aria-hidden="true" className="size-3.5" />;
   }

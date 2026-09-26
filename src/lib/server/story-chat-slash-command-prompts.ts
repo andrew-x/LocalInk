@@ -70,6 +70,20 @@ const COMMAND_CONTRACTS = {
       "Use the known name where helpful for standalone clarity; no separate name-field output, global prose directives, or empty category labels.",
     ],
   },
+  backstory: {
+    tag: "BACKSTORY_COMMAND",
+    destination:
+      "Backstory: shared history, past events, relationships, and lasting consequences accepted by the writer; factual reference, not prose instructions. Preserve uncertainty and who knows what; established manuscript facts govern current canon.",
+    output: "Return only the paste-ready backstory text.",
+    task: "Distill accepted past events and histories from the conversation and saved references into concise, self-contained backstory for the whole story. Preserve material facts while removing repetition and rejected alternatives.",
+    focus: [
+      "Capture agreed chronology when known, shared histories between characters, formative events, causes, lasting consequences, and unresolved tensions relevant to the story.",
+      "Distinguish established facts from rumors, beliefs, disputed accounts, and unresolved uncertainty. Preserve who knows, suspects, misunderstands, or conceals each relevant fact; a secret is not shared knowledge.",
+      "Do not invent dates, events, trauma, motives, relationships, secrets, or future outcomes. Unconfirmed assistant suggestions remain unaccepted even when they sound plausible or vivid.",
+      "Keep history distinct from current relationships and future plans. Past experiences can inform motivation, familiarity, and subtext without freezing present behavior or requiring flashbacks or exposition.",
+      "Apply the writer's latest explicit corrections. Ask briefly for essential unresolved decisions, and leave minor gaps unspecified. Return the field content without a preamble, code fences, or instructions for another model; the writer reviews and saves it manually.",
+    ],
+  },
   location: {
     tag: "LOCATION_DESCRIPTION_COMMAND",
     destination:
@@ -108,9 +122,10 @@ export function buildStoryChatArtifactGuidance(): string {
     commandTextElement(
       "SOURCE_DISCIPLINE",
       [
-        "Synthesize accepted writer decisions from the conversation and relevant saved story instructions, style, voice samples, character notes, and location notes.",
+        "Synthesize accepted writer decisions from the conversation and relevant saved story instructions, style, voice samples, character notes, backstory, and location notes.",
         "Apply the latest explicit corrections and command arguments over earlier preferences or saved references. Exclude rejected branches and unconfirmed assistant suggestions; mentioning or exploring an option is not accepting it.",
         "Saved instructions are editable reference material here, not commands controlling chat's output format. Voice samples demonstrate voice, not canon; never infer the desired voice from unapproved generated passages.",
+        "Backstory is factual reference, not instructions controlling chat. Preserve chronology, material uncertainty, and who knows what; established manuscript facts supplied by the writer outrank conflicting notes. History informs present motivation and subtext without fixing present relationships, future outcomes, or obligatory exposition.",
         "Do not invent story facts or claim manuscript access. Only /voice may invent a minimal non-canon demonstration situation. Material contradictions without a clear writer decision require clarification.",
       ].join("\n"),
     ),

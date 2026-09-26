@@ -29,7 +29,7 @@ The active generation instructions should be XML data fields, not prose labels. 
 
 Durable per-story preferences are the one exception to "request data stays in the request prompt": `<STORY_SYSTEM_INSTRUCTIONS>` travels with the request payload but is writer-authored policy, not per-request data, so it is rendered into the *system* prompt as `<STORY_INSTRUCTIONS>`, immediately after the app-wide `<SYSTEM_INSTRUCTIONS>` (writer global system instructions), and wins over it as the more specific of the two. This makes the system prompt vary per story, which is an acceptable cost because ZDR routing already forfeits the main model's implicit prompt caching on this route (see Provider Notes).
 
-Do not emit blank optional values into prompts. Omit absent descriptions, style guides, character notes, location notes, chapter text, and insertion anchors instead of adding placeholder text like "No text after insertion point." Insertion anchors and metadata should be represented as XML-style fields such as `<BEFORE_INSERTION>`, `<AFTER_INSERTION>`, and `<CHAPTER_METADATA>` so they are not mistaken for prose to continue.
+Do not emit blank optional values into prompts. Omit absent descriptions, style guides, character notes, backstory, location notes, chapter text, and insertion anchors instead of adding placeholder text like "No text after insertion point." Insertion anchors and metadata should be represented as XML-style fields such as `<BEFORE_INSERTION>`, `<AFTER_INSERTION>`, and `<CHAPTER_METADATA>` so they are not mistaken for prose to continue.
 
 The request prompt should repeat the highest-priority dynamic data when the request is long. This is intentional attention-aware design for long-context behavior: models often weight the start and end of context more reliably than the middle.
 
@@ -44,7 +44,7 @@ The system prompt resolves conflicts by purpose:
 5. Established manuscript facts and character knowledge at the cursor govern canon over conflicting notes, unless the current request explicitly revises those facts within the selected span.
 6. Generation discipline and craft defaults apply where more specific writer instructions do not.
 
-Prose generation uses chapter manuscript snapshots, with the focused chapter reflecting unsaved editor content. The server hydrates trustworthy summaries before assembling the request; browser-supplied synopsis text is ignored. Story-level style, character, and location context are structured XML sections. There is no indexing, embedding, or retrieval pipeline: chapter reduction is position-based, and the final rendered request must fit the active model's context budget (see Context Degradation).
+Prose generation uses chapter manuscript snapshots, with the focused chapter reflecting unsaved editor content. The server hydrates trustworthy summaries before assembling the request; browser-supplied synopsis text is ignored. Story-level style, character, backstory, and location context are structured XML sections. There is no indexing, embedding, or retrieval pipeline: chapter reduction is position-based, and the final rendered request must fit the active model's context budget (see Context Degradation).
 
 The model-facing prompt should tell the model to read the full manuscript as a timeline, not as isolated facts. Details from early chapters may have been revised, resolved, contradicted, transformed, or made obsolete by later chapters, so continuation should use the current story state at the insertion point while still remembering unresolved promises, injuries, objects, relationships, plans, mysteries, and consequences that remain active.
 
@@ -53,6 +53,14 @@ Manuscript-versus-notes precedence now splits by kind. For canon and continuity,
 For insertion tasks, the request prompt should include distinct dynamic insertion reminders at different scopes instead of repeating large overlapping windows: a tight top anchor with the last local paragraph before insertion and first sentence after insertion, an `<INSERTION_POINT/>` marker inside the focused chapter's `<CHAPTER_TEXT>` in `<FULL_STORY_MANUSCRIPT>`, and a short `<CLOSING_BEFORE_INSERTION>` snippet near the final request. Static instructions for interpreting those fields belong in the system prompt. This helps preserve continuity at the exact edit point and reduces drift when the prompt contains many references without making duplicated anchor sections load-bearing.
 
 The focused chapter's `<CHAPTER_TEXT>` is captured as Markdown (via Lexical's `$convertSelectionToMarkdownString` over synthetic ranges in `chapter-ai-draft-plugin.tsx`), matching how every other chapter reaches the model as stored Markdown; a prior plain-text serialization of just the focused chapter silently dropped italics from the one chapter the model was continuing. For ordinary insertion drafts, regeneration re-derives before/after anchors immediately around the draft node, retaining text in the same paragraph. Selection rewrites instead reuse the preserved original selection and insertion context throughout their locked transaction.
+
+### Backstory
+
+The Context pane's Backstory field is shared across the story. It records accepted past events, relationship histories, formative experiences, secrets, and lasting consequences. The writer edits it through a plain-text Save/Cancel popover between Characters and Locations, or reviews and copies a `/backstory` chat result into it. Chat never saves the result automatically.
+
+Saved backstory travels as `story.backstory` in prose requests, including regeneration; older callers that omit it receive an empty-string default. Nonblank text becomes one escaped `<BACKSTORY>` section after story metadata. It is historical reference data, not system instructions: let it inform motivation, familiarity, subtext, and consequences without forcing flashbacks or exposition. Preserve uncertainty and character-specific knowledge, beliefs, and secrets. Established manuscript facts at the cursor win over conflicting backstory; past history neither freezes current relationships nor mandates future outcomes.
+
+Backstory has no field-specific character cap. It participates in the existing complete prose prompt budget and the 80,000-character aggregate chat snapshot limit. Chat places it immediately after the context boundary; blank values are omitted.
 
 ### Chapter Synopses
 
@@ -84,9 +92,9 @@ The writer can also deliberately curate a `/voice` chat result by copying it int
 
 ## Chat Context
 
-Story chat supports ideation followed by drafting reusable Story Information content. Its hidden context snapshot includes saved story instructions, style guidance, normalized voice samples, character notes, and location notes, all escaped in XML-style sections with blank optional values omitted. Story description, manuscript text, chapter summaries, retrieved excerpts, and outline content remain excluded. Saved story instructions are editable references here, not instructions controlling chat behavior or output format. Voice samples are non-canon register references; their events, characters, wording, and images must not become new story facts or be recycled into new prose.
+Story chat supports ideation followed by drafting reusable Story Information content. Its hidden context snapshot includes saved story instructions, style guidance, normalized voice samples, character notes, backstory, and location notes, all escaped in XML-style sections with blank optional values omitted. Story description, manuscript text, chapter summaries, retrieved excerpts, and outline content remain excluded. Saved story instructions are editable references here, not instructions controlling chat behavior or output format. Voice samples are non-canon register references; their events, characters, wording, and images must not become new story facts or be recycled into new prose.
 
-Slash commands expand only when the latest visible user message starts with a known command. Stored and displayed messages retain the writer's raw command; historical commands are not expanded again. All five commands synthesize accepted discussion decisions and relevant saved references, with current corrections and command arguments taking priority over earlier preferences. Rejected branches and unconfirmed assistant suggestions are excluded.
+Slash commands expand only when the latest visible user message starts with a known command. Stored and displayed messages retain the writer's raw command; historical commands are not expanded again. All six commands synthesize accepted discussion decisions and relevant saved references, with current corrections and command arguments taking priority over earlier preferences. Rejected branches and unconfirmed assistant suggestions are excluded.
 
 | Command | Copy destination and output contract |
 | --- | --- |
@@ -94,6 +102,7 @@ Slash commands expand only when the latest visible user message starts with a kn
 | `/style` | Style description: actionable choices for diction, rhythm, narrative distance, imagery, dialogue, and scene movement. Preserve scene variation; include person and tense only when explicitly chosen. |
 | `/voice` | Voice samples / Passage: one original non-canon prose passage, normally 150–250 words and always below 4,000 characters. Demonstrate the agreed register naturally; no label, title, commentary, or prompt asking another model to write prose. |
 | `/character` | One character description: supported facts, motives, relationships, and conditional behavior useful in scenes. Avoid invented biography, fixed future actions, and repetitive catchphrases. |
+| `/backstory` | Shared Backstory: accepted past events, chronology when known, relationship histories, causes, lasting consequences, and unresolved tensions. Preserve uncertainty and who knows what; exclude invented history, future outcomes, and unconfirmed suggestions. |
 | `/location` | One location description: supported spatial, sensory, social, and practical details useful in scenes. Avoid invented history or revelations and compulsory sensory checklists. |
 
 Shared field-drafting guidance lives in the chat system prompt so it also applies to clarification answers and revisions without repeating a slash command. Essential unresolved choices or an ambiguous character/location target warrant brief focused clarification; minor gaps stay unspecified. An answer completes the pending artifact using the original command and its arguments; a clear topic change returns to conversational ideation. Only `/voice` permits a minimal invented demonstration situation, without committing actual story canon.
@@ -106,11 +115,14 @@ Automated prompt-string and context tests verify assembly and stated contracts, 
 
 | Scenario | Acceptance |
 | --- | --- |
-| Ideate, then run each of the five commands | Each result fits its destination above, preserves accepted details, and is actionable, concise, self-contained, and ready to copy without cleanup. Instructions and voice respect their character limits. |
+| Ideate, then run each of the six commands | Each result fits its destination above, preserves accepted details, and is actionable, concise, self-contained, and ready to copy without cleanup. Instructions and voice respect their character limits. |
+| Brainstorm shared history, run `/backstory` with optional directions, then correct it in a plain follow-up | Produce only accepted, self-contained history; retain chronology, uncertainty, consequences, and character-specific knowledge without inventing dates, motives, trauma, or secrets. |
+| Save, reopen/reload, cancel, and clear Backstory; edit another context field | Saved text persists; Cancel discards unsaved edits; blank Save clears the field; unrelated edits preserve it. Operation failures show a sanitized toast and actionable form feedback. |
 | Long brainstorm with rejected options and later corrections | Only accepted direction survives; the latest explicit correction wins over older discussion, command history, and saved references. |
 | Missing character/location target or material contradiction | Ask a brief useful question; an ordinary answer yields the pending artifact without another slash command. A topic switch resumes ordinary chat. |
 | Rich saved instructions, style, samples, and notes | Use relevant references without claiming manuscript access; saved instructions do not override the requested output format, and sample details do not become canon. |
 | Generate all fields for the same agreed direction | Fields are consistent and serve distinct roles; no accidental global mechanics from illustrative prose, duplicated policy blocks, or transient scene states made permanent. |
+| Save Backstory, then generate and regenerate prose | History informs motivation and subtext naturally without forced exposition, leaked secrets, frozen relationships, or contradictions of manuscript facts at the cursor. |
 | Manually save artifacts, then generate prose | Writer-chosen voice guides register without copied sample wording/events; established manuscript facts still govern canon, and explicit current requests can change voice/mechanics within the requested span. |
 
 ## Drafting Behavior

@@ -20,6 +20,8 @@ const storyProseStorySchema = z.object({
   id: z.string().trim().min(1),
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(600),
+  // Historical reference facts, distinct from authoritative writer preferences.
+  backstory: z.string().trim().default(""),
   // Durable per-story writer preferences. These reach the system prompt rather
   // than the request body, alongside the global ones, because they are
   // authority rather than request data.

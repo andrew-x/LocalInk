@@ -33,6 +33,26 @@ function request(instructions: string) {
 }
 
 describe("prose composer contract", () => {
+  test("defaults omitted backstory for older callers and trims supplied history without a field cap", () => {
+    const values = request("");
+    expect(
+      storyProseGenerationRequestSchema.parse(values).story.backstory,
+    ).toBe("");
+
+    const backstory = "Their shared history.\n".repeat(1_000).trim();
+    const parsed = storyProseGenerationRequestSchema.parse({
+      ...values,
+      story: { ...values.story, backstory: `  ${backstory}\n  ` },
+    });
+    expect(parsed.story.backstory).toBe(backstory);
+    expect(
+      storyProseGenerationRequestSchema.parse({
+        ...values,
+        story: { ...values.story, backstory: "   \n" },
+      }).story.backstory,
+    ).toBe("");
+  });
+
   test("accepts a multiline 10,000-character brief in the form and request", () => {
     const instructions = `Begin here.\n${"x".repeat(MAX_STORY_PROSE_INSTRUCTIONS_LENGTH - 12)}`;
     const values = request(instructions);

@@ -1,7 +1,9 @@
 "use client";
 
+import { useHookFormAction } from "@next-safe-action/adapter-react-hook-form/hooks";
 import {
   Brush,
+  History,
   MapPin,
   NotebookPen,
   Plus,
@@ -20,8 +22,13 @@ import {
   useId,
   useState,
 } from "react";
+import { Controller } from "react-hook-form";
 import { toast } from "sonner";
 
+import {
+  type UpdateStoryBackstoryFormValues,
+  updateStoryBackstoryFormSchema,
+} from "@/actions/stories/_schemas";
 import type {
   StoryContext,
   StoryEditorData,
@@ -38,6 +45,7 @@ import {
 } from "@/components/common/popover";
 import { Textarea } from "@/components/common/textarea";
 import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
+import { formResolver } from "@/lib/schemas/resolve";
 import { cn } from "@/lib/util";
 
 type StoryCharacter = StoryContext["characters"][number];
@@ -57,6 +65,7 @@ type StoryContextSave = StoryContext & { updatedAt: string };
 const MAX_VOICE_EXEMPLARS = 3;
 
 type StoryEditorContextPaneProps = {
+  backstory: string;
   characters: StoryCharacter[];
   isOpen: boolean;
   locations: StoryLocation[];
@@ -69,6 +78,7 @@ type StoryEditorContextPaneProps = {
 };
 
 export function StoryEditorContextPane({
+  backstory,
   characters,
   isOpen,
   locations,
@@ -114,6 +124,11 @@ export function StoryEditorContextPane({
               onSaved={onContextSaved}
               story={story}
               style={style}
+            />
+            <BackstoryContextSection
+              backstory={backstory}
+              onSaved={onContextSaved}
+              story={story}
             />
             <LocationContextSection
               characters={characters}
@@ -259,6 +274,174 @@ function StyleContextSection({
               <Button
                 leftSection={<Save aria-hidden="true" />}
                 loading={updateStoryAction.isPending}
+                type="submit"
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </PopoverContent>
+      </Popover>
+    </section>
+  );
+}
+
+type BackstoryContextSectionProps = {
+  backstory: string;
+  onSaved: (context: StoryContextSave) => void;
+  story: StoryIdentity;
+};
+
+function BackstoryContextSection({
+  backstory,
+  onSaved,
+  story,
+}: BackstoryContextSectionProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const fieldId = useId();
+  const hasBackstory = backstory.trim().length > 0;
+  const { form, action, resetFormAndAction } = useHookFormAction(
+    updateStory,
+    formResolver(updateStoryBackstoryFormSchema),
+    {
+      formProps: {
+        defaultValues: { ...story, backstory },
+      },
+    },
+  );
+  const rootError = form.formState.errors.root?.message;
+
+  function handleOpenChange(open: boolean) {
+    if (action.isPending) {
+      return;
+    }
+
+    resetFormAndAction();
+    form.reset({ ...story, backstory });
+    setIsOpen(open);
+  }
+
+  async function handleSave(values: UpdateStoryBackstoryFormValues) {
+    form.clearErrors("root");
+
+    try {
+      const result = await action.executeAsync({
+        ...story,
+        backstory: values.backstory ?? "",
+      });
+
+      if (result.data) {
+        onSaved(toSavedContext(result.data));
+        setIsOpen(false);
+        return;
+      }
+
+      const message = getUpdateFailureMessage(
+        result,
+        "The backstory could not be saved.",
+      );
+      form.setError("root", { message });
+      toast.error(message);
+    } catch {
+      const message = "The backstory could not be saved.";
+      form.setError("root", { message });
+      toast.error(message);
+    }
+  }
+
+  return (
+    <section className="rounded-md border border-border/70 bg-card/45 p-3">
+      <h2 className="flex items-center gap-2 text-label">
+        <History aria-hidden="true" className="size-3.5" />
+        Backstory
+      </h2>
+
+      <Popover open={isOpen} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            aria-label="Edit backstory"
+            className="mt-3 w-full rounded-md border border-border/70 bg-background/55 px-3 py-2.5 text-left transition-[background-color,border-color,color] hover:border-ring/50 hover:bg-muted/70 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 focus-visible:outline-none data-[state=open]:border-ring/60 data-[state=open]:bg-muted"
+            type="button"
+          >
+            <span
+              className={cn(
+                "block text-body leading-5",
+                hasBackstory
+                  ? "line-clamp-3 whitespace-pre-line"
+                  : "text-muted-foreground",
+              )}
+            >
+              {hasBackstory ? backstory.trim() : "Add backstory"}
+            </span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className="w-[34rem] max-w-[calc(100vw-2rem)] p-0"
+          collisionPadding={12}
+          side="right"
+        >
+          <form
+            autoComplete="off"
+            className="grid gap-4 p-4"
+            onSubmit={form.handleSubmit(handleSave)}
+          >
+            <input type="hidden" {...form.register("id")} />
+            <input type="hidden" {...form.register("name")} />
+            <input type="hidden" {...form.register("description")} />
+            <Controller
+              control={form.control}
+              name="backstory"
+              render={({ field, fieldState }) => (
+                <div className="grid gap-2">
+                  <Label htmlFor={fieldId}>Backstory</Label>
+                  <p
+                    className="text-caption text-muted-foreground"
+                    id={`${fieldId}-help`}
+                  >
+                    Shared history, formative events, and past relationships
+                    that shape the story. Include lasting consequences and who
+                    knows what.
+                  </p>
+                  <Textarea
+                    {...field}
+                    aria-describedby={
+                      fieldState.error
+                        ? `${fieldId}-help ${fieldId}-error`
+                        : `${fieldId}-help`
+                    }
+                    aria-invalid={fieldState.invalid || undefined}
+                    className="max-h-[50vh] min-h-56 resize-none overflow-y-auto px-2 py-1.5 text-caption leading-5"
+                    disabled={action.isPending}
+                    id={fieldId}
+                    value={field.value ?? ""}
+                  />
+                  {fieldState.error ? (
+                    <p
+                      className="text-caption text-destructive"
+                      id={`${fieldId}-error`}
+                    >
+                      {fieldState.error.message}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            />
+
+            {rootError ? <ContextFormError message={rootError} /> : null}
+
+            <div className="flex justify-end gap-2">
+              <Button
+                disabled={action.isPending}
+                onClick={() => handleOpenChange(false)}
+                type="button"
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                leftSection={<Save aria-hidden="true" />}
+                loading={action.isPending}
                 type="submit"
               >
                 Save
@@ -1153,6 +1336,7 @@ type UpdateFailureResult = {
 function toSavedContext(data: StoryUpdateResult): StoryContextSave {
   return {
     characters: data.characters,
+    backstory: data.backstory,
     locations: data.locations,
     style: data.style,
     systemInstructions: data.systemInstructions,

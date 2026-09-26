@@ -24,6 +24,12 @@ export const STORY_CHAT_SLASH_COMMANDS = [
     token: "/character",
   },
   {
+    description: "Turn agreed histories into copy-ready backstory",
+    name: "backstory",
+    title: "Backstory",
+    token: "/backstory",
+  },
+  {
     description: "Turn agreed location details into a copy-ready description",
     name: "location",
     title: "Location",

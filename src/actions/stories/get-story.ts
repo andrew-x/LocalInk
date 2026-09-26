@@ -23,6 +23,7 @@ export async function getStory(
         name: stories.name,
         description: stories.description,
         characters: stories.characters,
+        backstory: stories.backstory,
         locations: stories.locations,
         style: stories.style,
         systemInstructions: stories.systemInstructions,

@@ -15,6 +15,7 @@ describe("story chat slash commands", () => {
       "/style",
       "/voice",
       "/character",
+      "/backstory",
       "/location",
     ]);
   });
@@ -30,7 +31,7 @@ describe("story chat slash commands", () => {
   });
 
   test("keeps multiline instructions and original message for new commands", () => {
-    for (const token of ["/instructions", "/voice"]) {
+    for (const token of ["/instructions", "/voice", "/backstory"]) {
       const content = `${token}\n  Keep the latest correction.\nUse restrained dialogue.  \n`;
       const parsed = parseStoryChatSlashCommand(content);
 
@@ -48,6 +49,8 @@ describe("story chat slash commands", () => {
       "/instruction",
       "/voices",
       "/voiceover",
+      "/backstories",
+      "/backstoryboard",
       "/VOICE",
       "/instructions: explain",
       " /voice",
@@ -72,7 +75,10 @@ describe("story chat slash commands", () => {
     ).toEqual(["voice"]);
     expect(
       filterStoryChatSlashCommands("story").map(({ name }) => name),
-    ).toEqual(["instructions"]);
+    ).toEqual(["instructions", "backstory"]);
+    expect(
+      filterStoryChatSlashCommands("BACK").map(({ name }) => name),
+    ).toEqual(["backstory"]);
     expect(filterStoryChatSlashCommands("unknown")).toEqual([]);
   });
 
@@ -88,6 +94,16 @@ describe("story chat slash commands", () => {
     expect(getStoryChatSlashCommandDraft("/voice")).toEqual({
       hasArguments: false,
       query: "voice",
+    });
+    expect(getStoryChatSlashCommandDraft("/backstory")).toEqual({
+      hasArguments: false,
+      query: "backstory",
+    });
+    expect(
+      getStoryChatSlashCommandDraft("/backstory keep uncertainty"),
+    ).toEqual({
+      hasArguments: true,
+      query: "backstory",
     });
     expect(getStoryChatSlashCommandDraft("/instructions ")).toEqual({
       hasArguments: true,

@@ -23,6 +23,7 @@ export const createStory = publicActionClient
       name: parsedInput.name,
       description: parsedInput.description,
       characters: normalizeStoryCharacters(parsedInput.characters ?? []),
+      backstory: parsedInput.backstory ?? "",
       locations: normalizeStoryLocations(parsedInput.locations ?? []),
       style: parsedInput.style ?? "",
       createdAt: now,

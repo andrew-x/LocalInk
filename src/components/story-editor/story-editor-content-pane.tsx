@@ -31,7 +31,7 @@ type StoryEditorContentPaneProps = {
   onContextSaved: (context: StoryContext & { updatedAt: string }) => void;
   story: Pick<
     StoryEditorData,
-    "description" | "id" | "name" | "systemInstructions"
+    "backstory" | "description" | "id" | "name" | "systemInstructions"
   >;
   style: string;
   voiceExemplars: StoryContext["voiceExemplars"];

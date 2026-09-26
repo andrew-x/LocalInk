@@ -50,6 +50,13 @@
       "when": 1790036749788,
       "tag": "0006_chapter-synopses",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790387454317,
+      "tag": "0007_story-backstory",
+      "breakpoints": true
     }
   ]
 }

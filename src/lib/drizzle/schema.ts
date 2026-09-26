@@ -52,6 +52,7 @@ export const stories = sqliteTable("stories", {
     .$type<StoryCharacter[]>()
     .notNull()
     .default(sql`'[]'`),
+  backstory: text("backstory").notNull().default(""),
   locations: text("locations", { mode: "json" })
     .$type<StoryLocation[]>()
     .notNull()

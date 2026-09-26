@@ -29,6 +29,7 @@ const storyLocationsSchema = z
   .max(100, "Stories can have up to 100 locations.");
 
 const storyStyleSchema = z.string().trim();
+const storyBackstorySchema = z.string().trim();
 
 const storyVoiceExemplarSchema = z.object({
   id: z.string().trim().max(128, "Voice sample id is too long.").optional(),
@@ -69,6 +70,7 @@ export const createStoryFormSchema = z.object({
 
 export const createStoryActionSchema = createStoryFormSchema.extend({
   characters: storyCharactersSchema.optional(),
+  backstory: storyBackstorySchema.optional(),
   locations: storyLocationsSchema.optional(),
   style: storyStyleSchema.optional(),
   systemInstructions: storySystemInstructionsSchema.optional(),
@@ -77,8 +79,12 @@ export const createStoryActionSchema = createStoryFormSchema.extend({
 export const updateStoryFormSchema = createStoryFormSchema.extend({
   id: z.string().min(1, "Story id is required."),
 });
+export const updateStoryBackstoryFormSchema = updateStoryFormSchema.extend({
+  backstory: storyBackstorySchema.optional(),
+});
 export const updateStoryActionSchema = updateStoryFormSchema.extend({
   characters: storyCharactersSchema.optional(),
+  backstory: storyBackstorySchema.optional(),
   locations: storyLocationsSchema.optional(),
   style: storyStyleSchema.optional(),
   systemInstructions: storySystemInstructionsSchema.optional(),
@@ -120,3 +126,6 @@ export const deleteChapterActionSchema = z.object({
 
 export type CreateStoryFormValues = z.infer<typeof createStoryFormSchema>;
 export type UpdateStoryFormValues = z.infer<typeof updateStoryFormSchema>;
+export type UpdateStoryBackstoryFormValues = z.infer<
+  typeof updateStoryBackstoryFormSchema
+>;
