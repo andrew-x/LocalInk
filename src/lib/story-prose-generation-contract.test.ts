@@ -33,6 +33,47 @@ function request(instructions: string) {
 }
 
 describe("prose composer contract", () => {
+  test("defaults omitted models to DeepSeek in the form and request", () => {
+    expect(storyProseGenerationFormSchema.parse(request("")).model).toBe(
+      "deepseekV4Pro",
+    );
+    expect(storyProseGenerationRequestSchema.parse(request("")).model).toBe(
+      "deepseekV4Pro",
+    );
+  });
+
+  test("accepts the supported model choices in the form and request", () => {
+    for (const model of [
+      "deepseekV4Pro",
+      "kimiK3",
+      "glm53",
+      "mistralMedium35",
+    ]) {
+      const values = { ...request(""), model };
+      expect(storyProseGenerationFormSchema.parse(values).model).toBe(model);
+      expect(storyProseGenerationRequestSchema.parse(values).model).toBe(model);
+    }
+  });
+
+  test("rejects unsupported or malformed models instead of falling back", () => {
+    for (const model of [
+      "mistralai/mistral-large-4-0",
+      "main",
+      "__proto__",
+      "",
+      null,
+      42,
+    ]) {
+      const values = { ...request(""), model };
+      expect(storyProseGenerationFormSchema.safeParse(values).success).toBe(
+        false,
+      );
+      expect(storyProseGenerationRequestSchema.safeParse(values).success).toBe(
+        false,
+      );
+    }
+  });
+
   test("defaults omitted backstory for older callers and trims supplied history without a field cap", () => {
     const values = request("");
     expect(
@@ -84,6 +125,7 @@ describe("prose composer contract", () => {
       approximateLength: 400,
       beatGoal: "",
       instructions: "",
+      model: "deepseekV4Pro",
       pacing: "auto",
     });
     expect(

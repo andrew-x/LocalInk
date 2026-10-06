@@ -339,6 +339,7 @@ function request(source: string): StoryProseGenerationRequest {
     synopsis: "Untrusted browser summary",
   };
   return {
+    model: "deepseekV4Pro",
     story: {
       id: "story",
       name: "Story",

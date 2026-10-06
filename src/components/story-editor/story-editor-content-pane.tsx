@@ -12,6 +12,10 @@ import { Button } from "@/components/common/button";
 import { AiProseGenerationWidget } from "@/components/story-editor/ai-prose-generation-widget";
 import type { ChapterAiDraftHandle } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { ChapterContentEditor } from "@/components/story-editor/chapter-content-editor";
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
 
 const SCROLL_BOTTOM_THRESHOLD_PX = 24;
 const DRAFT_FOLLOW_BOTTOM_PADDING_PX = 24;
@@ -67,6 +71,9 @@ export function StoryEditorContentPane({
   const lastScrollTopRef = useRef(0);
   const lastViewportHeightRef = useRef(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [proseModel, setProseModel] = useState<StoryGenerationModel>(
+    DEFAULT_STORY_GENERATION_MODEL,
+  );
   const [chapterIdWithSelection, setChapterIdWithSelection] = useState<
     string | null
   >(null);
@@ -364,6 +371,7 @@ export function StoryEditorContentPane({
           chapters={chapters}
           focusedChapterId={focusedChapterId}
           getAiDraftHandle={getAiDraftHandle}
+          initialModel={proseModel}
           locations={locations}
           hasSelectedText={
             chapterIdWithSelection !== null &&
@@ -371,6 +379,7 @@ export function StoryEditorContentPane({
           }
           onContextSaved={onContextSaved}
           onDraftStreamUpdate={handleDraftStreamUpdate}
+          onModelChange={setProseModel}
           story={story}
           style={style}
           voiceExemplars={voiceExemplars}

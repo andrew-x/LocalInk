@@ -21,6 +21,7 @@ function fixture(): PreparedStoryProseGenerationRequest {
   };
   return {
     synopsisProvenance: new Map(),
+    model: "deepseekV4Pro",
     approximateLength: 600,
     story: {
       id: "story",

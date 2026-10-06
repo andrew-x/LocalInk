@@ -1,5 +1,9 @@
 import { ActionError } from "@/lib/action-error";
-import { isOpenRouterZdrUnavailableError, streamLocalinkText } from "@/lib/ai";
+import {
+  isOpenRouterZdrUnavailableError,
+  STORY_GENERATION_AI_MODELS,
+  streamLocalinkText,
+} from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import day from "@/lib/dayjs";
 import { createLogger } from "@/lib/logger";
@@ -61,6 +65,7 @@ export async function POST(request: Request): Promise<Response> {
     parsedInput = result.data;
     storyChatLogger.info("start", {
       action: ACTION_NAME,
+      model: STORY_GENERATION_AI_MODELS[parsedInput.model],
       storyId: parsedInput.storyId,
       chatId: parsedInput.chatId,
       generationId: parsedInput.generationId,
@@ -73,7 +78,7 @@ export async function POST(request: Request): Promise<Response> {
     ]);
 
     const stream = streamLocalinkText({
-      model: "main",
+      model: STORY_GENERATION_AI_MODELS[parsedInput.model],
       system: buildStoryChatSystemPrompt(settings.systemInstructions),
       messages,
       abortSignal: request.signal,

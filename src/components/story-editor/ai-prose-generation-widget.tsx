@@ -35,6 +35,10 @@ import {
 } from "@/lib/ai-text-stream";
 import { formResolver } from "@/lib/schemas/resolve";
 import {
+  STORY_GENERATION_MODELS,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
+import {
   MAX_STORY_PROSE_BEAT_GOAL_LENGTH,
   MAX_STORY_PROSE_INSTRUCTIONS_LENGTH,
   type StoryProseGenerationFormValues,
@@ -52,7 +56,12 @@ type LengthOption = StoryProseGenerationRequest["approximateLength"];
 type PacingOption = StoryProseGenerationRequest["pacing"];
 type StoryProseContextBase = Omit<
   StoryProseGenerationRequest,
-  "approximateLength" | "beatGoal" | "instructions" | "pacing" | "regeneration"
+  | "approximateLength"
+  | "beatGoal"
+  | "instructions"
+  | "model"
+  | "pacing"
+  | "regeneration"
 >;
 
 type ActiveDraft = {
@@ -71,12 +80,14 @@ type AiProseGenerationWidgetProps = {
   focusedChapterId: string | null;
   getAiDraftHandle: (chapterId: string) => ChapterAiDraftHandle | null;
   hasSelectedText: boolean;
+  initialModel: StoryGenerationModel;
   locations: StoryContext["locations"];
   onContextSaved: (context: StoryContext & { updatedAt: string }) => void;
   onDraftStreamUpdate: (
     draftId: string,
     options?: { resetFollow?: boolean },
   ) => void;
+  onModelChange: (model: StoryGenerationModel) => void;
   story: StoryIdentity;
   style: string;
   voiceExemplars: StoryContext["voiceExemplars"];
@@ -109,9 +120,11 @@ export function AiProseGenerationWidget({
   focusedChapterId,
   getAiDraftHandle,
   hasSelectedText,
+  initialModel,
   locations,
   onContextSaved,
   onDraftStreamUpdate,
+  onModelChange,
   story,
   style,
   voiceExemplars,
@@ -125,6 +138,7 @@ export function AiProseGenerationWidget({
       approximateLength: 400,
       beatGoal: "",
       instructions: "",
+      model: initialModel,
       pacing: "auto",
     },
     resolver: formResolver(storyProseGenerationFormSchema),
@@ -140,6 +154,7 @@ export function AiProseGenerationWidget({
   const beatGoalId = `${formId}-beat-goal`;
   const pacingId = `${formId}-pacing`;
   const lengthId = `${formId}-length`;
+  const modelId = `${formId}-model`;
   const setErrorMessage = useCallback(
     (message: string | null) => {
       if (message) setError("root", { message });
@@ -207,6 +222,7 @@ export function AiProseGenerationWidget({
   const streamDraft = useCallback(
     async (
       draft: ActiveDraft,
+      model: StoryGenerationModel,
       regeneration?: StoryProseGenerationRequest["regeneration"] | undefined,
       appendVersion = false,
     ) => {
@@ -229,6 +245,7 @@ export function AiProseGenerationWidget({
         approximateLength: draft.approximateLength,
         beatGoal: draft.beatGoal,
         instructions: draft.instructions,
+        model,
         pacing: draft.pacing,
         regeneration,
       };
@@ -391,7 +408,7 @@ export function AiProseGenerationWidget({
     };
 
     setActiveDraft(draft);
-    await streamDraft(draft);
+    await streamDraft(draft, values.model);
   }
 
   function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
@@ -525,12 +542,14 @@ export function AiProseGenerationWidget({
       return;
     }
 
+    const model = form.getValues("model") ?? initialModel;
     const refreshedDraft = refreshDraftContext(activeDraft);
 
     setActiveDraft(refreshedDraft);
 
     await streamDraft(
       refreshedDraft,
+      model,
       buildRegenerationRequest(regenerationInstructions, text),
       true,
     );
@@ -714,8 +733,8 @@ export function AiProseGenerationWidget({
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/70 bg-muted/30 px-3 py-2">
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/70 bg-muted/30 px-3 py-2">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
             <label
               className="text-caption text-muted-foreground"
               htmlFor={pacingId}
@@ -725,7 +744,7 @@ export function AiProseGenerationWidget({
             <select
               {...form.register("pacing")}
               aria-invalid={Boolean(form.formState.errors.pacing)}
-              className="h-8 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
               disabled={isGenerationWidgetDisabled}
               id={pacingId}
             >
@@ -736,7 +755,7 @@ export function AiProseGenerationWidget({
               ))}
             </select>
           </div>
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
             <label
               className="text-caption text-muted-foreground"
               htmlFor={lengthId}
@@ -748,7 +767,7 @@ export function AiProseGenerationWidget({
                 setValueAs: parseLengthOption,
               })}
               aria-invalid={Boolean(form.formState.errors.approximateLength)}
-              className="h-8 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-2 py-1 text-label shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
               disabled={isGenerationWidgetDisabled}
               id={lengthId}
             >
@@ -757,6 +776,30 @@ export function AiProseGenerationWidget({
                   {option.value === "unlimited"
                     ? option.label
                     : `≈${option.label}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+            <label
+              className="text-caption text-muted-foreground"
+              htmlFor={modelId}
+            >
+              Model
+            </label>
+            <select
+              {...form.register("model", {
+                onChange: (event) =>
+                  onModelChange(event.target.value as StoryGenerationModel),
+              })}
+              aria-invalid={Boolean(form.formState.errors.model)}
+              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              disabled={isStreaming}
+              id={modelId}
+            >
+              {STORY_GENERATION_MODELS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

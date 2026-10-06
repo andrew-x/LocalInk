@@ -24,7 +24,7 @@ export default async function StoryPage({ params }: StoryPageProps) {
   return (
     <main className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
       <StoryEditorHeader story={story} />
-      <StoryEditor story={story} />
+      <StoryEditor key={story.id} story={story} />
     </main>
   );
 }

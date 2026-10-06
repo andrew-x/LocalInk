@@ -2,6 +2,7 @@ import {
   isOpenRouterZdrUnavailableError,
   type LocalinkAiModel,
   type LocalinkProviderOptions,
+  STORY_GENERATION_AI_MODELS,
   streamLocalinkText,
 } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
@@ -17,6 +18,7 @@ import {
   type StoryProseModelLimits,
 } from "@/lib/server/story-prose-generation";
 import { saveStoryProsePromptSnapshot } from "@/lib/server/story-prose-prompt-snapshots";
+import type { StoryGenerationModel } from "@/lib/story-generation-models";
 import {
   type StoryProseGenerationRequest,
   storyProseGenerationRequestSchema,
@@ -47,12 +49,10 @@ type StoryProseModelProfile = StoryProseModelLimits & {
   model: LocalinkAiModel;
   temperature: number;
   providerOptions?: LocalinkProviderOptions;
+  reasoningOutputTokenAllowance?: number;
 };
 
-// Reasoning modes are useful for analysis but counterproductive for fiction
-// drafting: the output budget should go to the draft, not to hidden or visible
-// thinking. Drop this from an individual profile if that model rejects
-// `effort: "none"` or emits reasoning anyway.
+// Prefer direct prose output for models that allow reasoning to be disabled.
 const NO_REASONING = {
   openrouter: {
     reasoning: {
@@ -63,63 +63,55 @@ const NO_REASONING = {
 } satisfies LocalinkProviderOptions;
 
 /**
- * Story prose model candidates, for hand-comparing fiction drafting quality.
+ * Story prose profiles selected for each generation request.
  *
  * All four start at the same temperature so the first comparison is
  * like-for-like against the value DeepSeek was tuned at; tune an individual
  * profile once you have a read on it.
  *
- * ZDR endpoints verified 2026-09-21: DeepSeek V4 Pro 6, Kimi K3 18, GLM 5.3 27,
- * Mistral Medium 3.5 1. Mistral has only a first-party ZDR endpoint, so an
- * outage there surfaces as AI_ZDR_UNAVAILABLE with no reroute, and its 262k
- * context is the smallest of the four. Context/output limits below use the
+ * All choices retain mandatory ZDR routing; availability checks are recorded
+ * in ai.ts. Mistral's 262k context is the smallest of the four.
+ * Context/output limits below use the
  * lower advertised model/top-provider context from OpenRouter's public models
  * endpoint, checked 2026-09-22; no request-time metadata lookup is needed.
  */
 const STORY_PROSE_MODEL_PROFILES = {
   deepseekV4Pro: {
-    model: "prose-deepseek-v4-pro",
+    model: STORY_GENERATION_AI_MODELS.deepseekV4Pro,
     contextWindowTokens: 1_024_000,
     maxCompletionTokens: 384_000,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
   kimiK3: {
-    model: "prose-kimi-k3",
+    model: STORY_GENERATION_AI_MODELS.kimiK3,
     contextWindowTokens: 1_048_576,
     maxCompletionTokens: 943_718,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
   glm53: {
-    model: "prose-glm-5.3",
+    model: STORY_GENERATION_AI_MODELS.glm53,
     contextWindowTokens: 1_048_576,
     maxCompletionTokens: 131_072,
     temperature: 0.82,
-    providerOptions: NO_REASONING,
+    // GLM 5.3 requires reasoning; low is its smallest supported effort.
+    // Excluding reasoning hides it from output but still consumes tokens.
+    // https://openrouter.ai/z-ai/glm-5.3 (checked 2026-10-06)
+    providerOptions: {
+      openrouter: { reasoning: { effort: "low", exclude: true } },
+    },
+    // Extra completion headroom for bounded drafts, not a hard reasoning cap.
+    reasoningOutputTokenAllowance: 4_096,
   },
   mistralMedium35: {
-    model: "prose-mistral-medium-3.5",
+    model: STORY_GENERATION_AI_MODELS.mistralMedium35,
     contextWindowTokens: 262_144,
     maxCompletionTokens: 209_715,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },
-} as const satisfies Record<string, StoryProseModelProfile>;
-
-type StoryProseModelKey = keyof typeof STORY_PROSE_MODEL_PROFILES;
-
-// --- Active story prose model. Uncomment exactly one; restart to apply. ---
-//
-// Uncommenting two is a duplicate declaration, so it fails the build rather
-// than silently picking one.
-const ACTIVE_PROSE_MODEL: StoryProseModelKey = "deepseekV4Pro";
-// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "kimiK3";
-// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "glm53";
-// const ACTIVE_PROSE_MODEL: StoryProseModelKey = "mistralMedium35";
-
-const PROSE_PROFILE: StoryProseModelProfile =
-  STORY_PROSE_MODEL_PROFILES[ACTIVE_PROSE_MODEL];
+} as const satisfies Record<StoryGenerationModel, StoryProseModelProfile>;
 
 // A fresh alternative reuses the brief, the insertion point, and the whole
 // manuscript, so the only things separating it from the draft the writer just
@@ -170,9 +162,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     parsedInput = result.data;
+    const profile = STORY_PROSE_MODEL_PROFILES[parsedInput.model];
     storyProseLogger.info("start", {
       action: ACTION_NAME,
-      model: PROSE_PROFILE.model,
+      model: profile.model,
       storyId: parsedInput.story.id,
       chapterId: parsedInput.focusedChapter.id,
       approximateLength: parsedInput.approximateLength,
@@ -190,10 +183,11 @@ export async function POST(request: Request): Promise<Response> {
     const { prompt: prosePrompt, maxOutputTokens } =
       buildBudgetedStoryProsePrompt(preparedInput, {
         system: systemPrompt,
-        contextWindowTokens: PROSE_PROFILE.contextWindowTokens,
-        maxCompletionTokens: PROSE_PROFILE.maxCompletionTokens,
+        contextWindowTokens: profile.contextWindowTokens,
+        maxCompletionTokens: profile.maxCompletionTokens,
         requestedOutputTokens: getProseMaxOutputTokens(
           parsedInput.approximateLength,
+          profile,
         ),
       });
     const promptSnapshot = saveStoryProsePromptSnapshot({
@@ -203,9 +197,9 @@ export async function POST(request: Request): Promise<Response> {
       system: systemPrompt,
     });
     const stream = streamLocalinkText({
-      model: PROSE_PROFILE.model,
-      providerOptions: PROSE_PROFILE.providerOptions,
-      temperature: getProseTemperature(parsedInput),
+      model: profile.model,
+      providerOptions: profile.providerOptions,
+      temperature: getProseTemperature(parsedInput, profile),
       system: systemPrompt,
       prompt: prosePrompt,
       abortSignal: request.signal,
@@ -319,25 +313,32 @@ function getErrorName(error: unknown) {
   return error instanceof Error ? error.name : "UnknownError";
 }
 
-function getProseTemperature(input: StoryProseGenerationRequest): number {
+function getProseTemperature(
+  input: StoryProseGenerationRequest,
+  profile: StoryProseModelProfile,
+): number {
   if (input.regeneration?.mode !== "fresh-alternative") {
-    return PROSE_PROFILE.temperature;
+    return profile.temperature;
   }
 
   return Math.min(
-    PROSE_PROFILE.temperature + PROSE_FRESH_ALTERNATIVE_TEMPERATURE_BOOST,
+    profile.temperature + PROSE_FRESH_ALTERNATIVE_TEMPERATURE_BOOST,
     PROSE_MAX_TEMPERATURE,
   );
 }
 
 function getProseMaxOutputTokens(
   approximateLength: StoryProseGenerationRequest["approximateLength"],
+  profile: StoryProseModelProfile,
 ): number | undefined {
   if (approximateLength === "unlimited") {
     return undefined;
   }
 
-  return PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[approximateLength];
+  return (
+    PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH[approximateLength] +
+    (profile.reasoningOutputTokenAllowance ?? 0)
+  );
 }
 
 function errorResponse(error: StoryProseRouteError): Response {

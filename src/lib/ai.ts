@@ -13,19 +13,17 @@ import {
   streamText,
 } from "ai";
 
+import type { StoryGenerationModel } from "@/lib/story-generation-models";
+
 const LOCALINK_AI_MODELS = {
   main: "deepseek/deepseek-v4-pro-0813",
   fast: "deepseek/deepseek-v4.1-flash",
-  // Story prose candidates, deliberately separate from `main` so swapping the
-  // prose model does not also move story chat and image-prompt enhancement,
-  // which share `main`. The active one is selected by PROSE_PROFILE in
-  // `src/app/api/story-prose/route.ts`, which pairs each model with its own
-  // sampling settings.
+  // Story prose and chat selections stay separate from background uses of
+  // `main` and `fast`. Prose also pairs each choice with its sampling profile.
   //
-  // ZDR endpoints verified 2026-09-21 against
-  // https://openrouter.ai/api/v1/endpoints/zdr: DeepSeek V4 Pro 6, Kimi K3 18,
-  // GLM 5.3 27, Mistral Medium 3.5 1 (Mistral first-party only, so no fallback
-  // if it is down). All four keep the default ZDR routing below.
+  // ZDR endpoints verified 2026-10-06 against
+  // https://openrouter.ai/api/v1/endpoints/zdr: DeepSeek V4 Pro 15, Kimi K3 21,
+  // GLM 5.3 33, Mistral Medium 3.5 2. All four keep default ZDR routing.
   "prose-deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
   "prose-kimi-k3": "moonshotai/kimi-k3",
   "prose-glm-5.3": "z-ai/glm-5.3",
@@ -67,6 +65,14 @@ const ZDR_REFUSAL_MARKERS = [
 ] as const;
 
 export type LocalinkAiModel = keyof typeof LOCALINK_AI_MODELS;
+
+export const STORY_GENERATION_AI_MODELS = {
+  deepseekV4Pro: "prose-deepseek-v4-pro",
+  kimiK3: "prose-kimi-k3",
+  glm53: "prose-glm-5.3",
+  mistralMedium35: "prose-mistral-medium-3.5",
+} as const satisfies Record<StoryGenerationModel, LocalinkAiModel>;
+
 // Note: the OpenRouter provider spreads `providerOptions.openrouter` over the
 // request body last and replaces `provider` wholesale rather than merging it, so
 // a caller passing `{ openrouter: { provider: ... } }` here would silently drop

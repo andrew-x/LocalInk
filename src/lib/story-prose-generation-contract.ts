@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  storyGenerationModelSchema,
+} from "@/lib/story-generation-models";
+
 const MAX_CONTEXT_TEXT_LENGTH = 1_000_000;
 export const MAX_STORY_PROSE_INSTRUCTIONS_LENGTH = 10_000;
 export const MAX_STORY_PROSE_BEAT_GOAL_LENGTH = 300;
@@ -60,6 +65,7 @@ const storyProseRegenerationSchema = z.discriminatedUnion("mode", [
 ]);
 
 export const storyProseGenerationRequestSchema = z.object({
+  model: storyGenerationModelSchema.default(DEFAULT_STORY_GENERATION_MODEL),
   story: storyProseStorySchema,
   style: z.string(),
   characters: z.array(storyProseCharacterSchema).max(100),
@@ -114,6 +120,7 @@ export const storyProseGenerationFormSchema =
     approximateLength: true,
     beatGoal: true,
     instructions: true,
+    model: true,
     pacing: true,
   });
 

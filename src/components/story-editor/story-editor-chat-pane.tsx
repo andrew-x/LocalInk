@@ -55,6 +55,11 @@ import {
   type StoryChatSlashCommandMetadata,
   type StoryChatSlashCommandName,
 } from "@/lib/story-chat-slash-commands";
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  STORY_GENERATION_MODELS,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
 import { cn } from "@/lib/util";
 
 type StoryEditorChatPaneProps = {
@@ -97,6 +102,9 @@ export function StoryEditorChatPane({
   const [activeChat, setActiveChat] = useState<StoryChatListItem | null>(null);
   const [messages, setMessages] = useState<DraftStoryChatMessage[]>([]);
   const [draftContent, setDraftContent] = useState("");
+  const [model, setModel] = useState<StoryGenerationModel>(
+    DEFAULT_STORY_GENERATION_MODEL,
+  );
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
@@ -110,6 +118,7 @@ export function StoryEditorChatPane({
   const prepareRegenerationAction = useAction(prepareStoryChatRegeneration);
   const saveAssistantOutputAction = useAction(saveStoryChatAssistantOutput);
   const slashCommandListId = useId();
+  const modelId = useId();
   const draftTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesScrollPaneRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -306,6 +315,7 @@ export function StoryEditorChatPane({
       return;
     }
 
+    const selectedModel = model;
     const result = await prepareTurnAction.executeAsync({
       storyId: story.id,
       chatId: activeChatId,
@@ -321,7 +331,7 @@ export function StoryEditorChatPane({
 
     setDraftContent("");
     applyPreparedGeneration(result.data);
-    await streamAssistantReply(result.data);
+    await streamAssistantReply(result.data, selectedModel);
   }
 
   async function handleRegenerate(message: StoryChatVisibleMessage) {
@@ -329,6 +339,7 @@ export function StoryEditorChatPane({
       return;
     }
 
+    const selectedModel = model;
     const result = await prepareRegenerationAction.executeAsync({
       storyId: story.id,
       chatId: activeChatId,
@@ -346,7 +357,7 @@ export function StoryEditorChatPane({
     }
 
     applyPreparedGeneration(result.data);
-    await streamAssistantReply(result.data);
+    await streamAssistantReply(result.data, selectedModel);
   }
 
   function applyPreparedGeneration(generation: PreparedStoryChatGeneration) {
@@ -356,7 +367,10 @@ export function StoryEditorChatPane({
     requestFollowedScrollToLatestMessage();
   }
 
-  async function streamAssistantReply(generation: PreparedStoryChatGeneration) {
+  async function streamAssistantReply(
+    generation: PreparedStoryChatGeneration,
+    selectedModel: StoryGenerationModel,
+  ) {
     const replaceAssistantMessageId = generation.replaceAssistantMessageId;
     const draftMessageId =
       replaceAssistantMessageId ?? `draft-${generation.generationId}`;
@@ -409,6 +423,7 @@ export function StoryEditorChatPane({
           chatId: generation.chat.id,
           generationId: generation.generationId,
           contextMessageId: generation.contextMessageId,
+          model: selectedModel,
           replaceAssistantMessageId,
         } satisfies StoryChatStreamRequest),
         signal: controller.signal,
@@ -795,9 +810,32 @@ export function StoryEditorChatPane({
                   />
                 </PopoverContent>
               </Popover>
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+                  <label
+                    className="text-caption text-muted-foreground"
+                    htmlFor={modelId}
+                  >
+                    Model
+                  </label>
+                  <select
+                    className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                    disabled={isBusy}
+                    id={modelId}
+                    onChange={(event) =>
+                      setModel(event.target.value as StoryGenerationModel)
+                    }
+                    value={model}
+                  >
+                    {STORY_GENERATION_MODELS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <Button
-                  className="h-7 gap-1 px-2 text-label-sm [&_svg]:size-3.5"
+                  className="ml-auto h-7 gap-1 px-2 text-label-sm [&_svg]:size-3.5"
                   disabled={!draftContent.trim() || isBusy}
                   leftSection={<Send aria-hidden="true" />}
                   loading={prepareTurnAction.isPending || isStreaming}

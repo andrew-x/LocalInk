@@ -1412,6 +1412,7 @@ function createProseRequest(
   overrides: ProseRequestOverrides = {},
 ): StoryProseGenerationRequest {
   const base: StoryProseGenerationRequest = {
+    model: "deepseekV4Pro",
     approximateLength: 600,
     story: {
       id: "story-1",
