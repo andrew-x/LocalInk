@@ -147,22 +147,52 @@ type OpenRouterImagesModelCapabilities = {
 const OPENROUTER_IMAGES_MODEL_CAPABILITIES: Partial<
   Record<GeneratedImageModel, OpenRouterImagesModelCapabilities>
 > = {
-  // FLUX.2 Max declares no `resolution` parameter — it sizes its own output
-  // from the aspect ratio — so the field is omitted rather than clamped, the
-  // same as the GPT Image tiers. It takes no `quality` either; `seed` is its
-  // only other knob and LocalInk does not expose one.
-  "black-forest-labs/flux.2-max": {
+  // Verified against the per-model image endpoint enums on 2026-10-06.
+  "black-forest-labs/flux-3-image": {
     aspectRatios: new Set([
       "1:1",
       "2:3",
       "3:2",
       "3:4",
       "4:3",
+      "4:5",
+      "5:4",
       "9:16",
       "16:9",
       "21:9",
     ]),
-    maxImageSize: null,
+    maxImageSize: "4K",
+    supportsQuality: false,
+  },
+  "bytedance-seed/seedream-5-0-flash": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+      "21:9",
+    ]),
+    maxImageSize: "2K",
+    supportsQuality: false,
+  },
+  "tencent/hy-image-v3.5-preview": {
+    aspectRatios: new Set([
+      "1:1",
+      "2:3",
+      "3:2",
+      "3:4",
+      "4:3",
+      "4:5",
+      "5:4",
+      "9:16",
+      "16:9",
+    ]),
+    maxImageSize: "4K",
     supportsQuality: false,
   },
   "bytedance-seed/seedream-5-0-pro": {
@@ -1606,8 +1636,7 @@ export function buildOpenRouterChatRequestBody({
     ],
     modalities: getGeneratedImageOutputModalities(modelConfig.id),
     model: modelConfig.providerModelId,
-    // Every chat-style image model has a ZDR endpoint today, so this always
-    // emits; it stays conditional so a future exempt chat model needs no edit.
+    // Nano Banana 2.1 is explicitly exempt; Pro and Lite retain ZDR routing.
     ...(providerRouting ? { provider: providerRouting } : {}),
     stream: false,
   };
@@ -1685,9 +1714,7 @@ export function buildOpenRouterImagesRequestBody({
 
   const providerRouting = buildOpenRouterImageProviderRouting(modelConfig.id);
 
-  // The GPT Image 2.5 tiers, Qwen Image 3 Pro, and Grok Imagine have no ZDR
-  // endpoint, so their bodies stay exactly as they were before ZDR routing was
-  // introduced.
+  // Explicitly exempt models have no ZDR endpoint to constrain routing to.
   if (providerRouting) {
     body.provider = providerRouting;
   }

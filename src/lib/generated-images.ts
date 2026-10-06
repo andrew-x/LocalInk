@@ -33,11 +33,11 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "google/gemini-3-pro-image",
   },
   {
-    id: "google/gemini-3.1-flash-image",
-    name: "Nano Banana 2",
+    id: "google/gemini-nano-banana-2.1",
+    name: "Nano Banana 2.1",
     outputModalities: ["image", "text"],
     provider: "openrouter",
-    providerModelId: "google/gemini-3.1-flash-image",
+    providerModelId: "google/gemini-nano-banana-2.1",
   },
   {
     id: "google/gemini-3.1-flash-lite-image",
@@ -54,6 +54,13 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "bytedance-seed/seedream-5-0-pro",
   },
   {
+    id: "bytedance-seed/seedream-5-0-flash",
+    name: "Seedream 5.0 Flash",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "bytedance-seed/seedream-5-0-flash",
+  },
+  {
     id: "krea/krea-2-large",
     name: "Krea 2 Large",
     outputModalities: ["image"],
@@ -68,11 +75,11 @@ export const GENERATED_IMAGE_MODELS = [
     providerModelId: "sourceful/riverflow-v2.5-pro",
   },
   {
-    id: "black-forest-labs/flux.2-max",
-    name: "FLUX.2 Max",
+    id: "black-forest-labs/flux-3-image",
+    name: "FLUX.3 Image",
     outputModalities: ["image"],
     provider: "openrouter",
-    providerModelId: "black-forest-labs/flux.2-max",
+    providerModelId: "black-forest-labs/flux-3-image",
   },
   {
     id: "qwen/qwen-image-3-pro",
@@ -80,6 +87,13 @@ export const GENERATED_IMAGE_MODELS = [
     outputModalities: ["image"],
     provider: "openrouter",
     providerModelId: "qwen/qwen-image-3-pro",
+  },
+  {
+    id: "tencent/hy-image-v3.5-preview",
+    name: "HY Image 3.5 Preview",
+    outputModalities: ["image"],
+    provider: "openrouter",
+    providerModelId: "tencent/hy-image-v3.5-preview",
   },
   {
     id: "x-ai/grok-imagine-image-2.0",
@@ -193,7 +207,7 @@ export const GENERATED_IMAGE_ASPECT_RATIOS = [
 
 export const GENERATED_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
 
-export const DEFAULT_GENERATED_IMAGE_MODEL = "google/gemini-3.1-flash-image";
+export const DEFAULT_GENERATED_IMAGE_MODEL = "google/gemini-nano-banana-2.1";
 export const DEFAULT_GENERATED_IMAGE_STYLE_PRESET = "amateur-photo";
 export const DEFAULT_GENERATED_IMAGE_ASPECT_RATIO = "1:1";
 export const DEFAULT_GENERATED_IMAGE_SIZE = "1K";
@@ -274,22 +288,23 @@ export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
 // Models that must never receive the negation-based prompt or the long
 // instruction block that goes with it.
 //
-// Diffusion-based image models (Seedream, Qwen Image, Krea, FLUX.2, Riverflow)
-// weight the earliest tokens most heavily and treat every token as content, so
-// they ignore "do not" phrasing and negative lists. They get an
-// affirmation-only, photorealism-first prompt instead of the negation-based
-// prompt the instruction-tuned models can follow.
+// Native image models below use an affirmation-only, photorealism-first
+// prompt. This preserves the existing diffusion-model prompt strategy for
+// Seedream and FLUX upgrades and uses the same conservative shape for HY,
+// without assuming that negative lists suppress unwanted visual content.
 //
 // Grok Imagine Image 2.0 is listed for the second reason: its prompt cap is
 // smaller than the negation-based system instruction alone, so prepending that
 // block would consume the whole budget before the subject was reached.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
-    "black-forest-labs/flux.2-max",
+    "black-forest-labs/flux-3-image",
     "bytedance-seed/seedream-5-0-pro",
+    "bytedance-seed/seedream-5-0-flash",
     "krea/krea-2-large",
     "qwen/qwen-image-3-pro",
     "sourceful/riverflow-v2.5-pro",
+    "tencent/hy-image-v3.5-preview",
     "x-ai/grok-imagine-image-2.0",
   ]);
 
@@ -305,13 +320,15 @@ const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
 // and work on both endpoints.
 const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
   new Set([
-    "black-forest-labs/flux.2-max",
+    "black-forest-labs/flux-3-image",
     "bytedance-seed/seedream-5-0-pro",
+    "bytedance-seed/seedream-5-0-flash",
     "krea/krea-2-large",
     "openai/gpt-image-2.5-flare",
     "openai/gpt-image-2.5-sunburst",
     "qwen/qwen-image-3-pro",
     "sourceful/riverflow-v2.5-pro",
+    "tencent/hy-image-v3.5-preview",
     "x-ai/grok-imagine-image-2.0",
   ]);
 
@@ -324,16 +341,14 @@ const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
 // The check when adding or reviewing a model is
 // https://openrouter.ai/api/v1/endpoints/zdr: a model absent from that list
 // belongs here, and a model that gains a ZDR endpoint should be taken out.
-// Verified 2026-08-16: Seedream 5 Pro (Seed), Krea 2 Large (Krea), and the three
-// Nano Banana models (Google) each have exactly one ZDR endpoint, so they stay
-// out of this set and lose provider fallback instead. Riverflow V2.5 Pro
-// (Sourceful) and FLUX.2 Max (Black Forest Labs) are each served by exactly one
-// provider and neither appears in the ZDR list, so both are exempt.
-// Verified 2026-09-11: both GPT Image 2.5 tiers (OpenAI) have zero ZDR-listed
-// endpoints, the same as the GPT Image 2 they replaced, so both are exempt and
-// neither can pin a ZDR provider slug below.
+// Verified 2026-10-06: Nano Banana 2.1 and FLUX.3 Image have no ZDR-listed
+// endpoints, so both are explicitly exempt. Seedream 5.0 Flash (seed) and
+// HY Image 3.5 Preview (tencent) each have one and must remain pinned below.
+// Existing exemptions for the GPT Image 2.5 tiers, Qwen, Riverflow, and Grok
+// remain unchanged.
 const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
-  "black-forest-labs/flux.2-max",
+  "black-forest-labs/flux-3-image",
+  "google/gemini-nano-banana-2.1",
   "openai/gpt-image-2.5-flare",
   "openai/gpt-image-2.5-sunburst",
   "qwen/qwen-image-3-pro",
@@ -348,15 +363,19 @@ const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
 // `provider.only`, so the images-endpoint models that must stay ZDR pin their
 // ZDR-listed provider directly instead of trusting the flag.
 //
+// Verified 2026-10-06: invalid-provider probes for Flash and HY returned 404
+// with available_providers matching seed and tencent, confirming only is honored.
 // Slugs are the `tag` field from https://openrouter.ai/api/v1/endpoints/zdr.
-// Both models are currently served by exactly one provider, which is also their
+// These models are currently served by exactly one provider, which is also their
 // ZDR-listed one, so pinning costs no routing breadth today — it keeps the
 // request correct if OpenRouter later adds a non-ZDR provider for them.
 const ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL: Partial<
   Record<GeneratedImageModel, readonly string[]>
 > = {
   "bytedance-seed/seedream-5-0-pro": ["seed"],
+  "bytedance-seed/seedream-5-0-flash": ["seed"],
   "krea/krea-2-large": ["krea"],
+  "tencent/hy-image-v3.5-preview": ["tencent"],
 };
 
 // Models that reject or silently truncate prompts past their upstream limit.

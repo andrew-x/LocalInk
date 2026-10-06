@@ -325,7 +325,7 @@ describe("generated image server helpers", () => {
       stylePrompt: "Natural light.",
     });
 
-    expect(parsed.model).toBe("google/gemini-3.1-flash-image");
+    expect(parsed.model).toBe("google/gemini-nano-banana-2.1");
     expect(parsed.aspectRatio).toBe("1:1");
     expect(parsed.imageSize).toBe("1K");
     expect(parsed.stylePreset).toBe("amateur-photo");
@@ -621,7 +621,7 @@ describe("generated image server helpers", () => {
 
     // Seedream tops out at 2K and takes no quality; diffusion models send the
     // composed provider prompt untouched. It has a ZDR endpoint, so unlike the
-    // three exempt models above and below it also carries `provider`.
+    // exempt models above and below it also carries `provider`.
     const seedreamBody = buildBody("bytedance-seed/seedream-5-0-pro");
 
     expect(Object.keys(seedreamBody).sort()).toEqual([
@@ -634,6 +634,27 @@ describe("generated image server helpers", () => {
     expect(seedreamBody.resolution).toBe("2K");
     expect(seedreamBody.aspect_ratio).toBe("5:4");
     expect(seedreamBody.prompt).toBe("A brass key on a rain-dark windowsill.");
+
+    const seedreamFlashBody = buildBody("bytedance-seed/seedream-5-0-flash");
+
+    expect(seedreamFlashBody).toEqual({
+      ...seedreamBody,
+      model: "bytedance-seed/seedream-5-0-flash",
+    });
+
+    const hyBody = buildBody("tencent/hy-image-v3.5-preview");
+
+    expect(hyBody).toEqual({
+      aspect_ratio: "5:4",
+      model: "tencent/hy-image-v3.5-preview",
+      prompt: "A brass key on a rain-dark windowsill.",
+      provider: {
+        allow_fallbacks: false,
+        only: ["tencent"],
+        zdr: true,
+      },
+      resolution: "4K",
+    });
 
     // Krea only ever renders 1K and has no 5:4.
     const kreaBody = buildBody("krea/krea-2-large");
@@ -684,16 +705,17 @@ describe("generated image server helpers", () => {
     expect(riverflowBody.aspect_ratio).toBe("4:3");
     expect(riverflowBody.prompt).toBe("A brass key on a rain-dark windowsill.");
 
-    // FLUX.2 Max sizes its own output and declares no `resolution`, so the
-    // field is dropped rather than clamped, and it takes no quality either.
-    const fluxBody = buildBody("black-forest-labs/flux.2-max");
+    // FLUX.3 supports the full size and ratio range and takes no quality.
+    const fluxBody = buildBody("black-forest-labs/flux-3-image");
 
     expect(Object.keys(fluxBody).sort()).toEqual([
       "aspect_ratio",
       "model",
       "prompt",
+      "resolution",
     ]);
-    expect(fluxBody.aspect_ratio).toBe("4:3");
+    expect(fluxBody.aspect_ratio).toBe("5:4");
+    expect(fluxBody.resolution).toBe("4K");
     expect(fluxBody.prompt).toBe("A brass key on a rain-dark windowsill.");
   });
 
@@ -707,9 +729,10 @@ describe("generated image server helpers", () => {
     } = await import("@/lib/generated-images");
     // Listed literally rather than read back from the predicate, so the test
     // states the intended policy instead of restating the implementation.
-    // These six publish no ZDR endpoint, so asking for one would 404.
+    // These seven publish no ZDR endpoint, so asking for one would 404.
     const zdrExempt = new Set([
-      "black-forest-labs/flux.2-max",
+      "black-forest-labs/flux-3-image",
+      "google/gemini-nano-banana-2.1",
       "openai/gpt-image-2.5-flare",
       "openai/gpt-image-2.5-sunburst",
       "qwen/qwen-image-3-pro",
@@ -766,11 +789,21 @@ describe("generated image server helpers", () => {
       });
 
     // Verified 2026-08-16: /api/v1/images accepts `zdr` and generates anyway, so
-    // `only` plus `allow_fallbacks: false` is what actually holds these two to
+    // `only` plus `allow_fallbacks: false` is what actually holds these models to
     // their ZDR-listed provider.
     expect(buildBody("bytedance-seed/seedream-5-0-pro").provider).toEqual({
       allow_fallbacks: false,
       only: ["seed"],
+      zdr: true,
+    });
+    expect(buildBody("bytedance-seed/seedream-5-0-flash").provider).toEqual({
+      allow_fallbacks: false,
+      only: ["seed"],
+      zdr: true,
+    });
+    expect(buildBody("tencent/hy-image-v3.5-preview").provider).toEqual({
+      allow_fallbacks: false,
+      only: ["tencent"],
       zdr: true,
     });
     expect(buildBody("krea/krea-2-large").provider).toEqual({
@@ -811,6 +844,7 @@ describe("generated image server helpers", () => {
     });
     expect(proBody.model).toBe("google/gemini-3-pro-image");
     expect(proBody.modalities).toEqual(["image", "text"]);
+    expect(proBody.provider).toEqual({ zdr: true });
     // Chat-style models get the system instruction as a real system message
     // rather than folded into the prompt string.
     expect(proBody.messages).toEqual([
@@ -824,6 +858,17 @@ describe("generated image server helpers", () => {
       },
     ]);
 
+    const nanoBananaBody = buildBody("google/gemini-nano-banana-2.1");
+
+    expect(nanoBananaBody.image_config).toEqual({
+      aspect_ratio: "5:4",
+      image_size: "4K",
+    });
+    expect(nanoBananaBody.model).toBe("google/gemini-nano-banana-2.1");
+    expect(nanoBananaBody.modalities).toEqual(["image", "text"]);
+    expect(nanoBananaBody.messages).toEqual(proBody.messages);
+    expect(nanoBananaBody.provider).toBeUndefined();
+
     // Nano Banana 2 Lite renders at 1K only, so a 4K request clamps down
     // instead of asking Google for a size the model cannot produce. Its ratio
     // enum covers 5:4, so the shape is left alone.
@@ -834,6 +879,26 @@ describe("generated image server helpers", () => {
       image_size: "1K",
     });
     expect(liteBody.model).toBe("google/gemini-3.1-flash-lite-image");
+    expect(liteBody.provider).toEqual({ zdr: true });
+  });
+
+  test("uses the expected endpoint for refreshed image models", async () => {
+    const { generatedImageModelUsesOpenRouterImagesEndpoint } = await import(
+      "@/lib/generated-images"
+    );
+
+    expect(
+      generatedImageModelUsesOpenRouterImagesEndpoint(
+        "google/gemini-nano-banana-2.1",
+      ),
+    ).toBe(false);
+    for (const model of [
+      "black-forest-labs/flux-3-image",
+      "bytedance-seed/seedream-5-0-flash",
+      "tencent/hy-image-v3.5-preview",
+    ] as const) {
+      expect(generatedImageModelUsesOpenRouterImagesEndpoint(model)).toBe(true);
+    }
   });
 
   test("clamps OpenRouter images requests to each model's supported enums", async () => {
@@ -846,6 +911,12 @@ describe("generated image server helpers", () => {
       clampOpenRouterImagesSize({
         imageSize: "4K",
         model: "bytedance-seed/seedream-5-0-pro",
+      }),
+    ).toBe("2K");
+    expect(
+      clampOpenRouterImagesSize({
+        imageSize: "4K",
+        model: "bytedance-seed/seedream-5-0-flash",
       }),
     ).toBe("2K");
     expect(
@@ -888,6 +959,18 @@ describe("generated image server helpers", () => {
         model: "bytedance-seed/seedream-5-0-pro",
       }),
     ).toBe("21:9");
+    expect(
+      clampOpenRouterImagesAspectRatio({
+        aspectRatio: "21:9",
+        model: "bytedance-seed/seedream-5-0-flash",
+      }),
+    ).toBe("21:9");
+    expect(
+      clampOpenRouterImagesAspectRatio({
+        aspectRatio: "21:9",
+        model: "tencent/hy-image-v3.5-preview",
+      }),
+    ).toBe("16:9");
     // The GPT Image 2.5 tiers have no 5:4, and Krea has neither 5:4 nor 3:4, so
     // each falls back to the closest shape it does support.
     expect(
