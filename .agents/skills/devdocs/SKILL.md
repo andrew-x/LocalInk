@@ -1,6 +1,6 @@
 ---
 name: devdocs
-description: Use when implementation depends on current framework, API, SDK, CLI, browser, runtime, or platform behavior. Prefer official docs, local package docs, release notes, migration guides, and API references. Return concise guidance with source links, and when edits are permitted add useful recurring sources to docs/devdocs-index.md.
+description: Use when implementation depends on current framework, API, SDK, CLI, browser, runtime, or platform behavior. Prefer official docs, local package docs, release notes, migration guides, and API references. Return concise guidance with source links; durable source notes are only needed to support non-obvious project explanations.
 ---
 
 # Devdocs
@@ -13,7 +13,7 @@ Use this skill before making implementation choices that depend on current exter
 2. Prefer local docs bundled with installed packages. For Next in this repo, start with `node_modules/next/dist/docs/index.md`, then read the focused page it points to.
 3. If local docs are missing or insufficient, use official docs, release notes, migration guides, and API references. Avoid blogs and forum posts unless official sources do not cover the issue.
 4. Return concise guidance: decision, constraints, relevant version, and source links or local file paths.
-5. If edits are permitted and a source will be useful again, update `docs/devdocs-index.md` with the title, URL/path, why it matters, and the last-checked date. In read-only tasks, recommend the index update instead.
+5. Record a source in `docs/devdocs-index.md` only when edits are permitted and it supports a retained non-obvious explanation or decision. Include why it matters and the actual last-checked date. Routine lookups do not require durable documentation or an index-update recommendation.
 
 ## Guardrails
 

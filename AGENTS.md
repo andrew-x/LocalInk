@@ -33,7 +33,7 @@ Use subagents aggressively for non-trivial tasks when the runtime supports them,
 
 ## Project Subagents
 
-- `librarian`: Docs maintainer. Use after large implementations, architecture changes, data model/auth/security/deployment changes, new user-facing behavior, or major doc reorganizations. Also use for repo-context questions when durable docs may answer them.
+- `librarian`: Use for substantive explanations of non-obvious decisions, constraints, or operational caveats, and focused repo-context research. Routine implementation changes do not require librarian delegation.
 - Built-in `explorer` agents: Use for read-only codebase discovery, branch/diff reconnaissance, and focused audits that would otherwise fill the main context window.
 - Built-in `worker` agents: Use for bounded implementation slices with disjoint file ownership. Tell workers they are not alone in the codebase and must not revert others' changes.
 
@@ -62,8 +62,9 @@ When changing any of these in one runtime, mirror the change in the other in the
 ## Documentation Memory
 
 - `docs/README.md` is the durable project memory index. Read it first for repo-context questions.
-- Update docs through the `librarian` subagent after major behavior, architecture, or data model changes.
-- Keep docs concise and current. Prefer links to focused docs over large duplicated explanations.
+- Document only non-obvious rationale, constraints, gotchas, and operational explanations that cannot be readily understood from the code. Routine implementation changes do not require documentation.
+- Update existing explanations when changes make them inaccurate. Avoid duplicating schemas, configuration, file structure, constants, or straightforward UI behavior.
+- Keep docs concise and link to focused explanations. Use the `librarian` when substantive explanation work or focused research would benefit from delegation.
 
 ## Quality Bar
 
@@ -73,12 +74,13 @@ When changing any of these in one runtime, mirror the change in the other in the
 - App logs must never include user writing, prompts, manuscript text, raw action payloads, local filesystem paths, or stack traces exposed to users. Log operational metadata such as action names, IDs when needed, counts, durations, success state, and sanitized error codes.
 - Every OpenRouter request defaults to Zero Data Retention routing. When adding, replacing, or upgrading any model ID (text or image), check `https://openrouter.ai/api/v1/endpoints/zdr` for that exact ID before wiring it up, and record what you found. Never relax the default for a model that has ZDR endpoints. Text models without ZDR endpoints must be rejected or replaced with a ZDR-capable model; text routing must fail rather than fall back to a retaining provider.
 - Image models without ZDR endpoints require a deliberate image-only exemption in `ZDR_EXEMPT_IMAGE_MODELS` in `src/lib/generated-images.ts`. ZDR enforcement differs by endpoint: when touching image routing, re-check endpoint behavior and provider pinning using the verification steps in `docs/ai-image-generation.md`. Images-endpoint models that must stay ZDR use verified provider slugs in `ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL`.
-- In `src/actions/[feature]/`, reserve unprefixed files for action and read entrypoints. Put action-local Zod schemas in `_schemas.ts` and shared action types in `_types.ts`; keep the full action pattern documented in `docs/backend-actions.md`.
+- In `src/actions/[feature]/`, reserve unprefixed files for action and read entrypoints. Put action-local Zod schemas in `_schemas.ts` and shared action types in `_types.ts`.
 - Forms that call actions should use React Hook Form, Zod, and `useHookFormAction` from `@next-safe-action/adapter-react-hook-form/hooks`; do not manually wire `useForm` plus `useAction` for forms. Push server-level failures into React Hook Form and also show a sanitized Sonner error toast. A form whose submit target is a carve-out Route Handler rather than an action still uses React Hook Form and Zod, but wires `useForm` with `formResolver` directly, since there is no action to bridge to.
 - User-visible client workflows should show an error toast whenever an operation encounters an error. Keep field validation and actionable form messages inline too, but use Sonner error toasts for operation-level failures such as failed saves, failed deletes, failed loads, and unexpected action errors. Toast sanitized user-facing messages only; do not expose stack traces, raw prompts, manuscript text, or local filesystem paths.
 - Database schema changes must update the Drizzle TypeScript schema and generated SQL migrations together. Use `bun run db:generate -- --name=<migration-name>` for generated migrations, and do not hand-edit local SQLite data files or ignored `data/` contents as part of normal app changes.
 - Keep styling token-driven: map new colors through semantic tokens in `src/styles/globals.scss`, and use `font-content` for long-form manuscript text.
-- Use Bun for package and script commands. For this repo, start verification with `bun run lint`; run broader checks when behavior or integration risk justifies it.
+- Add automated tests only when the user explicitly requests them. Their absence is intentional; do not introduce tests or treat missing test coverage as a routine review finding.
+- Use Bun for package and script commands. For this repo, start verification with `bun run lint`; run appropriate type/build checks when behavior or integration risk justifies it.
 - Do not run the app to test changes unless the user explicitly asks. This includes starting the dev server, launching the local app in a browser, or using browser automation against it. After completion, describe what the user should manually verify instead.
 - Use `review-diff` before committing or merging.
 - Protect user work: never revert unrelated changes unless the user explicitly asks.

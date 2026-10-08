@@ -1,33 +1,21 @@
 # LocalInk Project Memory
 
-Read this file first for repo-context questions. Keep it concise and link to focused docs instead of duplicating details.
+LocalInk is a local-first fiction writing app, run manually on the user's machine rather than deployed to the cloud. User writing and project files are private local data; prefer inspectable formats and clear migration paths.
 
-## Product Contract
-
-LocalInk is a local-first fiction writing app with AI assistance. The app runs manually on the user's machine and is not intended for cloud deployment. Next is used as the local application framework; backend code may use server-side filesystem reads and writes when that is the right product choice.
-
-Protect user writing and project files as private local data. Prefer durable local formats, clear migration paths, and inspectable state.
-
-## Current Repo Shape
-
-- Framework: Next 16 app in `src/app`.
-- Styling/tooling: Tailwind 4, Biome, TypeScript.
-- Package manager: Bun. Use `bun run <script>` for project scripts.
-- Agent setup: shared `AGENTS.md` (included by `CLAUDE.md`), skills in `.agents/skills/` (linked from `.claude/skills/`), and matching librarian agents and startup hooks in `.codex/` and `.claude/`.
-- Scratch space: `.tmp/` is transient and ignored by git.
+Read this index first for repo-context questions, then only the relevant explanations. Code is the source of truth for implementation details.
 
 ## Docs Index
 
-- `docs/agent-setup.md`: project-bound Codex and Claude Code instructions, skills, subagents, and startup hooks.
-- `docs/backend-actions.md`: action logging, `next-safe-action` mutation clients, read/write structure, and schema split.
-- `docs/database.md`: local SQLite data paths, Drizzle schema/migrations, and startup migration behavior.
-- `docs/devdocs-index.md`: recurring documentation sources for framework/API/agent work.
-- `docs/ai-prose-generation.md`: prose generation goals, prompt architecture, context hierarchy, provider behavior (including default Zero Data Retention routing), and drafting rationale.
-- `docs/ai-image-generation.md`: image generation via OpenRouter (default Zero Data Retention routing, with explicit image-model exemptions; plus the dormant WaveSpeed path), local generated-image storage, routes, and privacy/logging rules.
-- `docs/styling.md`: Tailwind v4, SCSS token hub, fonts, shadcn/ui, and common component conventions.
+- [Agent setup](agent-setup.md): shared instructions, runtime parity, and trust caveats.
+- [Backend actions](backend-actions.md): privacy boundaries and the concurrent-mutation exception.
+- [Database](database.md): local data isolation, migration behavior, and data provenance.
+- [AI prose generation](ai-prose-generation.md): prompt, context, draft-safety, and provider decisions.
+- [AI image generation](ai-image-generation.md): endpoint/ZDR caveats, provider verification, and local persistence.
+- [Styling](styling.md): token and Sass/Tailwind integration traps.
+- [External references](devdocs-index.md): sources supporting non-obvious project decisions.
 
-## Maintenance Rules
+## Maintenance
 
-- Use the `librarian` subagent after major implementations, architecture changes, data model/auth/security/deployment changes, new user-facing behavior, or major doc reorganizations.
-- Update this index when adding durable docs.
-- Do not store transient planning notes here; use `.tmp/` for scratch notes.
+Document non-obvious rationale, constraints, operational caveats, and decisions that need explanation. Routine changes do not require documentation or librarian delegation. Update existing explanations when changes invalidate them; avoid duplicating code, schemas, configuration, constants, or straightforward UI behavior.
+
+Use the librarian for substantive explanation work or focused repo-context research. Keep this index current when explanatory docs are added or removed. Transient plans belong in `.tmp/`, not here.
