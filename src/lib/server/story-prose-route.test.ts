@@ -138,14 +138,14 @@ test("prose route selects per-request models, output limits, and regeneration se
     const post = (body) => POST(new Request("http://localink.test/api/story-prose", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
     const invoke = async (body) => { const response = await post(body); await response.text(); return response.status; };
     const statuses = [];
-    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralMedium35"]) {
+    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralLarge40"]) {
       statuses.push(await invoke({ ...input, model }));
       statuses.push(await invoke({ ...input, model, regeneration: { mode: "fresh-alternative", priorAttempt: "A prior attempt." } }));
       statuses.push(await invoke({ ...input, model, regeneration: { mode: "revise-prior-draft", priorDraft: "A draft.", editInstructions: "Make it quieter." } }));
     }
     const selectedCalls = calls.map(({ model, temperature, providerOptions, maxOutputTokens }) => ({ model, temperature, providerOptions, maxOutputTokens }));
     const boundedCalls = [];
-    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralMedium35", undefined]) {
+    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralLarge40", undefined]) {
       for (const approximateLength of [200, 400, 600, 1000]) {
         const response = await post({ ...input, model, approximateLength });
         let text = "";
@@ -163,10 +163,11 @@ test("prose route selects per-request models, output limits, and regeneration se
     const invalidPreparedContext = preparedCount !== preparedBeforeInvalid;
     // A fixed selection that fits DeepSeek's context must fail against Mistral's
     // smaller context before streaming, even with the same short output target.
+    // The selection appears twice in the prompt, budgeting over 600k tokens.
     const large = { ...input, approximateLength: 200, insertion: { ...input.insertion, selectedText: "x".repeat(300000), isRewrite: true } };
     const deepseekLargeStatus = await invoke({ ...large, model: "deepseekV4Pro" });
     const callsBeforeMistral = calls.length;
-    const mistralLarge = await post({ ...large, model: "mistralMedium35" });
+    const mistralLarge = await post({ ...large, model: "mistralLarge40" });
     const mistralLargeBody = await mistralLarge.json();
     const mistralLargeInvokedModel = calls.length !== callsBeforeMistral;
     // Hold fixed context just below the shared Kimi/GLM ceiling. It leaves
@@ -202,7 +203,7 @@ test("prose route selects per-request models, output limits, and regeneration se
     ["prose-deepseek-v4-pro", 384_000],
     ["prose-kimi-k3", 943_718],
     ["prose-glm-5.3", 131_072],
-    ["prose-mistral-medium-3.5", 209_715],
+    ["prose-mistral-large-4.0", 262_144],
   ];
   for (let index = 0; index < profiles.length; index++) {
     for (let attempt = 0; attempt < 3; attempt++) {

@@ -47,7 +47,7 @@ describe("prose composer contract", () => {
       "deepseekV4Pro",
       "kimiK3",
       "glm53",
-      "mistralMedium35",
+      "mistralLarge40",
     ]) {
       const values = { ...request(""), model };
       expect(storyProseGenerationFormSchema.parse(values).model).toBe(model);
@@ -58,6 +58,7 @@ describe("prose composer contract", () => {
   test("rejects unsupported or malformed models instead of falling back", () => {
     for (const model of [
       "mistralai/mistral-large-4-0",
+      "mistralMedium35",
       "main",
       "__proto__",
       "",

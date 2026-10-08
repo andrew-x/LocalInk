@@ -23,11 +23,12 @@ const LOCALINK_AI_MODELS = {
   //
   // ZDR endpoints verified 2026-10-06 against
   // https://openrouter.ai/api/v1/endpoints/zdr: DeepSeek V4 Pro 15, Kimi K3 21,
-  // GLM 5.3 33, Mistral Medium 3.5 2. All four keep default ZDR routing.
+  // GLM 5.3 33. Mistral Large 4.0 verified 2026-10-08: 2 endpoints
+  // (mistral/eu and mistral/zdr). All four keep default ZDR routing.
   "prose-deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
   "prose-kimi-k3": "moonshotai/kimi-k3",
   "prose-glm-5.3": "z-ai/glm-5.3",
-  "prose-mistral-medium-3.5": "mistralai/mistral-medium-3-5",
+  "prose-mistral-large-4.0": "mistralai/mistral-large-4-0",
 } as const;
 
 /**
@@ -70,7 +71,7 @@ export const STORY_GENERATION_AI_MODELS = {
   deepseekV4Pro: "prose-deepseek-v4-pro",
   kimiK3: "prose-kimi-k3",
   glm53: "prose-glm-5.3",
-  mistralMedium35: "prose-mistral-medium-3.5",
+  mistralLarge40: "prose-mistral-large-4.0",
 } as const satisfies Record<StoryGenerationModel, LocalinkAiModel>;
 
 // Note: the OpenRouter provider spreads `providerOptions.openrouter` over the

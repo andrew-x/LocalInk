@@ -70,10 +70,11 @@ const NO_REASONING = {
  * profile once you have a read on it.
  *
  * All choices retain mandatory ZDR routing; availability checks are recorded
- * in ai.ts. Mistral's 262k context is the smallest of the four.
+ * in ai.ts. Mistral's 524k context is the smallest of the four.
  * Context/output limits below use the
  * lower advertised model/top-provider context from OpenRouter's public models
- * endpoint, checked 2026-09-22; no request-time metadata lookup is needed.
+ * endpoint, checked 2026-09-22, except Mistral (see below).
+ * No request-time metadata lookup is needed.
  */
 const STORY_PROSE_MODEL_PROFILES = {
   deepseekV4Pro: {
@@ -104,10 +105,13 @@ const STORY_PROSE_MODEL_PROFILES = {
     // Extra completion headroom for bounded drafts, not a hard reasoning cap.
     reasoningOutputTokenAllowance: 4_096,
   },
-  mistralMedium35: {
-    model: STORY_GENERATION_AI_MODELS.mistralMedium35,
-    contextWindowTokens: 262_144,
-    maxCompletionTokens: 209_715,
+  mistralLarge40: {
+    model: STORY_GENERATION_AI_MODELS.mistralLarge40,
+    // Verified 2026-10-08: mistral/eu supports 524,288 context tokens;
+    // mistral/zdr supports 1,048,576. Use the smaller limit for either endpoint.
+    // https://openrouter.ai/api/v1/endpoints/zdr
+    contextWindowTokens: 524_288,
+    maxCompletionTokens: 262_144,
     temperature: 0.82,
     providerOptions: NO_REASONING,
   },

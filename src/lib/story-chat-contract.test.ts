@@ -22,7 +22,7 @@ describe("chat model selection contract", () => {
       "deepseekV4Pro",
       "kimiK3",
       "glm53",
-      "mistralMedium35",
+      "mistralLarge40",
     ]) {
       expect(
         storyChatStreamRequestSchema.parse({ ...request, model }).model,
@@ -40,6 +40,7 @@ describe("chat model selection contract", () => {
   test("rejects unsupported or malformed models instead of falling back", () => {
     for (const model of [
       "mistralai/mistral-large-4-0",
+      "mistralMedium35",
       "main",
       "__proto__",
       "",

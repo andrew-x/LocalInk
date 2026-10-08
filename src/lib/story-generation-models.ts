@@ -4,7 +4,7 @@ export const STORY_GENERATION_MODELS = [
   { value: "deepseekV4Pro", label: "DeepSeek V4 Pro" },
   { value: "kimiK3", label: "Kimi K3" },
   { value: "glm53", label: "GLM 5.3" },
-  { value: "mistralMedium35", label: "Mistral Medium 3.5" },
+  { value: "mistralLarge40", label: "Mistral Large 4.0" },
 ] as const;
 
 export type StoryGenerationModel =

@@ -36,7 +36,7 @@ test("chat route selects models while preserving settings and generation history
     const input = { storyId: "story", chatId: "chat", generationId: "generation", contextMessageId: "context" };
     const post = (body) => POST(new Request("http://localink.test/api/story-chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
     const outcomes = [];
-    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralMedium35", undefined]) {
+    for (const model of ["deepseekV4Pro", "kimiK3", "glm53", "mistralLarge40", undefined]) {
       const response = await post({ ...input, model });
       let text = "";
       await readLocalinkTextStream(response, { onDelta: (delta) => text += delta, incompleteMessage: "Incomplete", unavailableMessage: "Unavailable" });
@@ -75,7 +75,7 @@ test("chat route selects models while preserving settings and generation history
     "prose-deepseek-v4-pro",
     "prose-kimi-k3",
     "prose-glm-5.3",
-    "prose-mistral-medium-3.5",
+    "prose-mistral-large-4.0",
     "prose-deepseek-v4-pro",
     "prose-kimi-k3",
   ]);
