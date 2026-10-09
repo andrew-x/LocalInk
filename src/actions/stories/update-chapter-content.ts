@@ -18,28 +18,54 @@ export const updateChapterContent = publicActionClient
   .action(async ({ parsedInput }): Promise<StoryChapterItem> => {
     const now = day().toISOString();
     const db = getDb();
-    const [chapter] = await db
-      .update(chapters)
-      .set({
-        content: parsedInput.content,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(chapters.id, parsedInput.chapterId),
-          eq(chapters.storyId, parsedInput.storyId),
-        ),
-      )
-      .returning(storyChapterSelectFields);
-
-    if (!chapter) {
-      throw new ActionError("BAD_REQUEST", "The chapter could not be found.");
-    }
-
-    await db
-      .update(stories)
-      .set({ updatedAt: now })
-      .where(eq(stories.id, parsedInput.storyId));
-
-    return chapter;
+    return db.transaction((tx) => {
+      const current = tx
+        .select(storyChapterSelectFields)
+        .from(chapters)
+        .where(
+          and(
+            eq(chapters.id, parsedInput.chapterId),
+            eq(chapters.storyId, parsedInput.storyId),
+          ),
+        )
+        .get();
+      if (!current) {
+        throw new ActionError("BAD_REQUEST", "The chapter could not be found.");
+      }
+      // A response may be lost after commit. A retry of that exact body is safe.
+      if (current.content === parsedInput.content) return current;
+      if (current.contentRevision !== parsedInput.expectedContentRevision) {
+        throw new ActionError(
+          "CONFLICT",
+          "This chapter changed elsewhere. Your writing has been preserved locally; reload the saved chapter before trying again.",
+        );
+      }
+      const chapter = tx
+        .update(chapters)
+        .set({
+          content: parsedInput.content,
+          contentRevision: current.contentRevision + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(chapters.id, parsedInput.chapterId),
+            eq(chapters.storyId, parsedInput.storyId),
+            eq(chapters.contentRevision, parsedInput.expectedContentRevision),
+          ),
+        )
+        .returning(storyChapterSelectFields)
+        .get();
+      if (!chapter) {
+        throw new ActionError(
+          "CONFLICT",
+          "This chapter changed elsewhere. Your writing has been preserved locally.",
+        );
+      }
+      tx.update(stories)
+        .set({ updatedAt: now })
+        .where(eq(stories.id, parsedInput.storyId))
+        .run();
+      return chapter;
+    });
   });

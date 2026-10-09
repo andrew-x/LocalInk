@@ -8,12 +8,6 @@ export const storyChatUserMessageSchema = z
   .min(1, "Message is required.")
   .max(4_000, "Message must be 4000 characters or fewer.");
 
-export const storyChatAssistantMessageSchema = z
-  .string()
-  .trim()
-  .min(1, "Assistant output is required.")
-  .max(200_000, "Assistant output is too long.");
-
 export const getStoryChatsReadSchema = z.object({
   storyId: idSchema,
 });
@@ -41,5 +35,21 @@ export const saveStoryChatAssistantOutputActionSchema = z.object({
   generationId: idSchema,
   contextMessageId: idSchema,
   replaceAssistantMessageId: idSchema.optional(),
-  content: storyChatAssistantMessageSchema,
+});
+
+export const getManuscriptProposalReadSchema = z.object({
+  storyId: idSchema,
+  proposalId: idSchema,
+});
+
+export const resolveManuscriptProposalSchema = z.object({
+  storyId: idSchema,
+  proposalId: idSchema,
+  decision: z.enum(["approve", "deny", "undo"]),
+  expectedRevisions: z.array(
+    z.object({
+      chapterId: idSchema,
+      contentRevision: z.number().int().nonnegative(),
+    }),
+  ),
 });

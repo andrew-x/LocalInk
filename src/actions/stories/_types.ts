@@ -27,6 +27,7 @@ export type StoryChapterItem = {
   name: string;
   position: number;
   content: string;
+  contentRevision: number;
   // Background-generated story state for this chapter. Empty until the first
   // refresh, and briefly stale after an edit; both are expected.
   synopsis: string;

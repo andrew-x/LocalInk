@@ -45,8 +45,9 @@ import {
   PopoverTrigger,
 } from "@/components/common/popover";
 import { Textarea } from "@/components/common/textarea";
+import { ManuscriptResolutionError } from "@/components/story-editor/chapter-manuscript-controller";
+import { ManuscriptProposalReview } from "@/components/story-editor/manuscript-proposal-review";
 import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
-import { readLocalinkTextStream } from "@/lib/ai-text-stream";
 import day from "@/lib/dayjs";
 import type { StoryChatStreamRequest } from "@/lib/story-chat-contract";
 import {
@@ -55,14 +56,25 @@ import {
   type StoryChatSlashCommandMetadata,
   type StoryChatSlashCommandName,
 } from "@/lib/story-chat-slash-commands";
+import { readStoryChatStream } from "@/lib/story-chat-stream";
 import {
   DEFAULT_STORY_GENERATION_MODEL,
   STORY_GENERATION_MODELS,
   type StoryGenerationModel,
 } from "@/lib/story-generation-models";
+import type {
+  ManuscriptProposal,
+  ManuscriptProposalDecision,
+  ManuscriptSnapshot,
+} from "@/lib/story-manuscript-contract";
 import { cn } from "@/lib/util";
 
 type StoryEditorChatPaneProps = {
+  getManuscriptSnapshot: () => ManuscriptSnapshot;
+  onResolveProposal: (
+    proposal: ManuscriptProposal,
+    decision: ManuscriptProposalDecision,
+  ) => Promise<ManuscriptProposal>;
   isOpen: boolean;
   onToggleOpen: () => void;
   story: {
@@ -73,6 +85,8 @@ type StoryEditorChatPaneProps = {
 
 type DraftStoryChatMessage = StoryChatVisibleMessage & {
   streamStatus?: "waiting" | "streaming";
+  progressMessage?: string;
+  unsavedGeneration?: PreparedStoryChatGeneration;
 };
 
 type ActionFailureResult = {
@@ -94,7 +108,9 @@ type LatestMessageScrollRequest = {
 const LATEST_MESSAGE_SCROLL_THRESHOLD_PX = 48;
 
 export function StoryEditorChatPane({
+  getManuscriptSnapshot,
   isOpen,
+  onResolveProposal,
   onToggleOpen,
   story,
 }: StoryEditorChatPaneProps) {
@@ -109,6 +125,14 @@ export function StoryEditorChatPane({
   const [isLoadingChats, setIsLoadingChats] = useState(false);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [pendingResolution, setPendingResolution] = useState<{
+    id: string;
+    decision: ManuscriptProposalDecision;
+  } | null>(null);
+  const [proposalErrors, setProposalErrors] = useState<Record<string, string>>(
+    {},
+  );
+  const resolutionInFlightRef = useRef(false);
   const [scrollRequest, setScrollRequest] =
     useState<LatestMessageScrollRequest>({ count: 0, mode: "force" });
   const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
@@ -126,8 +150,10 @@ export function StoryEditorChatPane({
   const abortControllerRef = useRef<AbortController | null>(null);
   const activeChatId = activeChat?.id ?? null;
   const latestAssistantMessageId = getLatestAssistantMessageId(messages);
+  const hasUnsavedReply = messages.some((message) => message.unsavedGeneration);
   const isBusy =
     isStreaming ||
+    Boolean(pendingResolution) ||
     isLoadingChat ||
     prepareTurnAction.isPending ||
     prepareRegenerationAction.isPending ||
@@ -226,6 +252,7 @@ export function StoryEditorChatPane({
     setActiveChat(null);
     setMessages([]);
     setDraftContent("");
+    setProposalErrors({});
     requestForcedScrollToLatestMessage();
     void refreshChats();
 
@@ -311,16 +338,29 @@ export function StoryEditorChatPane({
   async function handleSendMessage() {
     const content = draftContent.trim();
 
-    if (!content || isBusy) {
+    if (!content || isBusy || hasUnsavedReply) {
       return;
     }
 
+    let manuscript: ManuscriptSnapshot;
+    try {
+      manuscript = getManuscriptSnapshot();
+    } catch {
+      toast.error("The manuscript could not be read. Please try again.");
+      return;
+    }
     const selectedModel = model;
-    const result = await prepareTurnAction.executeAsync({
-      storyId: story.id,
-      chatId: activeChatId,
-      content,
-    });
+    let result: Awaited<ReturnType<typeof prepareTurnAction.executeAsync>>;
+    try {
+      result = await prepareTurnAction.executeAsync({
+        storyId: story.id,
+        chatId: activeChatId,
+        content,
+      });
+    } catch {
+      toast.error("The chat message could not be sent.");
+      return;
+    }
 
     if (!result.data) {
       toast.error(
@@ -331,20 +371,41 @@ export function StoryEditorChatPane({
 
     setDraftContent("");
     applyPreparedGeneration(result.data);
-    await streamAssistantReply(result.data, selectedModel);
+    await streamAssistantReply(result.data, selectedModel, manuscript);
   }
 
   async function handleRegenerate(message: StoryChatVisibleMessage) {
-    if (isBusy || message.id !== latestAssistantMessageId || !activeChatId) {
+    if (
+      isBusy ||
+      hasUnsavedReply ||
+      message.proposal ||
+      message.id !== latestAssistantMessageId ||
+      !activeChatId
+    ) {
       return;
     }
 
+    let manuscript: ManuscriptSnapshot;
+    try {
+      manuscript = getManuscriptSnapshot();
+    } catch {
+      toast.error("The manuscript could not be read. Please try again.");
+      return;
+    }
     const selectedModel = model;
-    const result = await prepareRegenerationAction.executeAsync({
-      storyId: story.id,
-      chatId: activeChatId,
-      assistantMessageId: message.id,
-    });
+    let result: Awaited<
+      ReturnType<typeof prepareRegenerationAction.executeAsync>
+    >;
+    try {
+      result = await prepareRegenerationAction.executeAsync({
+        storyId: story.id,
+        chatId: activeChatId,
+        assistantMessageId: message.id,
+      });
+    } catch {
+      toast.error("The assistant reply could not be regenerated.");
+      return;
+    }
 
     if (!result.data) {
       toast.error(
@@ -357,7 +418,7 @@ export function StoryEditorChatPane({
     }
 
     applyPreparedGeneration(result.data);
-    await streamAssistantReply(result.data, selectedModel);
+    await streamAssistantReply(result.data, selectedModel, manuscript);
   }
 
   function applyPreparedGeneration(generation: PreparedStoryChatGeneration) {
@@ -370,6 +431,7 @@ export function StoryEditorChatPane({
   async function streamAssistantReply(
     generation: PreparedStoryChatGeneration,
     selectedModel: StoryGenerationModel,
+    manuscript: ManuscriptSnapshot,
   ) {
     const replaceAssistantMessageId = generation.replaceAssistantMessageId;
     const draftMessageId =
@@ -425,6 +487,7 @@ export function StoryEditorChatPane({
           contextMessageId: generation.contextMessageId,
           model: selectedModel,
           replaceAssistantMessageId,
+          manuscript,
         } satisfies StoryChatStreamRequest),
         signal: controller.signal,
       });
@@ -433,19 +496,34 @@ export function StoryEditorChatPane({
         throw new Error(await readStoryChatStreamError(response));
       }
 
-      await readLocalinkTextStream(response, {
+      await readStoryChatStream(response, {
         incompleteMessage: "The chat stream ended before the reply completed.",
         unavailableMessage: "The chat stream could not be opened.",
         onDelta(text) {
           streamedText += text;
           updateStreamingMessage(draftMessageId, streamedText);
         },
+        onStatus(message) {
+          updateStreamingProgress(draftMessageId, message);
+        },
       });
 
-      const savedOutput = await saveAssistantOutput(generation, streamedText);
+      updateStreamingProgress(draftMessageId, "Saving reply…");
+      const savedOutput = await saveAssistantOutput(generation);
 
       if (!savedOutput) {
-        restoreFailedStream(draftMessageId, previousMessage);
+        setMessages((currentMessages) =>
+          currentMessages.map((message) =>
+            message.id === draftMessageId
+              ? {
+                  ...message,
+                  streamStatus: undefined,
+                  progressMessage: undefined,
+                  unsavedGeneration: generation,
+                }
+              : message,
+          ),
+        );
         return;
       }
 
@@ -480,28 +558,113 @@ export function StoryEditorChatPane({
 
   async function saveAssistantOutput(
     generation: PreparedStoryChatGeneration,
-    content: string,
   ): Promise<SavedStoryChatAssistantOutput | null> {
-    const result = await saveAssistantOutputAction.executeAsync({
-      storyId: story.id,
-      chatId: generation.chat.id,
-      generationId: generation.generationId,
-      contextMessageId: generation.contextMessageId,
-      replaceAssistantMessageId: generation.replaceAssistantMessageId,
-      content,
-    });
+    try {
+      const result = await saveAssistantOutputAction.executeAsync({
+        storyId: story.id,
+        chatId: generation.chat.id,
+        generationId: generation.generationId,
+        contextMessageId: generation.contextMessageId,
+        replaceAssistantMessageId: generation.replaceAssistantMessageId,
+      });
 
-    if (!result.data) {
+      if (!result.data) {
+        toast.error(
+          getActionFailureMessage(
+            result,
+            "The assistant reply could not be saved.",
+          ),
+        );
+        return null;
+      }
+
+      return result.data;
+    } catch {
       toast.error(
-        getActionFailureMessage(
-          result,
-          "The assistant reply could not be saved.",
-        ),
+        "The assistant reply could not be saved. Retry saving the reply.",
       );
       return null;
     }
+  }
 
-    return result.data;
+  async function handleRetrySave(message: DraftStoryChatMessage) {
+    if (isBusy || !message.unsavedGeneration) return;
+    const savedOutput = await saveAssistantOutput(message.unsavedGeneration);
+    if (!savedOutput) return;
+    setMessages((currentMessages) =>
+      currentMessages.map((item) =>
+        item.id === message.id ? savedOutput.message : item,
+      ),
+    );
+    setActiveChat(savedOutput.chat);
+    upsertChat(savedOutput.chat);
+  }
+
+  async function handleDismissUnsavedReply() {
+    if (isBusy || !activeChatId) return;
+    // Reload to reconcile a save whose response may have been lost before
+    // deliberately leaving its retry UI behind.
+    setIsLoadingChat(true);
+    try {
+      const chat = await getStoryChat({
+        storyId: story.id,
+        chatId: activeChatId,
+      });
+      if (!chat) {
+        toast.error(
+          "The chat could not be refreshed. Please retry saving the reply.",
+        );
+        return;
+      }
+      setMessages(chat.messages);
+      setActiveChat(toChatListItem(chat));
+      upsertChat(toChatListItem(chat));
+    } catch {
+      toast.error(
+        "The chat could not be refreshed. Please retry saving the reply.",
+      );
+    } finally {
+      setIsLoadingChat(false);
+    }
+  }
+
+  async function handleResolveProposal(
+    proposal: ManuscriptProposal,
+    decision: ManuscriptProposalDecision,
+  ) {
+    if (isBusy || resolutionInFlightRef.current) return;
+    resolutionInFlightRef.current = true;
+    setPendingResolution({ id: proposal.id, decision });
+    setProposalErrors((current) => ({ ...current, [proposal.id]: "" }));
+    try {
+      const resolved = await onResolveProposal(proposal, decision);
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.proposal?.id === resolved.id
+            ? { ...message, proposal: resolved }
+            : message,
+        ),
+      );
+      toast.success(
+        resolved.status === "accepted"
+          ? "Manuscript edits applied."
+          : resolved.status === "rejected"
+            ? "Manuscript edits denied."
+            : resolved.status === "undone"
+              ? "Manuscript edits undone."
+              : "Manuscript proposal updated.",
+      );
+    } catch (error) {
+      const message =
+        error instanceof ManuscriptResolutionError && error.message
+          ? error.message
+          : "The manuscript edits could not be updated. Please try again.";
+      setProposalErrors((current) => ({ ...current, [proposal.id]: message }));
+      toast.error(message);
+    } finally {
+      resolutionInFlightRef.current = false;
+      setPendingResolution(null);
+    }
   }
 
   function updateStreamingMessage(messageId: string, content: string) {
@@ -512,8 +675,23 @@ export function StoryEditorChatPane({
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
         message.id === messageId
-          ? { ...message, content, streamStatus, updatedAt }
+          ? {
+              ...message,
+              content,
+              streamStatus,
+              progressMessage: undefined,
+              updatedAt,
+            }
           : message,
+      ),
+    );
+  }
+
+  function updateStreamingProgress(messageId: string, progressMessage: string) {
+    requestFollowedScrollToLatestMessage();
+    setMessages((currentMessages) =>
+      currentMessages.map((message) =>
+        message.id === messageId ? { ...message, progressMessage } : message,
       ),
     );
   }
@@ -724,6 +902,9 @@ export function StoryEditorChatPane({
                       message.role === "assistant" &&
                       message.id === latestAssistantMessageId &&
                       !message.streamStatus &&
+                      !message.unsavedGeneration &&
+                      !message.proposal &&
+                      !hasUnsavedReply &&
                       Boolean(message.content.trim())
                     }
                     isBusy={isBusy}
@@ -731,6 +912,19 @@ export function StoryEditorChatPane({
                     message={message}
                     onCopy={handleCopyMessage}
                     onRegenerate={handleRegenerate}
+                    onRetrySave={handleRetrySave}
+                    onDismissUnsavedReply={handleDismissUnsavedReply}
+                    onResolveProposal={handleResolveProposal}
+                    proposalError={
+                      message.proposal
+                        ? proposalErrors[message.proposal.id]
+                        : undefined
+                    }
+                    pendingDecision={
+                      message.proposal?.id === pendingResolution?.id
+                        ? pendingResolution?.decision
+                        : undefined
+                    }
                   />
                 ))}
               </ol>
@@ -739,8 +933,8 @@ export function StoryEditorChatPane({
                 <MessageSquare aria-hidden="true" className="size-5" />
                 <p className="text-body">No messages yet</p>
                 <p className="text-caption">
-                  Brainstorm here, then use / to draft text you can copy into
-                  your story information.
+                  Ask about your manuscript or request edits to review and
+                  approve. Use / to draft story information.
                 </p>
               </div>
             )}
@@ -781,7 +975,7 @@ export function StoryEditorChatPane({
                       handleDraftContentChange(event.target.value)
                     }
                     onKeyDown={handleDraftKeyDown}
-                    placeholder="Brainstorm your story, or type / for drafts"
+                    placeholder="Ask about your story, request edits, or type / for drafts"
                     ref={draftTextareaRef}
                     value={draftContent}
                   />
@@ -836,7 +1030,7 @@ export function StoryEditorChatPane({
                 </div>
                 <Button
                   className="ml-auto h-7 gap-1 px-2 text-label-sm [&_svg]:size-3.5"
-                  disabled={!draftContent.trim() || isBusy}
+                  disabled={!draftContent.trim() || isBusy || hasUnsavedReply}
                   leftSection={<Send aria-hidden="true" />}
                   loading={prepareTurnAction.isPending || isStreaming}
                   onClick={() => void handleSendMessage()}
@@ -846,6 +1040,12 @@ export function StoryEditorChatPane({
                   Send
                 </Button>
               </div>
+              {hasUnsavedReply ? (
+                <p className="text-caption text-muted-foreground">
+                  Retry saving the reply above, or choose “Continue without this
+                  reply” to send another message.
+                </p>
+              ) : null}
             </div>
           </div>
         </>
@@ -949,6 +1149,14 @@ type ChatMessageProps = {
   message: DraftStoryChatMessage;
   onCopy: (text: string) => Promise<void>;
   onRegenerate: (message: StoryChatVisibleMessage) => Promise<void>;
+  onRetrySave: (message: DraftStoryChatMessage) => Promise<void>;
+  onDismissUnsavedReply: () => Promise<void>;
+  onResolveProposal: (
+    proposal: ManuscriptProposal,
+    decision: ManuscriptProposalDecision,
+  ) => Promise<void>;
+  proposalError?: string;
+  pendingDecision?: ManuscriptProposalDecision;
 };
 
 function ChatMessage({
@@ -957,6 +1165,11 @@ function ChatMessage({
   message,
   onCopy,
   onRegenerate,
+  onRetrySave,
+  onDismissUnsavedReply,
+  onResolveProposal,
+  proposalError,
+  pendingDecision,
 }: ChatMessageProps) {
   const contentRef = useRef<HTMLDivElement | HTMLParagraphElement | null>(null);
   const isAssistant = message.role === "assistant";
@@ -974,7 +1187,7 @@ function ChatMessage({
     return (
       <li className="grid gap-1.5">
         {isWaitingForAssistant ? (
-          <AssistantWaitingMessage />
+          <AssistantWaitingMessage message={message.progressMessage} />
         ) : (
           <div
             className="whitespace-pre-wrap break-words font-content text-[0.875rem] leading-6 text-foreground"
@@ -983,6 +1196,53 @@ function ChatMessage({
             {message.content}
           </div>
         )}
+        {!isWaitingForAssistant &&
+        message.streamStatus &&
+        message.progressMessage ? (
+          <output
+            className="text-caption text-muted-foreground"
+            aria-live="polite"
+          >
+            {message.progressMessage}
+          </output>
+        ) : null}
+        {message.proposal &&
+        !message.streamStatus &&
+        !message.unsavedGeneration ? (
+          <ManuscriptProposalReview
+            proposal={message.proposal}
+            disabled={isBusy}
+            error={proposalError}
+            pendingDecision={pendingDecision}
+            onResolve={onResolveProposal}
+          />
+        ) : null}
+        {message.unsavedGeneration ? (
+          <div className="grid justify-items-start gap-2 rounded-md border border-border bg-muted/30 p-2.5">
+            <p className="text-caption text-muted-foreground">
+              This reply has not been saved. Save it to review any proposed
+              edits. If the saved draft has expired, send your request again.
+            </p>
+            <Button
+              disabled={isBusy}
+              onClick={() => void onRetrySave(message)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Retry saving reply
+            </Button>
+            <Button
+              disabled={isBusy}
+              onClick={() => void onDismissUnsavedReply()}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Continue without this reply
+            </Button>
+          </div>
+        ) : null}
         <div className="flex items-center gap-1 text-muted-foreground">
           <MessageActionButton
             disabled={!hasContent}
@@ -1028,17 +1288,19 @@ function ChatMessage({
   );
 }
 
-function AssistantWaitingMessage() {
+function AssistantWaitingMessage({ message }: { message?: string }) {
   return (
     <output
-      aria-label="Waiting for assistant reply"
-      className="flex h-6 items-center gap-1.5 text-muted-foreground"
+      aria-label={message ?? "Waiting for assistant reply"}
+      aria-live="polite"
+      className="flex min-h-6 items-center gap-1.5 text-muted-foreground"
     >
       <span aria-hidden="true" className="inline-flex items-center gap-1.5">
         <span className="size-1.5 animate-pulse rounded-full bg-primary/70" />
         <span className="size-1.5 animate-pulse rounded-full bg-primary/50 [animation-delay:150ms]" />
         <span className="size-1.5 animate-pulse rounded-full bg-primary/35 [animation-delay:300ms]" />
       </span>
+      {message ? <span className="text-caption">{message}</span> : null}
     </output>
   );
 }

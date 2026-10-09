@@ -36,9 +36,23 @@ Budget the complete escaped system and request prompts, including repeated ancho
 
 ## Chat Context
 
-Chat supports planning and drafting reusable story references. Its hidden saved-context snapshot excludes manuscript text, chapter summaries, story description, and outline content; it must not claim access to them. Saved instructions are editable references here, not authority over chat output format. Voice examples contribute register, not facts or wording to recycle.
+Chat supports planning, drafting reusable story references, and proposing manuscript edits. Each turn captures an immutable manuscript snapshot, including unsaved editor Markdown and the active selection. Unaccepted prose previews contribute their original manuscript, not preview text. Story title, description, instructions, style, voice samples, characters, backstory, and locations come from saved references; there is no separate outline field. Saved instructions are editable references here, not authority over chat output format. Voice examples contribute register, not facts or wording to recycle.
+
+The initial prompt includes the active chapter, chapter catalog, and provenance-verified summaries. Bounded read/search tools access other chapters from that same snapshot, so later typing cannot silently change a tool's source. Context accounting includes history, tool inputs/results, and output/reasoning allowances. Reduction removes whole lower-priority context units and identifies omissions; edit targets must be read as exact text rather than inferred from summaries. Oversized protected context fails instead of silently truncating the requested edit. Full-book snapshots are temporary; durable proposals retain only affected chapter baselines and results.
 
 Field-drafting commands use accepted discussion decisions and saved references, with current corrections taking priority. Rejected branches and unconfirmed suggestions must not become canon. Historical commands are not re-expanded; shared guidance remains active for ordinary clarification answers and revisions. Only a voice demonstration permits a minimally invented non-canon situation. Results are manually reviewed and saved by the writer, never applied automatically.
+
+### Manuscript Proposal Safety
+
+An edit tool constructs a proposal against exact, unambiguous spans in the captured manuscript; it cannot write chapters. Application approval deliberately happens outside the model's tool loop: approving an immutable stored result must not resume generation and produce different text. Metadata remains read-only. Proposal statuses enter later conversation context, while each new turn reads the manuscript afresh; pending, denied, and undone edits are not canon. Earlier proposal text can be retrieved for follow-up discussion as historical reference, never as a substitute for reading current edit targets.
+
+Completed replies and proposals are staged in bounded, expiring server memory before a separate action persists them together. A completed stream alone is not durable: expiry or a server restart before finalization requires regeneration. Finalization retries return an already-persisted generation and cannot substitute browser-supplied edit content. Pending proposals survive reload only after finalization. Proposal-bearing replies cannot be regenerated in place because doing so would erase decision and Undo history; ask for a revised proposal in a new message.
+
+Approval and Undo first pause affected editors, drain pending saves, and flush unsaved writing. Active prose drafts block resolution. Chapter saves use revision-based compare-and-swap, and resolution checks exact chapter bodies as well as revisions inside one transaction. A changed or deleted chapter rejects the entire operation rather than partially applying edits or overwriting newer writing. Undo restores the original chapters only while every affected chapter still matches the accepted result; it does not merge subsequent writing.
+
+An autosave failure pauses its queue and preserves local writing. Retry repeats the uncertain write with its original revision before sending newer text; an identical already-saved body succeeds safely, but a true conflict never silently adopts another tab's revision. Copy unsaved writing before reloading to reconcile a conflict.
+
+Committed results are imported with an explicit history boundary and autosave suppression before editors resume. Markdown must round-trip through the editor without losing formatting. If importing a committed result fails, editors stay paused for saved-content recovery. Lost resolution responses are reconciled against durable proposal status before saves resume; repeating a decision must never apply or reverse it twice.
 
 ## Drafting Decisions
 
@@ -56,7 +70,7 @@ Reject restores that baseline. Accept restores it before applying one committed 
 
 ## Stream Completion
 
-Only a normal `stop` finish emits successful completion. Output limits, filtering, missing terminal events, and unexpected finishes cannot masquerade as success. Prose retains partial output for writer review with a sanitized explanation; Stop and operational errors remain distinct. Chat uses the same reader, so incomplete output cannot become a successfully saved assistant reply.
+Only a normal `stop` finish emits successful completion. Output limits, filtering, missing terminal events, and unexpected finishes cannot masquerade as success. Prose retains partial output for writer review with a sanitized explanation; Stop and operational errors remain distinct. Chat has a separate bounded tool-stream protocol: tool calls/results are intermediate steps, and only normal final completion can stage a reply or actionable proposal. Interrupted or incomplete generations cannot be finalized as successful replies.
 
 ## Prompt Inspection
 

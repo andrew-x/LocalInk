@@ -11,6 +11,7 @@ export const storyChapterSelectFields = {
   name: chapters.name,
   position: chapters.position,
   content: chapters.content,
+  contentRevision: chapters.contentRevision,
   synopsis: chapters.synopsis,
   updatedAt: chapters.updatedAt,
 };

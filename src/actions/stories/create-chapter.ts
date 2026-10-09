@@ -56,6 +56,7 @@ export const createChapter = publicActionClient
       name: chapter.name,
       position: chapter.position,
       content: chapter.content,
+      contentRevision: 0,
       synopsis: "",
       updatedAt: chapter.updatedAt,
     };

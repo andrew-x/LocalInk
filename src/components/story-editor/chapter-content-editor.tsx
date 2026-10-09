@@ -1,10 +1,14 @@
 "use client";
 
-import { $convertFromMarkdownString } from "@lexical/markdown";
+import {
+  $convertFromMarkdownString,
+  $convertSelectionToMarkdownString,
+} from "@lexical/markdown";
 import {
   type InitialConfigType,
   LexicalComposer,
 } from "@lexical/react/LexicalComposer";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import {
@@ -14,7 +18,17 @@ import {
 import { MarkdownShortcutPlugin } from "@lexical/react/LexicalMarkdownShortcutPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
-import type { EditorState } from "lexical";
+import {
+  $getSelection,
+  $isRangeSelection,
+  $nodesOfType,
+  COMMAND_PRIORITY_CRITICAL,
+  type EditorState,
+  HISTORY_PUSH_TAG,
+  REDO_COMMAND,
+  SKIP_DOM_SELECTION_TAG,
+  UNDO_COMMAND,
+} from "lexical";
 import { Circle, CircleAlert, Trash2 } from "lucide-react";
 import { useAction } from "next-safe-action/hooks";
 import {
@@ -40,8 +54,14 @@ import {
   type ChapterRewriteTransactionRef,
   readChapterContentForSave,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
+import {
+  type ChapterManuscriptController,
+  MANUSCRIPT_COMMIT_TAG,
+  ManuscriptResolutionError,
+} from "@/components/story-editor/chapter-manuscript-controller";
 import { CHAPTER_MARKDOWN_TRANSFORMERS } from "@/components/story-editor/chapter-markdown";
 import { createLogger } from "@/lib/logger";
+import { canonicalizeManuscriptMarkdown } from "@/lib/manuscript-markdown";
 import { cn } from "@/lib/util";
 
 const AUTOSAVE_DELAY_MS = 800;
@@ -91,7 +111,11 @@ type ChapterContentEditorProps = {
     chapterId: string,
     handle: ChapterAiDraftHandle | null,
   ) => void;
-  onSaved: (chapter: StoryChapterItem) => void;
+  onSaved: (chapter: StoryChapterItem, source?: "title" | "content") => void;
+  onRegisterManuscriptController: (
+    chapterId: string,
+    controller: ChapterManuscriptController | null,
+  ) => void;
   storyId: string;
 };
 
@@ -102,11 +126,13 @@ export function ChapterContentEditor({
   onDeleted,
   onFocus,
   onRegisterAiDraftHandle,
+  onRegisterManuscriptController,
   onSaved,
   storyId,
 }: ChapterContentEditorProps) {
   const transaction = useRef<ChapterRewriteTransactionRef["current"]>(null);
   const historyState = useMemo(createEmptyHistoryState, []);
+  const manuscriptLocked = useRef(false);
   const [contentSaveState, setContentSaveState] = useState<SaveState>("saved");
   const [titleSaveState, setTitleSaveState] = useState<SaveState>("saved");
   const saveState = getCombinedSaveState(titleSaveState, contentSaveState);
@@ -153,6 +179,7 @@ export function ChapterContentEditor({
           <SaveIndicator state={saveState} />
           <DeleteChapterControl
             chapter={chapter}
+            manuscriptLocked={manuscriptLocked}
             onDeleted={onDeleted}
             storyId={storyId}
           />
@@ -174,14 +201,19 @@ export function ChapterContentEditor({
           <ChapterAiDraftPlugin
             chapterId={chapter.id}
             historyState={historyState}
+            manuscriptLocked={manuscriptLocked}
             transaction={transaction}
             onRegister={onRegisterAiDraftHandle}
             onSelectionChange={onAiDraftSelectionChange}
           />
           <ChapterAutosavePlugin
+            historyState={historyState}
             chapterId={chapter.id}
             transaction={transaction}
             initialContent={chapter.content}
+            initialRevision={chapter.contentRevision}
+            manuscriptLocked={manuscriptLocked}
+            onRegister={onRegisterManuscriptController}
             isActive={isActive}
             onSaved={onSaved}
             onSaveStateChange={setContentSaveState}
@@ -213,7 +245,7 @@ type ChapterTitleInputProps = {
   chapter: StoryChapterItem;
   id: string;
   onSaveStateChange: (state: SaveState) => void;
-  onSaved: (chapter: StoryChapterItem) => void;
+  onSaved: (chapter: StoryChapterItem, source?: "title" | "content") => void;
   storyId: string;
 };
 
@@ -291,7 +323,7 @@ function ChapterTitleInput({
       lastSavedTitleRef.current = savedChapter.name;
       latestTitleRef.current = savedChapter.name;
       setTitle(savedChapter.name);
-      onSaved(savedChapter);
+      onSaved(savedChapter, "title");
       onSaveStateChange("saved");
     },
     [chapter.id, executeAsync, onSaveStateChange, onSaved, storyId],
@@ -360,12 +392,14 @@ function ChapterTitleInput({
 
 type DeleteChapterControlProps = {
   chapter: StoryChapterItem;
+  manuscriptLocked: { current: boolean };
   onDeleted: (chapterId: string, updatedAt: string) => void;
   storyId: string;
 };
 
 function DeleteChapterControl({
   chapter,
+  manuscriptLocked,
   onDeleted,
   storyId,
 }: DeleteChapterControlProps) {
@@ -412,6 +446,12 @@ function DeleteChapterControl({
   }
 
   async function handleDeleteChapter() {
+    if (manuscriptLocked.current) {
+      toast.error(
+        "Wait for the manuscript edit to finish before deleting this chapter.",
+      );
+      return;
+    }
     setDeleteError(null);
 
     const result = await deleteChapterAction.executeAsync({
@@ -548,25 +588,48 @@ function RichTextContentEditable({ chapterName }: { chapterName: string }) {
 }
 
 type ChapterAutosavePluginProps = {
+  historyState: ReturnType<typeof createEmptyHistoryState>;
   transaction: ChapterRewriteTransactionRef;
   chapterId: string;
   initialContent: string;
+  initialRevision: number;
+  manuscriptLocked: { current: boolean };
+  onRegister: (
+    chapterId: string,
+    controller: ChapterManuscriptController | null,
+  ) => void;
   isActive: boolean;
-  onSaved: (chapter: StoryChapterItem) => void;
+  onSaved: (chapter: StoryChapterItem, source?: "title" | "content") => void;
   onSaveStateChange: (state: SaveState) => void;
   storyId: string;
 };
 
 function ChapterAutosavePlugin({
+  historyState,
   transaction,
   chapterId,
   initialContent,
+  initialRevision,
+  manuscriptLocked,
+  onRegister,
   isActive,
   onSaved,
   onSaveStateChange,
   storyId,
 }: ChapterAutosavePluginProps) {
+  const [editor] = useLexicalComposerContext();
   const { executeAsync } = useAction(updateChapterContent);
+  const acknowledgedRevisionRef = useRef(initialRevision);
+  const saveBlockedRef = useRef(false);
+  const failedSaveRef = useRef<{
+    content: string;
+    version: number;
+    expectedContentRevision: number;
+  } | null>(null);
+  const [needsSaveRetry, setNeedsSaveRetry] = useState(false);
+  const [retryingSave, setRetryingSave] = useState(false);
+  const wasEditableRef = useRef(true);
+  const lastSelectionRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const synopsisTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedContentRef = useRef(initialContent);
@@ -622,8 +685,11 @@ function ChapterAutosavePlugin({
       version: number,
       options: {
         updateState: boolean;
+        expectedContentRevision?: number;
       },
     ): Promise<boolean> => {
+      const expectedContentRevision =
+        options.expectedContentRevision ?? acknowledgedRevisionRef.current;
       inFlightSavesRef.current += 1;
       if (options.updateState) {
         onSaveStateChange("saving");
@@ -636,6 +702,7 @@ function ChapterAutosavePlugin({
           storyId,
           chapterId,
           content,
+          expectedContentRevision,
         });
       } catch {
         result = null;
@@ -644,31 +711,32 @@ function ChapterAutosavePlugin({
       }
 
       if (!result?.data) {
-        if (
-          options.updateState &&
-          isMountedRef.current &&
-          version === changeVersionRef.current
-        ) {
+        saveBlockedRef.current = true;
+        failedSaveRef.current = { content, version, expectedContentRevision };
+        if (isMountedRef.current) setNeedsSaveRetry(true);
+        if (options.updateState && isMountedRef.current) {
           onSaveStateChange("error");
-          showAutosaveError(
-            lastFailureToastVersionRef,
-            version,
-            result,
-            "The chapter content could not be saved.",
-          );
+          if (!manuscriptLocked.current)
+            showAutosaveError(
+              lastFailureToastVersionRef,
+              version,
+              result,
+              "The chapter content could not be saved.",
+            );
         }
         return false;
       }
 
-      if (version !== changeVersionRef.current) {
-        return true;
-      }
-
+      // Every acknowledgement advances the queue, even after more local typing.
+      saveBlockedRef.current = false;
+      failedSaveRef.current = null;
+      if (isMountedRef.current) setNeedsSaveRetry(false);
+      acknowledgedRevisionRef.current = result.data.contentRevision;
       lastSavedContentRef.current = result.data.content;
       queueSynopsisRefresh();
 
       if (options.updateState && isMountedRef.current) {
-        onSaved(result.data);
+        onSaved(result.data, "content");
         onSaveStateChange(
           latestContentRef.current === result.data.content
             ? "saved"
@@ -681,6 +749,7 @@ function ChapterAutosavePlugin({
     [
       chapterId,
       executeAsync,
+      manuscriptLocked,
       onSaved,
       onSaveStateChange,
       queueSynopsisRefresh,
@@ -696,7 +765,11 @@ function ChapterAutosavePlugin({
     ) => {
       const savePromise = saveQueueRef.current
         .catch(() => false)
-        .then(() => saveContent(content, version, options));
+        .then(() =>
+          saveBlockedRef.current
+            ? false
+            : saveContent(content, version, options),
+        );
 
       saveQueueRef.current = savePromise;
 
@@ -708,6 +781,7 @@ function ChapterAutosavePlugin({
   const queueSave = useCallback(
     (content: string, version: number) => {
       clearSaveTimer();
+      if (manuscriptLocked.current || saveBlockedRef.current) return;
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
         void enqueueSave(content, version, {
@@ -715,12 +789,15 @@ function ChapterAutosavePlugin({
         });
       }, AUTOSAVE_DELAY_MS);
     },
-    [clearSaveTimer, enqueueSave],
+    [clearSaveTimer, enqueueSave, manuscriptLocked],
   );
 
   const flushPendingWork = useCallback(
     async (updateState: boolean) => {
       clearSaveTimer();
+      if (manuscriptLocked.current) return;
+      await saveQueueRef.current;
+      if (manuscriptLocked.current) return;
 
       if (latestContentRef.current !== lastSavedContentRef.current) {
         await enqueueSave(latestContentRef.current, changeVersionRef.current, {
@@ -728,7 +805,7 @@ function ChapterAutosavePlugin({
         });
       }
     },
-    [clearSaveTimer, enqueueSave],
+    [clearSaveTimer, enqueueSave, manuscriptLocked],
   );
 
   const flushPendingWorkRef = useRef(flushPendingWork);
@@ -760,14 +837,20 @@ function ChapterAutosavePlugin({
 
   const handleChange = useCallback(
     (editorState: EditorState, _editor: unknown, tags: Set<string>) => {
-      if (tags.has(AI_DRAFT_UPDATE_TAG)) {
+      if (tags.has(AI_DRAFT_UPDATE_TAG) || tags.has(MANUSCRIPT_COMMIT_TAG)) {
         return;
       }
 
+      if (manuscriptLocked.current) return;
       const markdown = readChapterContentForSave(editorState, transaction);
 
       latestContentRef.current = markdown;
       changeVersionRef.current += 1;
+      if (saveBlockedRef.current) {
+        clearSaveTimer();
+        onSaveStateChange("error");
+        return;
+      }
 
       if (
         markdown === lastSavedContentRef.current &&
@@ -781,10 +864,255 @@ function ChapterAutosavePlugin({
       onSaveStateChange("pending");
       queueSave(markdown, changeVersionRef.current);
     },
-    [clearSaveTimer, onSaveStateChange, queueSave, transaction],
+    [
+      clearSaveTimer,
+      manuscriptLocked,
+      onSaveStateChange,
+      queueSave,
+      transaction,
+    ],
   );
 
-  return <OnChangePlugin ignoreSelectionChange onChange={handleChange} />;
+  useEffect(() => {
+    const readContent = () => {
+      editor.update(() => {}, { discrete: true });
+      return readChapterContentForSave(editor.getEditorState(), transaction);
+    };
+    const controller: ChapterManuscriptController = {
+      snapshot() {
+        const content = readContent();
+        const selection = editor.getEditorState().read(() => {
+          const range = $getSelection();
+          if (transaction.current) return null;
+          if (!$isRangeSelection(range)) return lastSelectionRef.current;
+          return range.isCollapsed()
+            ? null
+            : $convertSelectionToMarkdownString(
+                CHAPTER_MARKDOWN_TRANSFORMERS,
+                range,
+                true,
+              );
+        });
+        return {
+          id: chapterId,
+          content,
+          contentRevision: acknowledgedRevisionRef.current,
+          selection,
+        };
+      },
+      hasDraft: () =>
+        Boolean(transaction.current) ||
+        editor
+          .getEditorState()
+          .read(() => $nodesOfType(AiDraftNode).length > 0),
+      isDirty: () =>
+        manuscriptLocked.current ||
+        saveBlockedRef.current ||
+        readContent() !== lastSavedContentRef.current,
+      freeze() {
+        if (manuscriptLocked.current)
+          throw new ManuscriptResolutionError(
+            "This chapter is already applying an edit. Reload to recover if an earlier request failed.",
+          );
+        if (editor.isComposing())
+          throw new ManuscriptResolutionError(
+            "Finish entering the current text before applying manuscript edits.",
+          );
+        if (controller.hasDraft())
+          throw new ManuscriptResolutionError(
+            "Accept or discard the prose draft before resolving manuscript edits.",
+          );
+        latestContentRef.current = readContent();
+        wasEditableRef.current = editor.isEditable();
+        manuscriptLocked.current = true;
+        clearSaveTimer();
+        editor.setEditable(false);
+      },
+      async flush() {
+        await saveQueueRef.current;
+        if (saveBlockedRef.current)
+          throw new ManuscriptResolutionError(
+            "A chapter could not be saved. Your local writing is preserved; use Retry save before applying edits.",
+          );
+        if (latestContentRef.current !== lastSavedContentRef.current) {
+          const saved = await enqueueSave(
+            latestContentRef.current,
+            changeVersionRef.current,
+            { updateState: true },
+          );
+          if (!saved)
+            throw new ManuscriptResolutionError(
+              "A chapter could not be saved. Your local writing is preserved.",
+            );
+        }
+      },
+      validateImport(content) {
+        // Validate before committing: unsupported Markdown must never silently
+        // normalize into a different body than the persisted proposal.
+        const canonical = canonicalizeManuscriptMarkdown(content);
+        if (canonical !== content)
+          throw new ManuscriptResolutionError(
+            "The proposed formatting cannot be preserved exactly. Ask chat for a revised edit using the manuscript’s existing formatting.",
+          );
+      },
+      importCommitted(chapter) {
+        if (!manuscriptLocked.current)
+          throw new ManuscriptResolutionError(
+            "The chapter must be paused before applying an edit.",
+          );
+        controller.validateImport(chapter.content);
+        lastSelectionRef.current = null;
+        if (!historyState.current)
+          historyState.current = {
+            editor,
+            editorState: editor.getEditorState(),
+          };
+        editor.update(
+          () =>
+            $convertFromMarkdownString(
+              chapter.content,
+              CHAPTER_MARKDOWN_TRANSFORMERS,
+              undefined,
+              true,
+            ),
+          {
+            discrete: true,
+            tag: [
+              MANUSCRIPT_COMMIT_TAG,
+              HISTORY_PUSH_TAG,
+              SKIP_DOM_SELECTION_TAG,
+            ],
+          },
+        );
+        if (readContent() !== chapter.content)
+          throw new ManuscriptResolutionError(
+            "The saved edit could not be loaded. Reload to recover the saved manuscript.",
+          );
+        acknowledgedRevisionRef.current = chapter.contentRevision;
+        latestContentRef.current = chapter.content;
+        lastSavedContentRef.current = chapter.content;
+        changeVersionRef.current += 1;
+        saveBlockedRef.current = false;
+        failedSaveRef.current = null;
+        setNeedsSaveRetry(false);
+        onSaveStateChange("saved");
+        queueSynopsisRefresh();
+      },
+      release() {
+        manuscriptLocked.current = false;
+        editor.setEditable(wasEditableRef.current && !transaction.current);
+        if (
+          !saveBlockedRef.current &&
+          latestContentRef.current !== lastSavedContentRef.current
+        ) {
+          queueSave(latestContentRef.current, changeVersionRef.current);
+        }
+      },
+    };
+    onRegister(chapterId, controller);
+    return () => onRegister(chapterId, null);
+  }, [
+    chapterId,
+    clearSaveTimer,
+    editor,
+    enqueueSave,
+    historyState,
+    manuscriptLocked,
+    onRegister,
+    onSaveStateChange,
+    queueSave,
+    queueSynopsisRefresh,
+    transaction,
+  ]);
+
+  useEffect(
+    () =>
+      editor.registerUpdateListener(({ editorState, tags }) => {
+        if (tags.has(AI_DRAFT_UPDATE_TAG) || tags.has(MANUSCRIPT_COMMIT_TAG))
+          return;
+        editorState.read(() => {
+          const selection = $getSelection();
+          // Blur clears Lexical's selection when the writer focuses chat. Keep
+          // the last real range until they place a caret or change the manuscript.
+          if ($isRangeSelection(selection))
+            lastSelectionRef.current = selection.isCollapsed()
+              ? null
+              : $convertSelectionToMarkdownString(
+                  CHAPTER_MARKDOWN_TRANSFORMERS,
+                  selection,
+                  true,
+                );
+        });
+      }),
+    [editor],
+  );
+
+  useEffect(() => {
+    const blocked = () => manuscriptLocked.current;
+    const undo = editor.registerCommand(
+      UNDO_COMMAND,
+      blocked,
+      COMMAND_PRIORITY_CRITICAL,
+    );
+    const redo = editor.registerCommand(
+      REDO_COMMAND,
+      blocked,
+      COMMAND_PRIORITY_CRITICAL,
+    );
+    return () => {
+      undo();
+      redo();
+    };
+  }, [editor, manuscriptLocked]);
+
+  async function retryFailedSave() {
+    if (manuscriptLocked.current || retryingSave) return;
+    setRetryingSave(true);
+    clearSaveTimer();
+    // Join the queue synchronously so a proposal barrier also drains this retry.
+    const retried = saveQueueRef.current.then(() => {
+      const failed = failedSaveRef.current;
+      if (!failed || manuscriptLocked.current) return false;
+      lastFailureToastVersionRef.current = null;
+      // Resolve the uncertain write before sending newer local text. A true
+      // conflict never silently adopts the other tab's revision.
+      return saveContent(failed.content, failed.version, {
+        updateState: true,
+        expectedContentRevision: failed.expectedContentRevision,
+      });
+    });
+    saveQueueRef.current = retried;
+    try {
+      if (await retried) await flushPendingWork(true);
+    } finally {
+      setRetryingSave(false);
+    }
+  }
+
+  return (
+    <>
+      <OnChangePlugin ignoreSelectionChange onChange={handleChange} />
+      {needsSaveRetry ? (
+        <div
+          className="flex items-center gap-3 px-1 text-sm text-destructive"
+          role="alert"
+        >
+          <span>
+            Your local writing is preserved. If another tab changed this
+            chapter, copy your writing before reloading.
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            loading={retryingSave}
+            onClick={() => void retryFailedSave()}
+          >
+            Retry save
+          </Button>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 function showAutosaveError(

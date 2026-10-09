@@ -1,4 +1,5 @@
 import type { StoryChatMessageRole } from "@/lib/drizzle/schema";
+import type { ManuscriptProposal } from "@/lib/story-manuscript-contract";
 
 export type StoryChatVisibleMessageRole = Exclude<
   StoryChatMessageRole,
@@ -18,6 +19,7 @@ export type StoryChatVisibleMessage = {
   content: string;
   createdAt: string;
   updatedAt: string;
+  proposal?: ManuscriptProposal;
 };
 
 export type StoryChatDetail = StoryChatListItem & {

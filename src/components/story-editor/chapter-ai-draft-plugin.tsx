@@ -456,6 +456,7 @@ type ChapterAiDraftPluginProps = {
   transaction: ChapterRewriteTransactionRef;
   onRegister: (chapterId: string, handle: ChapterAiDraftHandle | null) => void;
   onSelectionChange: (chapterId: string, hasSelectedText: boolean) => void;
+  manuscriptLocked?: { current: boolean };
 };
 
 /** The same controller is used by the React plugin and headless regressions. */
@@ -463,6 +464,7 @@ export function createChapterAiDraftHandle(
   editor: LexicalEditor,
   transaction: ChapterRewriteTransactionRef,
   historyState: HistoryState,
+  manuscriptLocked: { current: boolean } = { current: false },
 ): ChapterAiDraftHandle {
   function restoreHistory(pending: ChapterRewriteTransaction) {
     // Even an untagged plugin update must not leak a rewrite preview into
@@ -526,6 +528,7 @@ export function createChapterAiDraftHandle(
 
   return {
     acceptDraft(draftId, text) {
+      if (manuscriptLocked.current) return false;
       const acceptedText = normalizeDraftText(text);
       if (!acceptedText) return false;
       const pending = transaction.current;
@@ -581,7 +584,7 @@ export function createChapterAiDraftHandle(
       );
     },
     createDraftSnapshot() {
-      if (transaction.current) return null;
+      if (transaction.current || manuscriptLocked.current) return null;
       // Commit pending user typing before keeping the immutable original state.
       editor.update(() => {}, { discrete: true });
       const originalState = editor.getEditorState();
@@ -646,7 +649,9 @@ export function createChapterAiDraftHandle(
       );
     },
     setContentEditable(isEditable) {
-      editor.setEditable(isEditable && !transaction.current);
+      editor.setEditable(
+        isEditable && !transaction.current && !manuscriptLocked.current,
+      );
     },
     updateDraft(draftId, text, status, promptSnapshotId) {
       editor.update(
@@ -688,11 +693,18 @@ export function ChapterAiDraftPlugin({
   transaction,
   onRegister,
   onSelectionChange,
+  manuscriptLocked,
 }: ChapterAiDraftPluginProps) {
   const [editor] = useLexicalComposerContext();
   const handle = useMemo(
-    () => createChapterAiDraftHandle(editor, transaction, historyState),
-    [editor, transaction, historyState],
+    () =>
+      createChapterAiDraftHandle(
+        editor,
+        transaction,
+        historyState,
+        manuscriptLocked,
+      ),
+    [editor, transaction, historyState, manuscriptLocked],
   );
 
   useEffect(() => registerChapterDraftHistoryGuard(editor), [editor]);

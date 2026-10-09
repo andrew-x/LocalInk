@@ -102,6 +102,7 @@ export const updateChapterContentActionSchema = z.object({
   storyId: z.string().min(1, "Story id is required."),
   chapterId: z.string().min(1, "Chapter id is required."),
   content: z.string(),
+  expectedContentRevision: z.number().int().nonnegative(),
 });
 
 export const updateChapterTitleActionSchema = z.object({

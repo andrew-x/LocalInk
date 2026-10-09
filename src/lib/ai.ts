@@ -11,6 +11,7 @@ import {
   generateText,
   type Prompt,
   streamText,
+  type ToolSet,
 } from "ai";
 
 import type { StoryGenerationModel } from "@/lib/story-generation-models";
@@ -165,6 +166,28 @@ export function streamLocalinkText({
   return streamText({
     model: getLocalinkLanguageModel(model),
     ...options,
+  });
+}
+
+/** Chat tools require a capable provider without weakening privacy routing. */
+export function streamLocalinkChat<TOOLS extends ToolSet>({
+  model = "main",
+  ...options
+}: Omit<
+  Parameters<typeof streamText<TOOLS>>[0],
+  "model" | "providerOptions" | "prompt" | "messages"
+> &
+  Prompt & {
+    model?: LocalinkAiModel;
+  }) {
+  return streamText({
+    ...options,
+    model: getOpenRouterProvider().chat(LOCALINK_AI_MODELS[model], {
+      provider: {
+        ...OPENROUTER_ZDR_PROVIDER_ROUTING,
+        require_parameters: true,
+      },
+    }),
   });
 }
 

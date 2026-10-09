@@ -1,7 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-
 import { publicActionClient } from "@/lib/action";
 import { prepareStoryChatTurn as prepareStoryChatTurnData } from "@/lib/server/story-chat";
 
@@ -13,8 +11,6 @@ export const prepareStoryChatTurn = publicActionClient
   .inputSchema(prepareStoryChatTurnActionSchema)
   .action(async ({ parsedInput }): Promise<PreparedStoryChatGeneration> => {
     const preparedGeneration = await prepareStoryChatTurnData(parsedInput);
-
-    revalidatePath(`/story/${parsedInput.storyId}`);
 
     return preparedGeneration;
   });

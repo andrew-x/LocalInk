@@ -12,6 +12,7 @@ import { Button } from "@/components/common/button";
 import { AiProseGenerationWidget } from "@/components/story-editor/ai-prose-generation-widget";
 import type { ChapterAiDraftHandle } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { ChapterContentEditor } from "@/components/story-editor/chapter-content-editor";
+import type { ChapterManuscriptController } from "@/components/story-editor/chapter-manuscript-controller";
 import {
   DEFAULT_STORY_GENERATION_MODEL,
   type StoryGenerationModel,
@@ -31,7 +32,14 @@ type StoryEditorContentPaneProps = {
   onAddChapter: () => void;
   onChapterDeleted: (chapterId: string, updatedAt: string) => void;
   onChapterFocus: (chapterId: string) => void;
-  onChapterSaved: (chapter: StoryChapterItem) => void;
+  onChapterSaved: (
+    chapter: StoryChapterItem,
+    source?: "title" | "content",
+  ) => void;
+  onRegisterManuscriptController: (
+    chapterId: string,
+    controller: ChapterManuscriptController | null,
+  ) => void;
   onContextSaved: (context: StoryContext & { updatedAt: string }) => void;
   story: Pick<
     StoryEditorData,
@@ -52,6 +60,7 @@ export function StoryEditorContentPane({
   onChapterDeleted,
   onChapterFocus,
   onChapterSaved,
+  onRegisterManuscriptController,
   onContextSaved,
   story,
   style,
@@ -313,6 +322,9 @@ export function StoryEditorContentPane({
                     onFocus={onChapterFocus}
                     onRegisterAiDraftHandle={handleRegisterAiDraftHandle}
                     onSaved={onChapterSaved}
+                    onRegisterManuscriptController={
+                      onRegisterManuscriptController
+                    }
                     storyId={story.id}
                   />
                 ))}

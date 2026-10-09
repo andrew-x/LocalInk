@@ -2,6 +2,7 @@ export type ActionErrorCode =
   | "AI_NOT_CONFIGURED"
   | "AI_ZDR_UNAVAILABLE"
   | "BAD_REQUEST"
+  | "CONFLICT"
   | "GENERATION_FAILED"
   | "INTERNAL_ERROR"
   | "MAINTENANCE";

@@ -10,7 +10,7 @@ Image rows hold metadata and relative paths; image bytes live separately. See [i
 
 ## Data Provenance
 
-Hidden chat messages capture saved reference context for a prepared generation, linked to the assistant reply by generation ID. They intentionally exclude manuscript text, story description, and outline content: chat is a planning/reference workflow, not a manuscript reader. See [chat context](ai-prose-generation.md#chat-context).
+Hidden chat messages capture saved story references, including title and description, for a prepared generation and link them to the assistant reply by generation ID. Manuscript context is a separate ephemeral snapshot that can include unsaved writing; it is not a durable copy of the book. Finalized edit proposals retain affected chapter baselines/results and decisions for approval and Undo. Historical proposed text is reference material, not evidence of the current manuscript; each turn captures current writing again. See [chat context and proposal safety](ai-prose-generation.md#chat-context).
 
 Chapter synopses are derived caches. Their versioned source hash establishes freshness against the actual manuscript snapshot, including unsaved focused-chapter edits; timestamps alone cannot establish that relationship. See [chapter synopses](ai-prose-generation.md#chapter-synopses).
 

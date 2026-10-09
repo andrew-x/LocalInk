@@ -7,6 +7,10 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
+import type {
+  ManuscriptProposalChapter,
+  ManuscriptProposalStatus,
+} from "@/lib/story-manuscript-contract";
 
 const currentTimestampSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -134,6 +138,7 @@ export const chapters = sqliteTable(
     name: text("name").notNull(),
     position: integer("position").notNull(),
     content: text("content").notNull(),
+    contentRevision: integer("content_revision").notNull().default(0),
     // A compact, factual account of what this chapter establishes, generated
     // in the background by the fast model. Prose generation reads it so the
     // model does not have to re-derive story state from raw text on every
@@ -147,6 +152,44 @@ export const chapters = sqliteTable(
   },
   (table) => [
     index("chapters_story_position_idx").on(table.storyId, table.position),
+  ],
+);
+
+export const storyChatEditProposals = sqliteTable(
+  "story_chat_edit_proposals",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => storyChats.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => storyChatMessages.id, { onDelete: "cascade" }),
+    generationId: text("generation_id").notNull(),
+    summary: text("summary").notNull(),
+    chapters: text("chapters", { mode: "json" })
+      .$type<ManuscriptProposalChapter[]>()
+      .notNull(),
+    status: text("status")
+      .$type<ManuscriptProposalStatus>()
+      .notNull()
+      .default("pending"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    uniqueIndex("story_chat_edit_proposals_generation_unique").on(
+      table.generationId,
+    ),
+    uniqueIndex("story_chat_edit_proposals_message_unique").on(table.messageId),
+    index("story_chat_edit_proposals_chat_idx").on(table.chatId),
+    check(
+      "story_chat_edit_proposals_status_check",
+      sql`${table.status} IN ('pending', 'accepted', 'rejected', 'undone')`,
+    ),
   ],
 );
 
