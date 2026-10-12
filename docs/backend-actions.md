@@ -19,7 +19,7 @@ Next dispatches Server Actions sequentially per client. Concurrent `executeAsync
 
 The image generation route uses this exception; see [concurrent generation](ai-image-generation.md#concurrent-generation). Prose/chat streaming routes are non-mutating reads and have a separate reason to use Route Handlers.
 
-Chat's edit tools only prepare candidates. Its streaming route stages completed output in temporary server memory; an action then atomically finalizes the assistant reply and proposal. Separate resolution actions apply or undo stored proposals. Keeping these durable writes behind the action boundary also prevents streamed or browser-modified candidate text from becoming an implicit manuscript mutation; see [proposal safety](ai-prose-generation.md#manuscript-proposal-safety).
+Chat's edit tools only prepare candidates. Its streaming route stages completed output in temporary server memory; an action then atomically finalizes the assistant reply and its manuscript or story-detail proposal. Separate resolution actions approve, deny, or undo stored proposals. Keeping these durable writes behind the action boundary prevents streamed or browser-modified candidate text from becoming an implicit mutation. Approval and Undo compare stored baselines transactionally; see [manuscript proposal safety](ai-prose-generation.md#manuscript-proposal-safety) and [story-detail proposal safety](ai-prose-generation.md#story-detail-proposal-safety).
 
 A Route Handler form has no action to bridge, so it uses React Hook Form with `formResolver` directly. Zod defaults can make schema input/output types differ; account for both in the form's generics rather than assuming one type.
 

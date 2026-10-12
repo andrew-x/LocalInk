@@ -79,17 +79,22 @@ export const createStoryActionSchema = createStoryFormSchema.extend({
 export const updateStoryFormSchema = createStoryFormSchema.extend({
   id: z.string().min(1, "Story id is required."),
 });
-export const updateStoryBackstoryFormSchema = updateStoryFormSchema.extend({
-  backstory: storyBackstorySchema.optional(),
-});
-export const updateStoryActionSchema = updateStoryFormSchema.extend({
-  characters: storyCharactersSchema.optional(),
-  backstory: storyBackstorySchema.optional(),
-  locations: storyLocationsSchema.optional(),
-  style: storyStyleSchema.optional(),
-  systemInstructions: storySystemInstructionsSchema.optional(),
-  voiceExemplars: storyVoiceExemplarsSchema.optional(),
-});
+export const updateStoryBackstoryFormSchema = updateStoryFormSchema
+  .pick({ id: true })
+  .extend({ backstory: storyBackstorySchema.optional() });
+export const updateStoryActionSchema = updateStoryFormSchema
+  .partial({
+    name: true,
+    description: true,
+  })
+  .extend({
+    characters: storyCharactersSchema.optional(),
+    backstory: storyBackstorySchema.optional(),
+    locations: storyLocationsSchema.optional(),
+    style: storyStyleSchema.optional(),
+    systemInstructions: storySystemInstructionsSchema.optional(),
+    voiceExemplars: storyVoiceExemplarsSchema.optional(),
+  });
 export const deleteStoryActionSchema = z.object({
   id: z.string().min(1, "Story id is required."),
 });

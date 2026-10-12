@@ -258,7 +258,12 @@ function toStoryChatResponse({
                 message:
                   part.toolName === "propose_manuscript_edits"
                     ? "Preparing manuscript edits…"
-                    : "Reading manuscript…",
+                    : part.toolName === "propose_story_details_edits"
+                      ? "Preparing story detail edits…"
+                      : part.toolName === "read_story_details" ||
+                          part.toolName === "read_story_details_proposal"
+                        ? "Reading story details…"
+                        : "Reading manuscript…",
               });
             } else if (part.type === "error" || part.type === "tool-error") {
               throw part.error;
@@ -273,14 +278,17 @@ function toStoryChatResponse({
               if (part.finishReason !== "stop")
                 throw new LocalinkTextStreamFinishError(part.finishReason);
               const proposal = generation.getProposal();
+              const detailsProposal = generation.getDetailsProposal();
               if (!content.trim()) {
-                if (!proposal) throw new LocalinkTextStreamFinishError();
-                content = proposal.summary;
+                const summary = proposal?.summary ?? detailsProposal?.summary;
+                if (!summary) throw new LocalinkTextStreamFinishError();
+                content = summary;
                 send({ type: "delta", text: content });
               }
               finishStoryChatGeneration(input, attemptId, {
                 content,
                 proposal,
+                detailsProposal,
               });
               terminated = true;
               logEnd(startedAt, input, "complete");

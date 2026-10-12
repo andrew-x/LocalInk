@@ -64,6 +64,13 @@
       "when": 1791582188689,
       "tag": "0008_chat-manuscript-edits",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791808065155,
+      "tag": "0009_story-chat-detail-proposals",
+      "breakpoints": true
     }
   ]
 }

@@ -109,6 +109,7 @@ export function buildStoryChatArtifactGuidance(): string {
       "WORKFLOW",
       [
         "Apply this workflow to slash-command field drafts and their follow-up revisions or clarification answers; ordinary ideation remains conversational.",
+        "If the writer explicitly asks to save or apply a field draft, switch to the story-detail proposal tools after reading the current saved field. In that case, the proposal review workflow replaces the copy-only output contract and OUTPUT_DISCIPLINE below: prepare the proposal and briefly describe it, without claiming it is saved.",
         "If an essential choice or target remains unresolved, ask only the brief focused questions needed before drafting. Leave minor gaps unspecified; do not substitute generic templates or invent decisions.",
         "When the writer answers your clarification, complete the pending field draft using the original command, its extra instructions, and the new answers without requiring another slash command. A clear topic change returns to ordinary chat.",
       ].join("\n"),

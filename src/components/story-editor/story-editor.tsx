@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,14 +12,19 @@ import type {
 } from "@/actions/stories/_types";
 import { createChapter } from "@/actions/stories/create-chapter";
 import { getManuscriptProposal } from "@/actions/story-chats/get-manuscript-proposal";
+import { getStoryDetailsProposal } from "@/actions/story-chats/get-story-details-proposal";
 import { resolveManuscriptProposal } from "@/actions/story-chats/resolve-manuscript-proposal";
+import { resolveStoryDetailsProposal } from "@/actions/story-chats/resolve-story-details-proposal";
 import {
   type ChapterManuscriptController,
   ManuscriptResolutionError,
 } from "@/components/story-editor/chapter-manuscript-controller";
+import { StoryDetailsResolutionError } from "@/components/story-editor/story-details-proposal-review";
 import { StoryEditorChatPane } from "@/components/story-editor/story-editor-chat-pane";
 import { StoryEditorContentPane } from "@/components/story-editor/story-editor-content-pane";
 import { StoryEditorContextPane } from "@/components/story-editor/story-editor-context-pane";
+import day from "@/lib/dayjs";
+import type { StoryDetailsProposal } from "@/lib/story-details-contract";
 import type {
   ManuscriptProposal,
   ManuscriptProposalDecision,
@@ -41,6 +47,12 @@ function toStoryContext(source: StoryContext): StoryContext {
 }
 
 export function StoryEditor({ story }: StoryEditorProps) {
+  const router = useRouter();
+  const [storyIdentity, setStoryIdentity] = useState({
+    name: story.name,
+    description: story.description,
+  });
+  const latestDetailsUpdatedAt = useRef(story.updatedAt);
   const [isContextOpen, setIsContextOpen] = useState(true);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [chapters, setChapters] = useState(story.chapters);
@@ -89,6 +101,9 @@ export function StoryEditor({ story }: StoryEditorProps) {
     style,
     systemInstructions,
     voiceExemplars,
+    name,
+    description,
+    updatedAt,
   } = story;
 
   useEffect(() => {
@@ -121,6 +136,11 @@ export function StoryEditor({ story }: StoryEditorProps) {
   }, [storyChapters]);
 
   useEffect(() => {
+    // An older route payload must not overwrite details just acknowledged by a
+    // save or chat approval. Refresh merges into the existing manuscript editors.
+    if (day(updatedAt).isBefore(day(latestDetailsUpdatedAt.current))) return;
+    latestDetailsUpdatedAt.current = updatedAt;
+    setStoryIdentity({ name, description });
     setStoryContext(
       toStoryContext({
         characters,
@@ -138,10 +158,16 @@ export function StoryEditor({ story }: StoryEditorProps) {
     style,
     systemInstructions,
     voiceExemplars,
+    name,
+    description,
+    updatedAt,
   ]);
 
   const handleStoryContextSaved = useCallback(
     (context: StoryContext & { updatedAt: string }) => {
+      if (day(context.updatedAt).isBefore(day(latestDetailsUpdatedAt.current)))
+        return;
+      latestDetailsUpdatedAt.current = context.updatedAt;
       setStoryContext(toStoryContext(context));
     },
     [],
@@ -334,6 +360,93 @@ export function StoryEditor({ story }: StoryEditorProps) {
     [handleChapterSaved, story.id],
   );
 
+  const handleResolveDetailsProposal = useCallback(
+    async (
+      proposal: StoryDetailsProposal,
+      decision: ManuscriptProposalDecision,
+    ): Promise<StoryDetailsProposal> => {
+      if (resolutionPending.current)
+        throw new StoryDetailsResolutionError(
+          "Wait for the current edit to finish.",
+        );
+      resolutionPending.current = true;
+      const input = { storyId: story.id, proposalId: proposal.id, decision };
+      const intendedStatus =
+        decision === "approve"
+          ? "accepted"
+          : decision === "deny"
+            ? "rejected"
+            : "undone";
+      try {
+        let resolved:
+          | Awaited<ReturnType<typeof getStoryDetailsProposal>>
+          | undefined;
+        let response:
+          | Awaited<ReturnType<typeof resolveStoryDetailsProposal>>
+          | undefined;
+        try {
+          response = await resolveStoryDetailsProposal(input);
+        } catch {
+          // A lost response can follow a committed write; recover below.
+        }
+        if (response?.data) resolved = response.data;
+        else if (response?.serverError || response?.validationErrors) {
+          throw new StoryDetailsResolutionError(
+            response.serverError?.message ??
+              "The story details could not be updated. Please review the proposal again.",
+          );
+        } else {
+          try {
+            const retry = await resolveStoryDetailsProposal(input);
+            if (retry?.data) resolved = retry.data;
+          } catch {
+            // Read back the durable proposal if the retry response is lost too.
+          }
+          if (!resolved) {
+            try {
+              resolved = await getStoryDetailsProposal({
+                storyId: story.id,
+                proposalId: proposal.id,
+              });
+            } catch {
+              // Keep the proposal available for another idempotent retry.
+            }
+          }
+        }
+        if (!resolved)
+          throw new StoryDetailsResolutionError(
+            "The saved story details could not be confirmed. Retry this action to recover their current state.",
+          );
+        if (
+          !day(resolved.story.updatedAt).isBefore(
+            day(latestDetailsUpdatedAt.current),
+          )
+        ) {
+          latestDetailsUpdatedAt.current = resolved.story.updatedAt;
+          setStoryContext(toStoryContext(resolved.story));
+          setStoryIdentity({
+            name: resolved.story.name,
+            description: resolved.story.description,
+          });
+        }
+        router.refresh();
+        if (resolved.proposal.status !== intendedStatus)
+          throw new StoryDetailsResolutionError(
+            "This proposal has a different saved status. Reopen the chat to review its current state.",
+          );
+        return resolved.proposal;
+      } catch (error) {
+        if (error instanceof StoryDetailsResolutionError) throw error;
+        throw new StoryDetailsResolutionError(
+          "The story details could not be updated. Please try again.",
+        );
+      } finally {
+        resolutionPending.current = false;
+      }
+    },
+    [router, story.id],
+  );
+
   const handleChapterDeleted = useCallback((chapterId: string) => {
     setChapters((currentChapters) => {
       const deletedIndex = currentChapters.findIndex(
@@ -417,8 +530,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
         onToggleOpen={() => setIsContextOpen((isOpen) => !isOpen)}
         story={{
           id: story.id,
-          name: story.name,
-          description: story.description,
+          name: storyIdentity.name,
+          description: storyIdentity.description,
         }}
         style={storyContext.style}
         systemInstructions={storyContext.systemInstructions}
@@ -440,8 +553,8 @@ export function StoryEditor({ story }: StoryEditorProps) {
         onContextSaved={handleStoryContextSaved}
         story={{
           id: story.id,
-          name: story.name,
-          description: story.description,
+          name: storyIdentity.name,
+          description: storyIdentity.description,
           systemInstructions: storyContext.systemInstructions,
           backstory: storyContext.backstory,
         }}
@@ -452,11 +565,12 @@ export function StoryEditor({ story }: StoryEditorProps) {
       <StoryEditorChatPane
         getManuscriptSnapshot={getManuscriptSnapshot}
         onResolveProposal={handleResolveProposal}
+        onResolveDetailsProposal={handleResolveDetailsProposal}
         isOpen={isChatOpen}
         onToggleOpen={() => setIsChatOpen((isOpen) => !isOpen)}
         story={{
           id: story.id,
-          name: story.name,
+          name: storyIdentity.name,
         }}
       />
     </div>

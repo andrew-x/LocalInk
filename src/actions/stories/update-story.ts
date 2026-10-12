@@ -1,87 +1,27 @@
 "use server";
 
-import { eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
-
 import { publicActionClient } from "@/lib/action";
-import { ActionError } from "@/lib/action-error";
-import day from "@/lib/dayjs";
-import { getDb } from "@/lib/drizzle/db";
-import { stories } from "@/lib/drizzle/schema";
-import { normalizeStoryCharacters } from "@/lib/server/story-characters";
-import { normalizeStoryLocations } from "@/lib/server/story-locations";
-import { normalizeStoryVoiceExemplars } from "@/lib/server/story-voice-exemplars";
+import { updateStoryFields } from "@/lib/server/story-details";
 
-import { updateStoryActionSchema } from "./_schemas";
-import type { StoryUpdateResult } from "./_types";
+import {
+  updateStoryActionSchema,
+  updateStoryBackstoryFormSchema,
+  updateStoryFormSchema,
+} from "./_schemas";
 
 export const updateStory = publicActionClient
   .metadata({ action: "update-story" })
   .inputSchema(updateStoryActionSchema)
-  .action(async ({ parsedInput }): Promise<StoryUpdateResult> => {
-    const now = day().toISOString();
-    const storyUpdates: Partial<typeof stories.$inferInsert> = {
-      name: parsedInput.name,
-      description: parsedInput.description,
-      updatedAt: now,
-    };
+  .action(({ parsedInput }) => updateStoryFields(parsedInput));
 
-    if (parsedInput.characters !== undefined) {
-      storyUpdates.characters = normalizeStoryCharacters(
-        parsedInput.characters,
-      );
-    }
+export const updateStoryDetails = publicActionClient
+  .metadata({ action: "update-story-details" })
+  .inputSchema(updateStoryFormSchema)
+  .action(({ parsedInput }) => updateStoryFields(parsedInput));
 
-    if (parsedInput.locations !== undefined) {
-      storyUpdates.locations = normalizeStoryLocations(parsedInput.locations);
-    }
-
-    if (parsedInput.backstory !== undefined) {
-      storyUpdates.backstory = parsedInput.backstory;
-    }
-
-    if (parsedInput.style !== undefined) {
-      storyUpdates.style = parsedInput.style;
-    }
-
-    if (parsedInput.systemInstructions !== undefined) {
-      storyUpdates.systemInstructions = parsedInput.systemInstructions;
-    }
-
-    if (parsedInput.voiceExemplars !== undefined) {
-      storyUpdates.voiceExemplars = normalizeStoryVoiceExemplars(
-        parsedInput.voiceExemplars,
-      );
-    }
-
-    const [story] = await getDb()
-      .update(stories)
-      .set(storyUpdates)
-      .where(eq(stories.id, parsedInput.id))
-      .returning({
-        id: stories.id,
-        name: stories.name,
-        description: stories.description,
-        characters: stories.characters,
-        backstory: stories.backstory,
-        locations: stories.locations,
-        style: stories.style,
-        systemInstructions: stories.systemInstructions,
-        voiceExemplars: stories.voiceExemplars,
-        updatedAt: stories.updatedAt,
-      });
-
-    if (!story) {
-      throw new ActionError("BAD_REQUEST", "The story could not be found.");
-    }
-
-    revalidatePath("/");
-    revalidatePath(`/story/${story.id}`);
-
-    return {
-      ...story,
-      characters: normalizeStoryCharacters(story.characters),
-      locations: normalizeStoryLocations(story.locations),
-      voiceExemplars: normalizeStoryVoiceExemplars(story.voiceExemplars),
-    };
-  });
+export const updateStoryBackstory = publicActionClient
+  .metadata({ action: "update-story-backstory" })
+  .inputSchema(updateStoryBackstoryFormSchema)
+  .action(({ parsedInput }) =>
+    updateStoryFields({ id: parsedInput.id, backstory: parsedInput.backstory }),
+  );

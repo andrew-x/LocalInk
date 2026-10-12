@@ -34,7 +34,10 @@ import type {
   StoryEditorData,
   StoryUpdateResult,
 } from "@/actions/stories/_types";
-import { updateStory } from "@/actions/stories/update-story";
+import {
+  updateStory,
+  updateStoryBackstory,
+} from "@/actions/stories/update-story";
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Label } from "@/components/common/label";
@@ -153,14 +156,13 @@ type StyleContextSectionProps = {
 };
 
 function StyleContextSection({
-  characters,
-  locations,
   onSaved,
   story,
   style,
 }: StyleContextSectionProps) {
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(style);
   const [draftStyle, setDraftStyle] = useState(style);
   const [rootError, setRootError] = useState<string | null>(null);
   const styleFieldId = useId();
@@ -181,6 +183,7 @@ function StyleContextSection({
     setRootError(null);
 
     if (open) {
+      draftGuard.capture();
       setDraftStyle(style);
     }
   }
@@ -189,14 +192,12 @@ function StyleContextSection({
     event.preventDefault();
     setRootError(null);
 
+    if (!draftGuard.check(setRootError)) return;
+
     const nextStyle = draftStyle.trim();
 
     const result = await updateStoryAction.executeAsync({
-      characters,
-      description: story.description,
       id: story.id,
-      locations,
-      name: story.name,
       style: nextStyle,
     });
 
@@ -298,14 +299,15 @@ function BackstoryContextSection({
   story,
 }: BackstoryContextSectionProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(backstory);
   const fieldId = useId();
   const hasBackstory = backstory.trim().length > 0;
   const { form, action, resetFormAndAction } = useHookFormAction(
-    updateStory,
+    updateStoryBackstory,
     formResolver(updateStoryBackstoryFormSchema),
     {
       formProps: {
-        defaultValues: { ...story, backstory },
+        defaultValues: { id: story.id, backstory },
       },
     },
   );
@@ -316,17 +318,20 @@ function BackstoryContextSection({
       return;
     }
 
+    if (open) draftGuard.capture();
     resetFormAndAction();
-    form.reset({ ...story, backstory });
+    form.reset({ id: story.id, backstory });
     setIsOpen(open);
   }
 
   async function handleSave(values: UpdateStoryBackstoryFormValues) {
     form.clearErrors("root");
+    if (!draftGuard.check((message) => form.setError("root", { message })))
+      return;
 
     try {
       const result = await action.executeAsync({
-        ...story,
+        id: story.id,
         backstory: values.backstory ?? "",
       });
 
@@ -387,8 +392,6 @@ function BackstoryContextSection({
             onSubmit={form.handleSubmit(handleSave)}
           >
             <input type="hidden" {...form.register("id")} />
-            <input type="hidden" {...form.register("name")} />
-            <input type="hidden" {...form.register("description")} />
             <Controller
               control={form.control}
               name="backstory"
@@ -594,15 +597,14 @@ function CharacterPopover({
   character,
   characterIndex,
   characters,
-  locations,
   mode,
   onSaved,
   story,
-  style,
   trigger,
 }: CharacterPopoverProps) {
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(characters);
   const [draftName, setDraftName] = useState(character?.name ?? "");
   const [draftDescription, setDraftDescription] = useState(
     character?.description ?? "",
@@ -636,6 +638,7 @@ function CharacterPopover({
     setIsConfirmingDelete(false);
 
     if (open) {
+      draftGuard.capture();
       setDraftName(character?.name ?? "");
       setDraftDescription(character?.description ?? "");
     }
@@ -644,6 +647,8 @@ function CharacterPopover({
   async function handleSaveCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     resetErrors();
+
+    if (!draftGuard.check(setRootError)) return;
 
     const nextCharacter = {
       description: draftDescription.trim(),
@@ -666,11 +671,7 @@ function CharacterPopover({
 
     const result = await updateStoryAction.executeAsync({
       characters: nextCharacters,
-      description: story.description,
       id: story.id,
-      locations,
-      name: story.name,
-      style,
     });
 
     if (result.data) {
@@ -696,17 +697,15 @@ function CharacterPopover({
 
     resetErrors();
 
+    if (!draftGuard.check(setRootError)) return;
+
     const nextCharacters = characters.filter(
       (_, index) => index !== characterIndex,
     );
 
     const result = await updateStoryAction.executeAsync({
       characters: nextCharacters,
-      description: story.description,
       id: story.id,
-      locations,
-      name: story.name,
-      style,
     });
 
     if (result.data) {
@@ -1006,18 +1005,17 @@ type LocationPopoverProps = {
 };
 
 function LocationPopover({
-  characters,
   location,
   locationIndex,
   locations,
   mode,
   onSaved,
   story,
-  style,
   trigger,
 }: LocationPopoverProps) {
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(locations);
   const [draftName, setDraftName] = useState(location?.name ?? "");
   const [draftDescription, setDraftDescription] = useState(
     location?.description ?? "",
@@ -1051,6 +1049,7 @@ function LocationPopover({
     setIsConfirmingDelete(false);
 
     if (open) {
+      draftGuard.capture();
       setDraftName(location?.name ?? "");
       setDraftDescription(location?.description ?? "");
     }
@@ -1059,6 +1058,8 @@ function LocationPopover({
   async function handleSaveLocation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     resetErrors();
+
+    if (!draftGuard.check(setRootError)) return;
 
     const nextLocation = {
       description: draftDescription.trim(),
@@ -1080,12 +1081,8 @@ function LocationPopover({
           );
 
     const result = await updateStoryAction.executeAsync({
-      characters,
-      description: story.description,
       id: story.id,
       locations: nextLocations,
-      name: story.name,
-      style,
     });
 
     if (result.data) {
@@ -1111,17 +1108,15 @@ function LocationPopover({
 
     resetErrors();
 
+    if (!draftGuard.check(setRootError)) return;
+
     const nextLocations = locations.filter(
       (_, index) => index !== locationIndex,
     );
 
     const result = await updateStoryAction.executeAsync({
-      characters,
-      description: story.description,
       id: story.id,
       locations: nextLocations,
-      name: story.name,
-      style,
     });
 
     if (result.data) {
@@ -1330,8 +1325,8 @@ type UpdateFailureResult = {
 /**
  * Maps an update result onto the pane's local context state.
  *
- * Every section saves the whole story row, so each one has to hand back every
- * context field or the others would appear to reset until the next load.
+ * Each update returns the current story row; retain every context field when
+ * synchronizing local state after saving one section.
  */
 function toSavedContext(data: StoryUpdateResult): StoryContextSave {
   return {
@@ -1378,9 +1373,7 @@ type StoryInstructionsContextSectionProps = {
  *
  * Distinct from Style: these reach the model as system-prompt authority
  * alongside the global writer instructions, where Style is request context.
- * Unlike the older sections, this saves only its own field — `updateStory`
- * leaves absent fields alone, so there is no reason to round-trip siblings
- * that may be stale in props.
+ * This saves only its own field; absent story fields remain unchanged.
  */
 function StoryInstructionsContextSection({
   onSaved,
@@ -1389,6 +1382,7 @@ function StoryInstructionsContextSection({
 }: StoryInstructionsContextSectionProps) {
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(systemInstructions);
   const [draftInstructions, setDraftInstructions] =
     useState(systemInstructions);
   const [rootError, setRootError] = useState<string | null>(null);
@@ -1410,6 +1404,7 @@ function StoryInstructionsContextSection({
     setRootError(null);
 
     if (open) {
+      draftGuard.capture();
       setDraftInstructions(systemInstructions);
     }
   }
@@ -1418,10 +1413,10 @@ function StoryInstructionsContextSection({
     event.preventDefault();
     setRootError(null);
 
+    if (!draftGuard.check(setRootError)) return;
+
     const result = await updateStoryAction.executeAsync({
-      description: story.description,
       id: story.id,
-      name: story.name,
       systemInstructions: draftInstructions.trim(),
     });
 
@@ -1656,6 +1651,7 @@ function VoiceExemplarPopover({
 }: VoiceExemplarPopoverProps) {
   const updateStoryAction = useAction(updateStory);
   const [isOpen, setIsOpen] = useState(false);
+  const draftGuard = useContextDraftGuard(voiceExemplars);
   const [draftLabel, setDraftLabel] = useState(voiceExemplar?.label ?? "");
   const [draftText, setDraftText] = useState(voiceExemplar?.text ?? "");
   const [labelError, setLabelError] = useState<string | null>(null);
@@ -1689,6 +1685,7 @@ function VoiceExemplarPopover({
     setIsConfirmingDelete(false);
 
     if (open) {
+      draftGuard.capture();
       setDraftLabel(voiceExemplar?.label ?? "");
       setDraftText(voiceExemplar?.text ?? "");
     }
@@ -1699,10 +1696,10 @@ function VoiceExemplarPopover({
     failureMessage: string,
     onFailure?: () => void,
   ) {
+    if (!draftGuard.check(setRootError)) return;
+
     const result = await updateStoryAction.executeAsync({
-      description: story.description,
       id: story.id,
-      name: story.name,
       voiceExemplars: nextVoiceExemplars,
     });
 
@@ -1883,4 +1880,23 @@ function VoiceExemplarPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+// Keep an open draft intact, but require review if its saved baseline changed.
+function useContextDraftGuard(value: unknown) {
+  const [baseline, setBaseline] = useState(() => JSON.stringify(value));
+
+  return {
+    capture() {
+      setBaseline(JSON.stringify(value));
+    },
+    check(setError: (message: string) => void) {
+      if (baseline === JSON.stringify(value)) return true;
+      const message =
+        "These story details changed while you were editing. Your draft is still here; copy it before closing, then reopen to review the saved details.";
+      setError(message);
+      toast.error(message);
+      return false;
+    },
+  };
 }

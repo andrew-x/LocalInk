@@ -2,6 +2,7 @@ import "server-only";
 
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
+import type { StoryDetailsProposalCandidate } from "@/lib/story-details-contract";
 import type { ManuscriptProposalCandidate } from "@/lib/story-manuscript-contract";
 import { generateId } from "@/lib/util";
 
@@ -13,7 +14,11 @@ export type StoryChatGenerationBinding = {
   replaceAssistantMessageId?: string;
 };
 
-type StagedOutput = { content: string; proposal?: ManuscriptProposalCandidate };
+type StagedOutput = {
+  content: string;
+  proposal?: ManuscriptProposalCandidate;
+  detailsProposal?: StoryDetailsProposalCandidate;
+};
 type Stage = {
   binding: string;
   attemptId: string;

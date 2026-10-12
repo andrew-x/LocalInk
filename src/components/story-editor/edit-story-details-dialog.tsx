@@ -6,13 +6,14 @@ import { useRouter } from "next/navigation";
 import { useAction } from "next-safe-action/hooks";
 import { useState } from "react";
 import { Controller } from "react-hook-form";
+import { toast } from "sonner";
 
 import {
   type UpdateStoryFormValues,
   updateStoryFormSchema,
 } from "@/actions/stories/_schemas";
 import { deleteStory } from "@/actions/stories/delete-story";
-import { updateStory } from "@/actions/stories/update-story";
+import { updateStoryDetails } from "@/actions/stories/update-story";
 import { Button } from "@/components/common/button";
 import {
   Dialog,
@@ -40,9 +41,13 @@ type EditStoryDetailsDialogProps = {
 export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  const [draftBaseline, setDraftBaseline] = useState({
+    name: story.name,
+    description: story.description,
+  });
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const { form, action, resetFormAndAction } = useHookFormAction(
-    updateStory,
+    updateStoryDetails,
     formResolver(updateStoryFormSchema),
     {
       formProps: {
@@ -76,6 +81,9 @@ export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
       return;
     }
 
+    if (open) {
+      setDraftBaseline({ name: story.name, description: story.description });
+    }
     setIsOpen(open);
     setIsConfirmingDelete(false);
     deleteAction.reset();
@@ -86,6 +94,17 @@ export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
     form.clearErrors("root");
     deleteAction.reset();
     setIsConfirmingDelete(false);
+
+    if (
+      draftBaseline.name !== story.name ||
+      draftBaseline.description !== story.description
+    ) {
+      const message =
+        "The story details changed while you were editing. Your draft is still here; copy it before closing, then reopen to review the saved details.";
+      form.setError("root", { message });
+      toast.error(message);
+      return;
+    }
 
     const result = await action.executeAsync(values);
 
@@ -105,6 +124,7 @@ export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
       form.setError("root", {
         message: rootMessage,
       });
+      toast.error(rootMessage);
     }
   }
 
@@ -142,6 +162,7 @@ export function EditStoryDetailsDialog({ story }: EditStoryDetailsDialogProps) {
       form.setError("root", {
         message: rootMessage,
       });
+      toast.error(rootMessage);
     }
   }
 

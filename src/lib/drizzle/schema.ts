@@ -8,6 +8,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import type {
+  StoryDetailsChange,
+  StoryDetailsProposalStatus,
+} from "@/lib/story-details-contract";
+import type {
   ManuscriptProposalChapter,
   ManuscriptProposalStatus,
 } from "@/lib/story-manuscript-contract";
@@ -188,6 +192,46 @@ export const storyChatEditProposals = sqliteTable(
     index("story_chat_edit_proposals_chat_idx").on(table.chatId),
     check(
       "story_chat_edit_proposals_status_check",
+      sql`${table.status} IN ('pending', 'accepted', 'rejected', 'undone')`,
+    ),
+  ],
+);
+
+export const storyChatDetailProposals = sqliteTable(
+  "story_chat_detail_proposals",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => stories.id, { onDelete: "cascade" }),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => storyChats.id, { onDelete: "cascade" }),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => storyChatMessages.id, { onDelete: "cascade" }),
+    generationId: text("generation_id").notNull(),
+    summary: text("summary").notNull(),
+    changes: text("changes", { mode: "json" })
+      .$type<StoryDetailsChange[]>()
+      .notNull(),
+    status: text("status")
+      .$type<StoryDetailsProposalStatus>()
+      .notNull()
+      .default("pending"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    uniqueIndex("story_chat_detail_proposals_generation_unique").on(
+      table.generationId,
+    ),
+    uniqueIndex("story_chat_detail_proposals_message_unique").on(
+      table.messageId,
+    ),
+    index("story_chat_detail_proposals_chat_idx").on(table.chatId),
+    check(
+      "story_chat_detail_proposals_status_check",
       sql`${table.status} IN ('pending', 'accepted', 'rejected', 'undone')`,
     ),
   ],

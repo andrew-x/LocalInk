@@ -47,6 +47,10 @@ import {
 import { Textarea } from "@/components/common/textarea";
 import { ManuscriptResolutionError } from "@/components/story-editor/chapter-manuscript-controller";
 import { ManuscriptProposalReview } from "@/components/story-editor/manuscript-proposal-review";
+import {
+  StoryDetailsProposalReview,
+  StoryDetailsResolutionError,
+} from "@/components/story-editor/story-details-proposal-review";
 import { StoryEditorPaneHeader } from "@/components/story-editor/story-editor-pane-header";
 import day from "@/lib/dayjs";
 import type { StoryChatStreamRequest } from "@/lib/story-chat-contract";
@@ -57,6 +61,7 @@ import {
   type StoryChatSlashCommandName,
 } from "@/lib/story-chat-slash-commands";
 import { readStoryChatStream } from "@/lib/story-chat-stream";
+import type { StoryDetailsProposal } from "@/lib/story-details-contract";
 import {
   DEFAULT_STORY_GENERATION_MODEL,
   STORY_GENERATION_MODELS,
@@ -75,6 +80,10 @@ type StoryEditorChatPaneProps = {
     proposal: ManuscriptProposal,
     decision: ManuscriptProposalDecision,
   ) => Promise<ManuscriptProposal>;
+  onResolveDetailsProposal: (
+    proposal: StoryDetailsProposal,
+    decision: ManuscriptProposalDecision,
+  ) => Promise<StoryDetailsProposal>;
   isOpen: boolean;
   onToggleOpen: () => void;
   story: {
@@ -111,6 +120,7 @@ export function StoryEditorChatPane({
   getManuscriptSnapshot,
   isOpen,
   onResolveProposal,
+  onResolveDetailsProposal,
   onToggleOpen,
   story,
 }: StoryEditorChatPaneProps) {
@@ -379,6 +389,7 @@ export function StoryEditorChatPane({
       isBusy ||
       hasUnsavedReply ||
       message.proposal ||
+      message.detailsProposal ||
       message.id !== latestAssistantMessageId ||
       !activeChatId
     ) {
@@ -667,6 +678,43 @@ export function StoryEditorChatPane({
     }
   }
 
+  async function handleResolveDetailsProposal(
+    proposal: StoryDetailsProposal,
+    decision: ManuscriptProposalDecision,
+  ) {
+    if (isBusy || resolutionInFlightRef.current) return;
+    resolutionInFlightRef.current = true;
+    setPendingResolution({ id: proposal.id, decision });
+    setProposalErrors((current) => ({ ...current, [proposal.id]: "" }));
+    try {
+      const resolved = await onResolveDetailsProposal(proposal, decision);
+      setMessages((currentMessages) =>
+        currentMessages.map((message) =>
+          message.detailsProposal?.id === resolved.id
+            ? { ...message, detailsProposal: resolved }
+            : message,
+        ),
+      );
+      toast.success(
+        resolved.status === "accepted"
+          ? "Story details updated."
+          : resolved.status === "rejected"
+            ? "Story detail edits denied."
+            : "Story detail edits undone.",
+      );
+    } catch (error) {
+      const message =
+        error instanceof StoryDetailsResolutionError && error.message
+          ? error.message
+          : "The story details could not be updated. Please try again.";
+      setProposalErrors((current) => ({ ...current, [proposal.id]: message }));
+      toast.error(message);
+    } finally {
+      resolutionInFlightRef.current = false;
+      setPendingResolution(null);
+    }
+  }
+
   function updateStreamingMessage(messageId: string, content: string) {
     const updatedAt = day().toISOString();
     const streamStatus = content.length > 0 ? "streaming" : "waiting";
@@ -904,6 +952,7 @@ export function StoryEditorChatPane({
                       !message.streamStatus &&
                       !message.unsavedGeneration &&
                       !message.proposal &&
+                      !message.detailsProposal &&
                       !hasUnsavedReply &&
                       Boolean(message.content.trim())
                     }
@@ -915,6 +964,17 @@ export function StoryEditorChatPane({
                     onRetrySave={handleRetrySave}
                     onDismissUnsavedReply={handleDismissUnsavedReply}
                     onResolveProposal={handleResolveProposal}
+                    onResolveDetailsProposal={handleResolveDetailsProposal}
+                    detailsProposalError={
+                      message.detailsProposal
+                        ? proposalErrors[message.detailsProposal.id]
+                        : undefined
+                    }
+                    pendingDetailsDecision={
+                      message.detailsProposal?.id === pendingResolution?.id
+                        ? pendingResolution?.decision
+                        : undefined
+                    }
                     proposalError={
                       message.proposal
                         ? proposalErrors[message.proposal.id]
@@ -934,7 +994,8 @@ export function StoryEditorChatPane({
                 <p className="text-body">No messages yet</p>
                 <p className="text-caption">
                   Ask about your manuscript or request edits to review and
-                  approve. Use / to draft story information.
+                  approve, including characters, locations, and other story
+                  details. Use / for focused story requests.
                 </p>
               </div>
             )}
@@ -1155,6 +1216,12 @@ type ChatMessageProps = {
     proposal: ManuscriptProposal,
     decision: ManuscriptProposalDecision,
   ) => Promise<void>;
+  onResolveDetailsProposal: (
+    proposal: StoryDetailsProposal,
+    decision: ManuscriptProposalDecision,
+  ) => Promise<void>;
+  detailsProposalError?: string;
+  pendingDetailsDecision?: ManuscriptProposalDecision;
   proposalError?: string;
   pendingDecision?: ManuscriptProposalDecision;
 };
@@ -1168,6 +1235,9 @@ function ChatMessage({
   onRetrySave,
   onDismissUnsavedReply,
   onResolveProposal,
+  onResolveDetailsProposal,
+  detailsProposalError,
+  pendingDetailsDecision,
   proposalError,
   pendingDecision,
 }: ChatMessageProps) {
@@ -1215,6 +1285,17 @@ function ChatMessage({
             error={proposalError}
             pendingDecision={pendingDecision}
             onResolve={onResolveProposal}
+          />
+        ) : null}
+        {message.detailsProposal &&
+        !message.streamStatus &&
+        !message.unsavedGeneration ? (
+          <StoryDetailsProposalReview
+            proposal={message.detailsProposal}
+            disabled={isBusy}
+            error={detailsProposalError}
+            pendingDecision={pendingDetailsDecision}
+            onResolve={onResolveDetailsProposal}
           />
         ) : null}
         {message.unsavedGeneration ? (

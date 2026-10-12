@@ -577,9 +577,7 @@ export function AiProseGenerationWidget({
     }
 
     const result = await updateStory({
-      description: story.description,
       id: story.id,
-      name: story.name,
       voiceExemplars: [
         ...voiceExemplars,
         { label: buildVoiceExemplarLabel(voiceExemplars), text: passage },

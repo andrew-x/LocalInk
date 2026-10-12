@@ -53,3 +53,13 @@ export const resolveManuscriptProposalSchema = z.object({
     }),
   ),
 });
+
+export const getStoryDetailsProposalReadSchema = z.object({
+  storyId: idSchema,
+  proposalId: idSchema,
+});
+
+export const resolveStoryDetailsProposalSchema =
+  getStoryDetailsProposalReadSchema.extend({
+    decision: z.enum(["approve", "deny", "undo"]),
+  });

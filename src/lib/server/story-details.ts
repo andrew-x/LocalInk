@@ -1,0 +1,88 @@
+import "server-only";
+
+import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import type { z } from "zod";
+import type { updateStoryActionSchema } from "@/actions/stories/_schemas";
+import type { StoryUpdateResult } from "@/actions/stories/_types";
+import { ActionError } from "@/lib/action-error";
+import day from "@/lib/dayjs";
+import { getDb } from "@/lib/drizzle/db";
+import { stories } from "@/lib/drizzle/schema";
+import { normalizeStoryCharacters } from "@/lib/server/story-characters";
+import { normalizeStoryLocations } from "@/lib/server/story-locations";
+import { normalizeStoryVoiceExemplars } from "@/lib/server/story-voice-exemplars";
+
+export async function updateStoryFields(
+  parsedInput: z.infer<typeof updateStoryActionSchema>,
+): Promise<StoryUpdateResult> {
+  const now = day().toISOString();
+  const storyUpdates: Partial<typeof stories.$inferInsert> = {
+    updatedAt: now,
+  };
+
+  if (parsedInput.name !== undefined) {
+    storyUpdates.name = parsedInput.name;
+  }
+
+  if (parsedInput.description !== undefined) {
+    storyUpdates.description = parsedInput.description;
+  }
+
+  if (parsedInput.characters !== undefined) {
+    storyUpdates.characters = normalizeStoryCharacters(parsedInput.characters);
+  }
+
+  if (parsedInput.locations !== undefined) {
+    storyUpdates.locations = normalizeStoryLocations(parsedInput.locations);
+  }
+
+  if (parsedInput.backstory !== undefined) {
+    storyUpdates.backstory = parsedInput.backstory;
+  }
+
+  if (parsedInput.style !== undefined) {
+    storyUpdates.style = parsedInput.style;
+  }
+
+  if (parsedInput.systemInstructions !== undefined) {
+    storyUpdates.systemInstructions = parsedInput.systemInstructions;
+  }
+
+  if (parsedInput.voiceExemplars !== undefined) {
+    storyUpdates.voiceExemplars = normalizeStoryVoiceExemplars(
+      parsedInput.voiceExemplars,
+    );
+  }
+
+  const [story] = await getDb()
+    .update(stories)
+    .set(storyUpdates)
+    .where(eq(stories.id, parsedInput.id))
+    .returning({
+      id: stories.id,
+      name: stories.name,
+      description: stories.description,
+      characters: stories.characters,
+      backstory: stories.backstory,
+      locations: stories.locations,
+      style: stories.style,
+      systemInstructions: stories.systemInstructions,
+      voiceExemplars: stories.voiceExemplars,
+      updatedAt: stories.updatedAt,
+    });
+
+  if (!story) {
+    throw new ActionError("BAD_REQUEST", "The story could not be found.");
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/story/${story.id}`);
+
+  return {
+    ...story,
+    characters: normalizeStoryCharacters(story.characters),
+    locations: normalizeStoryLocations(story.locations),
+    voiceExemplars: normalizeStoryVoiceExemplars(story.voiceExemplars),
+  };
+}
