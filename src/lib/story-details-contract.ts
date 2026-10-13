@@ -23,6 +23,29 @@ export type StoryDetailsSnapshot = {
 };
 
 const fields = updateStoryActionSchema.required().shape;
+const collectionFields = updateStoryActionSchema.shape;
+
+function entryEditsSchema<Shape extends z.ZodRawShape>(
+  entry: z.ZodObject<Shape>,
+) {
+  return z
+    .array(
+      z.discriminatedUnion("operation", [
+        z.object({ operation: z.literal("add"), after: entry }),
+        z.object({
+          operation: z.literal("update"),
+          id: z.string().trim().min(1).max(128),
+          after: entry,
+        }),
+        z.object({
+          operation: z.literal("remove"),
+          id: z.string().trim().min(1).max(128),
+        }),
+      ]),
+    )
+    .min(1)
+    .max(200);
+}
 
 export const storyDetailsEditSchema = z.object({
   summary: z.string().trim().min(1).max(600),
@@ -40,11 +63,23 @@ export const storyDetailsEditSchema = z.object({
           field: z.literal("systemInstructions"),
           after: fields.systemInstructions,
         }),
-        z.object({ field: z.literal("characters"), after: fields.characters }),
-        z.object({ field: z.literal("locations"), after: fields.locations }),
+        z.object({
+          field: z.literal("characters"),
+          edits: entryEditsSchema(
+            collectionFields.characters.unwrap().element.omit({ id: true }),
+          ),
+        }),
+        z.object({
+          field: z.literal("locations"),
+          edits: entryEditsSchema(
+            collectionFields.locations.unwrap().element.omit({ id: true }),
+          ),
+        }),
         z.object({
           field: z.literal("voiceExemplars"),
-          after: fields.voiceExemplars,
+          edits: entryEditsSchema(
+            collectionFields.voiceExemplars.unwrap().element.omit({ id: true }),
+          ),
         }),
       ]),
     )
@@ -53,13 +88,33 @@ export const storyDetailsEditSchema = z.object({
 });
 
 export type StoryDetailsEditInput = z.infer<typeof storyDetailsEditSchema>;
-export type StoryDetailsChange = {
+// Persisted field replacements remain readable/resolvable for older proposals.
+export type StoryDetailsFieldChange = {
   [Field in keyof StoryDetailsSnapshot]: {
     field: Field;
     before: StoryDetailsSnapshot[Field];
     after: StoryDetailsSnapshot[Field];
   };
 }[keyof StoryDetailsSnapshot];
+
+export type StoryDetailsCollectionField =
+  | "characters"
+  | "locations"
+  | "voiceExemplars";
+export type StoryDetailsEntryChange = {
+  [Field in StoryDetailsCollectionField]: {
+    field: Field;
+    entryId: string;
+    originalIndex: number;
+    // Removal Undo uses surviving neighbors when other entries have changed.
+    originalOrder?: string[];
+    before: StoryDetailsSnapshot[Field][number] | null;
+    after: StoryDetailsSnapshot[Field][number] | null;
+  };
+}[StoryDetailsCollectionField];
+export type StoryDetailsChange =
+  | StoryDetailsFieldChange
+  | StoryDetailsEntryChange;
 
 export type StoryDetailsProposalCandidate = {
   summary: string;

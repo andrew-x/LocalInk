@@ -8,7 +8,9 @@ import {
 import {
   APICallError,
   type CallSettings,
+  type FlexibleSchema,
   generateText,
+  Output,
   type Prompt,
   streamText,
   type ToolSet,
@@ -16,9 +18,31 @@ import {
 
 import type { StoryGenerationModel } from "@/lib/story-generation-models";
 
+// Keep role IDs and their capabilities together: background features select a
+// role, and replacing its model only requires updating this central profile.
+// ZDR endpoints checked 2026-10-13: fast 25 (21 structured), main 15.
+export const LOCALINK_AI_ROLE_PROFILES = {
+  main: {
+    id: "deepseek/deepseek-v4-pro-0813",
+    contextWindowTokens: 524_288,
+    maxCompletionTokens: 16_384,
+    providerOptions: {
+      openrouter: { reasoning: { effort: "none", exclude: true } },
+    },
+  },
+  fast: {
+    id: "deepseek/deepseek-v4.1-flash",
+    contextWindowTokens: 1_000_000,
+    maxCompletionTokens: 131_072,
+    providerOptions: {
+      openrouter: { reasoning: { effort: "none", exclude: true } },
+    },
+  },
+} as const;
+
 const LOCALINK_AI_MODELS = {
-  main: "deepseek/deepseek-v4-pro-0813",
-  fast: "deepseek/deepseek-v4.1-flash",
+  main: LOCALINK_AI_ROLE_PROFILES.main.id,
+  fast: LOCALINK_AI_ROLE_PROFILES.fast.id,
   // Story prose and chat selections stay separate from background uses of
   // `main` and `fast`. Prose also pairs each choice with its sampling profile.
   //
@@ -79,9 +103,11 @@ export const STORY_GENERATION_AI_MODELS = {
 // request body last and replaces `provider` wholesale rather than merging it, so
 // a caller passing `{ openrouter: { provider: ... } }` here would silently drop
 // the ZDR routing pinned below. Keep these options limited to `reasoning`.
-export type LocalinkProviderOptions = NonNullable<
-  Parameters<typeof streamText>[0]["providerOptions"]
->;
+export type LocalinkProviderOptions = {
+  openrouter: {
+    reasoning: NonNullable<OpenRouterChatSettings["reasoning"]>;
+  };
+};
 
 export type StreamLocalinkTextOptions = Prompt &
   CallSettings & {
@@ -198,5 +224,23 @@ export function generateLocalinkText({
   return generateText({
     model: getLocalinkLanguageModel(model),
     ...options,
+  });
+}
+
+/** Structured-output routing must preserve ZDR and require schema support. */
+export function generateLocalinkObject<OBJECT>({
+  model = "fast",
+  schema,
+  ...options
+}: GenerateLocalinkTextOptions & { schema: FlexibleSchema<OBJECT> }) {
+  return generateText({
+    ...options,
+    model: getOpenRouterProvider().chat(LOCALINK_AI_MODELS[model], {
+      provider: {
+        ...OPENROUTER_ZDR_PROVIDER_ROUTING,
+        require_parameters: true,
+      },
+    }),
+    output: Output.object({ schema }),
   });
 }

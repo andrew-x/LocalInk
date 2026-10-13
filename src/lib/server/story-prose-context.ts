@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, type LocalinkDb } from "@/lib/drizzle/db";
 import { chapters } from "@/lib/drizzle/schema";
+import type { StoryPromptContext } from "@/lib/story-prompt-suggestions-contract";
 import type { StoryProseGenerationRequest } from "@/lib/story-prose-generation-contract";
 
 import {
@@ -11,17 +12,21 @@ import {
   isChapterSynopsisWorthGenerating,
 } from "./story-chapter-synopses";
 
+export type PreparedStoryContext<
+  T extends StoryPromptContext = StoryPromptContext,
+> = T & {
+  /** Server-verified provenance, never accepted from the browser. */
+  synopsisProvenance: ReadonlyMap<string, string>;
+};
+
 export type PreparedStoryProseGenerationRequest =
-  StoryProseGenerationRequest & {
-    /** Server-verified provenance, never accepted from the browser. */
-    synopsisProvenance: ReadonlyMap<string, string>;
-  };
+  PreparedStoryContext<StoryProseGenerationRequest>;
 
 /** Keep unsaved manuscript snapshots, but trust only matching server caches. */
-export async function prepareStoryProseContext(
-  input: StoryProseGenerationRequest,
+export async function prepareStoryProseContext<T extends StoryPromptContext>(
+  input: T,
   db: LocalinkDb = getDb(),
-): Promise<PreparedStoryProseGenerationRequest> {
+): Promise<PreparedStoryContext<T>> {
   const snapshots = new Map(
     input.chapters.map((chapter) => [chapter.id, chapter]),
   );

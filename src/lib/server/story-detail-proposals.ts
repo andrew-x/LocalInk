@@ -3,6 +3,7 @@ import "server-only";
 import { isDeepStrictEqual } from "node:util";
 import { and, eq } from "drizzle-orm";
 
+import { updateStoryActionSchema } from "@/actions/stories/_schemas";
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import { getDb, type LocalinkDb, type LocalinkTx } from "@/lib/drizzle/db";
@@ -24,6 +25,8 @@ export type StoryDetailsProposalResolution = {
   proposal: StoryDetailsProposal;
   story: StoryDetailsSnapshot & { id: string; updatedAt: string };
 };
+
+const storyDetailsValuesSchema = updateStoryActionSchema.omit({ id: true });
 
 function readStory(
   db: LocalinkDb | LocalinkTx,
@@ -61,22 +64,174 @@ export async function getStoryDetailsSnapshot(
   return snapshot;
 }
 
-function validateEntryIds(
-  before: Array<{ id: string }>,
-  after: Array<{ id?: string }>,
-): void {
-  const known = new Set(before.map((entry) => entry.id));
+type EntryEdit<Entry> =
+  | { operation: "add"; after: Omit<Entry, "id"> }
+  | { operation: "update"; id: string; after: Omit<Entry, "id"> }
+  | { operation: "remove"; id: string };
+
+type EntryChange<Entry> = {
+  entryId: string;
+  originalIndex: number;
+  originalOrder?: string[];
+  before: Entry | null;
+  after: Entry | null;
+};
+
+function buildEntryChanges<Entry extends { id: string }>(
+  entries: Entry[],
+  edits: EntryEdit<Entry>[],
+  normalize: (entries: Omit<Entry, "id">[]) => Entry[],
+): EntryChange<Entry>[] {
   const seen = new Set<string>();
-  for (const entry of after) {
-    if (entry.id === undefined) continue;
-    if (!known.has(entry.id) || seen.has(entry.id)) {
+  return edits.map((edit) => {
+    if (edit.operation === "add") {
+      const after = normalize([edit.after])[0];
+      return {
+        entryId: after.id,
+        originalIndex: entries.length,
+        before: null,
+        after,
+      };
+    }
+    const originalIndex = entries.findIndex((entry) => entry.id === edit.id);
+    if (originalIndex === -1 || seen.has(edit.id))
       throw new ActionError(
         "BAD_REQUEST",
-        "Story detail edits must preserve existing entry IDs; new entries must omit their ID.",
+        "Each story detail entry must exist and may only be edited once in a proposal.",
       );
-    }
-    seen.add(entry.id);
+    seen.add(edit.id);
+    const before = entries[originalIndex];
+    const after =
+      edit.operation === "remove"
+        ? null
+        : ({ ...edit.after, id: before.id } as Entry);
+    if (isDeepStrictEqual(before, after))
+      throw new ActionError(
+        "BAD_REQUEST",
+        "The story detail proposal includes an unchanged entry. Please propose only changed entries.",
+      );
+    return {
+      entryId: before.id,
+      originalIndex,
+      ...(edit.operation === "remove"
+        ? { originalOrder: entries.map((entry) => entry.id) }
+        : {}),
+      before,
+      after,
+    };
+  });
+}
+
+function detailsConflict(): never {
+  throw new ActionError(
+    "CONFLICT",
+    "The affected story details have changed since this proposal. Your changes were preserved; request a new proposal for the current details.",
+  );
+}
+
+function applyEntryChange<Entry extends { id: string }>(
+  entries: Entry[],
+  change: EntryChange<Entry>,
+  undo: boolean,
+): Entry[] {
+  const baseline = undo ? change.after : change.before;
+  const replacement = undo ? change.before : change.after;
+  const index = entries.findIndex((entry) => entry.id === change.entryId);
+  if (!isDeepStrictEqual(index === -1 ? null : entries[index], baseline))
+    detailsConflict();
+  const result = [...entries];
+  if (replacement === null) {
+    if (index !== -1) result.splice(index, 1);
+  } else if (index !== -1) {
+    result[index] = replacement;
+  } else {
+    // New entries append; Undo follows surviving neighbors, not stale indices.
+    const insertionIndex = undo
+      ? getRestoredEntryIndex(result, change)
+      : result.length;
+    result.splice(insertionIndex, 0, replacement);
   }
+  return result;
+}
+
+function getRestoredEntryIndex<Entry extends { id: string }>(
+  entries: Entry[],
+  change: EntryChange<Entry>,
+): number {
+  if (change.originalOrder) {
+    for (const id of change.originalOrder.slice(change.originalIndex + 1)) {
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index !== -1) return index;
+    }
+    for (const id of change.originalOrder
+      .slice(0, change.originalIndex)
+      .reverse()) {
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index !== -1) return index + 1;
+    }
+  }
+  return Math.min(change.originalIndex, entries.length);
+}
+
+function applyDetailsChanges(
+  story: StoryDetailsSnapshot,
+  changes: StoryDetailsChange[],
+  undo: boolean,
+): Partial<StoryDetailsSnapshot> {
+  const updates: Partial<StoryDetailsSnapshot> = {};
+  // Reverse entry removals in original order so Undo restores list order too.
+  const orderedChanges = undo
+    ? [...changes].sort((left, right) =>
+        "entryId" in left && "entryId" in right && left.field === right.field
+          ? left.originalIndex - right.originalIndex
+          : 0,
+      )
+    : changes;
+  for (const change of orderedChanges) {
+    if ("entryId" in change) {
+      switch (change.field) {
+        case "characters":
+          updates.characters = applyEntryChange(
+            updates.characters ?? story.characters,
+            change,
+            undo,
+          );
+          break;
+        case "locations":
+          updates.locations = applyEntryChange(
+            updates.locations ?? story.locations,
+            change,
+            undo,
+          );
+          break;
+        case "voiceExemplars":
+          updates.voiceExemplars = applyEntryChange(
+            updates.voiceExemplars ?? story.voiceExemplars,
+            change,
+            undo,
+          );
+          break;
+      }
+    } else {
+      const baseline = undo ? change.after : change.before;
+      if (!isDeepStrictEqual(story[change.field], baseline)) detailsConflict();
+      Object.assign(updates, {
+        [change.field]: undo ? change.before : change.after,
+      });
+    }
+  }
+  return updates;
+}
+
+function validateUpdatedDetails(
+  updates: Partial<StoryDetailsSnapshot>,
+  code: "BAD_REQUEST" | "CONFLICT",
+): void {
+  if (!storyDetailsValuesSchema.safeParse(updates).success)
+    throw new ActionError(
+      code,
+      "The proposed story details would exceed a story limit or contain invalid values. Your details were preserved; request a revised proposal.",
+    );
 }
 
 export function buildStoryDetailsProposal(
@@ -90,49 +245,55 @@ export function buildStoryDetailsProposal(
       "The story detail proposal contains invalid fields or values. Please request a revised proposal.",
     );
   const seen = new Set<keyof StoryDetailsSnapshot>();
-  const changes: StoryDetailsChange[] = parsed.data.changes.map((change) => {
+  const changes: StoryDetailsChange[] = [];
+  for (const change of parsed.data.changes) {
     if (seen.has(change.field))
       throw new ActionError(
         "BAD_REQUEST",
-        "A story detail field may only appear once in a proposal.",
+        "A story detail field may only appear once in a proposal; group its entry edits together.",
       );
     seen.add(change.field);
-    let normalized: StoryDetailsChange;
     switch (change.field) {
       case "characters":
-        validateEntryIds(snapshot.characters, change.after);
-        normalized = {
-          ...change,
-          before: snapshot.characters,
-          after: normalizeStoryCharacters(change.after),
-        };
+        changes.push(
+          ...buildEntryChanges(
+            snapshot.characters,
+            change.edits,
+            normalizeStoryCharacters,
+          ).map((entry) => ({ ...entry, field: "characters" as const })),
+        );
         break;
       case "locations":
-        validateEntryIds(snapshot.locations, change.after);
-        normalized = {
-          ...change,
-          before: snapshot.locations,
-          after: normalizeStoryLocations(change.after),
-        };
+        changes.push(
+          ...buildEntryChanges(
+            snapshot.locations,
+            change.edits,
+            normalizeStoryLocations,
+          ).map((entry) => ({ ...entry, field: "locations" as const })),
+        );
         break;
       case "voiceExemplars":
-        validateEntryIds(snapshot.voiceExemplars, change.after);
-        normalized = {
-          ...change,
-          before: snapshot.voiceExemplars,
-          after: normalizeStoryVoiceExemplars(change.after),
-        };
+        changes.push(
+          ...buildEntryChanges(
+            snapshot.voiceExemplars,
+            change.edits,
+            normalizeStoryVoiceExemplars,
+          ).map((entry) => ({ ...entry, field: "voiceExemplars" as const })),
+        );
         break;
       default:
-        normalized = { ...change, before: snapshot[change.field] };
+        if (isDeepStrictEqual(snapshot[change.field], change.after))
+          throw new ActionError(
+            "BAD_REQUEST",
+            "The story detail proposal includes an unchanged field. Please propose only changed fields.",
+          );
+        changes.push({ ...change, before: snapshot[change.field] });
     }
-    if (isDeepStrictEqual(normalized.before, normalized.after))
-      throw new ActionError(
-        "BAD_REQUEST",
-        "The story detail proposal includes an unchanged field. Please propose only changed fields.",
-      );
-    return normalized;
-  });
+  }
+  validateUpdatedDetails(
+    applyDetailsChanges(snapshot, changes, false),
+    "BAD_REQUEST",
+  );
   return structuredClone({ summary: parsed.data.summary, changes });
 }
 
@@ -192,22 +353,14 @@ export async function resolveStoryDetailsProposal(
       );
     const now = day().toISOString();
     if (input.decision !== "deny") {
-      const updates: Partial<typeof stories.$inferInsert> = { updatedAt: now };
-      for (const change of proposal.changes) {
-        const baseline =
-          input.decision === "undo" ? change.after : change.before;
-        if (!isDeepStrictEqual(story[change.field], baseline))
-          throw new ActionError(
-            "CONFLICT",
-            "The affected story details have changed since this proposal. Your changes were preserved; request a new proposal for the current details.",
-          );
-        Object.assign(updates, {
-          [change.field]:
-            input.decision === "undo" ? change.before : change.after,
-        });
-      }
+      const updates = applyDetailsChanges(
+        story,
+        proposal.changes,
+        input.decision === "undo",
+      );
+      validateUpdatedDetails(updates, "CONFLICT");
       tx.update(stories)
-        .set(updates)
+        .set({ ...updates, updatedAt: now })
         .where(eq(stories.id, input.storyId))
         .run();
     }

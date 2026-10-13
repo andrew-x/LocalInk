@@ -1,11 +1,20 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Square, WandSparkles } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
+  RefreshCw,
+  Square,
+  Undo2,
+  WandSparkles,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -29,6 +38,7 @@ import type {
   ChapterAiDraftInsertionContext,
 } from "@/components/story-editor/chapter-ai-draft-plugin";
 import { AI_DRAFT_INLINE_ACTION_EVENT as DRAFT_INLINE_ACTION_EVENT } from "@/components/story-editor/chapter-ai-draft-plugin";
+import { useStoryPromptSuggestions } from "@/components/story-editor/use-story-prompt-suggestions";
 import {
   isLocalinkIncompleteFinish,
   readLocalinkTextStream,
@@ -38,6 +48,8 @@ import {
   STORY_GENERATION_MODELS,
   type StoryGenerationModel,
 } from "@/lib/story-generation-models";
+import type { ManuscriptSnapshot } from "@/lib/story-manuscript-contract";
+import type { StoryPromptContext } from "@/lib/story-prompt-suggestions-contract";
 import {
   MAX_STORY_PROSE_BEAT_GOAL_LENGTH,
   MAX_STORY_PROSE_INSTRUCTIONS_LENGTH,
@@ -79,6 +91,7 @@ type AiProseGenerationWidgetProps = {
   chapters: StoryChapterItem[];
   focusedChapterId: string | null;
   getAiDraftHandle: (chapterId: string) => ChapterAiDraftHandle | null;
+  getManuscriptSnapshot: () => ManuscriptSnapshot;
   hasSelectedText: boolean;
   initialModel: StoryGenerationModel;
   locations: StoryContext["locations"];
@@ -119,6 +132,7 @@ export function AiProseGenerationWidget({
   chapters,
   focusedChapterId,
   getAiDraftHandle,
+  getManuscriptSnapshot,
   hasSelectedText,
   initialModel,
   locations,
@@ -168,6 +182,106 @@ export function AiProseGenerationWidget({
   const draftTextRef = useRef("");
   const isStreaming = status === "streaming";
   const isGenerationWidgetDisabled = isStreaming || Boolean(activeDraft);
+  const [promptUndo, setPromptUndo] = useState<{
+    previous: string;
+    replacement: string;
+    scope: string;
+  } | null>(null);
+  const suggestionScope = `${story.id}:${focusedChapterId ?? ""}`;
+  const canUndoPrompt =
+    promptUndo?.scope === suggestionScope &&
+    promptUndo.replacement === instructions;
+  const ideasPanelRef = useRef<HTMLElement>(null);
+  const subscribeToContextChanges = useCallback(
+    (listener: () => void) => {
+      const unsubscribe = chapters.map((chapter) =>
+        getAiDraftHandle(chapter.id)?.subscribeToContextChanges(listener),
+      );
+      return () => {
+        for (const cleanup of unsubscribe) cleanup?.();
+      };
+    },
+    [chapters, getAiDraftHandle],
+  );
+  const suggestions = useStoryPromptSuggestions({
+    disabled:
+      isGenerationWidgetDisabled || hasSelectedText || !focusedChapterId,
+    scopeKey: suggestionScope,
+    readContext: readSuggestionContext,
+    subscribeToContextChanges,
+    onApply: (prompt) => {
+      setPromptUndo({
+        previous: form.getValues("instructions"),
+        replacement: prompt,
+        scope: suggestionScope,
+      });
+      form.setValue("instructions", prompt, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      requestAnimationFrame(() => form.setFocus("instructions"));
+    },
+    onError: (message) => {
+      setErrorMessage(message);
+      if (message) toast.error(message);
+    },
+  });
+
+  useLayoutEffect(() => {
+    if (suggestions.isOpen) ideasPanelRef.current?.focus();
+  }, [suggestions.isOpen]);
+
+  function readSuggestionContext(): StoryPromptContext | null {
+    if (isGenerationWidgetDisabled || hasSelectedText) return null;
+    const focusedChapter = chapters.find(
+      (chapter) => chapter.id === focusedChapterId,
+    );
+    if (!focusedChapter) return null;
+    const handle = getAiDraftHandle(focusedChapter.id);
+    const snapshot = handle?.readCurrentInsertionContext();
+    if (!snapshot || snapshot.isRewrite) return null;
+    const values = storyProseGenerationFormSchema.safeParse(form.getValues());
+    if (!values.success) return null;
+    const manuscript = getManuscriptSnapshot();
+    const liveContent = new Map(
+      manuscript.chapters.map((chapter) => [chapter.id, chapter.content]),
+    );
+    return {
+      ...buildContextBase({
+        characters,
+        chapters: chapters.map((chapter) => ({
+          ...chapter,
+          content: liveContent.get(chapter.id) ?? chapter.content,
+        })),
+        focusedChapter,
+        insertionContext: snapshot,
+        locations,
+        story,
+        style,
+        voiceExemplars,
+      }),
+      approximateLength: values.data.approximateLength,
+      beatGoal: values.data.beatGoal,
+      instructions: values.data.instructions,
+      pacing: values.data.pacing,
+    };
+  }
+
+  function backToPrompt() {
+    suggestions.close();
+    setErrorMessage(null);
+    requestAnimationFrame(() => form.setFocus("instructions"));
+  }
+
+  function undoSuggestedPrompt() {
+    if (!promptUndo || !canUndoPrompt) return;
+    form.setValue("instructions", promptUndo.previous, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    setPromptUndo(null);
+    form.setFocus("instructions");
+  }
 
   useEffect(
     () => () => {
@@ -354,7 +468,7 @@ export function AiProseGenerationWidget({
   );
 
   async function handleGenerate(values: StoryProseGenerationFormValues) {
-    if (isStreaming || activeDraft) {
+    if (isStreaming || activeDraft || suggestions.isOpen) {
       return;
     }
 
@@ -378,6 +492,8 @@ export function AiProseGenerationWidget({
       return;
     }
 
+    suggestions.reset();
+    setPromptUndo(null);
     const snapshot = handle.createDraftSnapshot();
 
     if (!snapshot) {
@@ -412,6 +528,10 @@ export function AiProseGenerationWidget({
   }
 
   function handleGenerationShortcut(event: KeyboardEvent<HTMLFormElement>) {
+    if (suggestions.isOpen && isGenerationShortcut(event)) {
+      event.preventDefault();
+      return;
+    }
     if (!isGenerationShortcut(event) || isGenerationWidgetDisabled) {
       return;
     }
@@ -457,6 +577,8 @@ export function AiProseGenerationWidget({
       return;
     }
     handle.setContentEditable(true);
+    setPromptUndo(null);
+    suggestions.reset();
     form.resetField("instructions");
     form.resetField("beatGoal");
     resetDraftState();
@@ -608,118 +730,230 @@ export function AiProseGenerationWidget({
   }
 
   return (
-    <div className="z-30 flex max-h-[60%] min-h-0 shrink-0 flex-col px-page pb-4 pt-2">
+    <div className="z-30 flex max-h-[40%] min-h-0 shrink-0 flex-col px-page pb-4 pt-2">
       <form
-        className="mx-auto flex min-h-0 w-full max-w-readable flex-col overflow-hidden rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-lg"
+        className="mx-auto flex min-h-0 w-full max-w-readable flex-col overflow-y-auto rounded-lg border border-border/80 bg-popover text-popover-foreground shadow-lg"
         noValidate
         onKeyDown={handleGenerationShortcut}
         onSubmit={form.handleSubmit(handleGenerate, (errors) => {
           if (errors.beatGoal) setShowBeatGoal(true);
         })}
       >
-        <div className="min-h-0 overflow-y-auto p-3">
-          <label
-            className="mb-2 block text-label font-medium"
-            htmlFor={instructionsId}
-          >
-            {hasSelectedText
-              ? "How should the selected prose change?"
-              : "What happens next?"}
-          </label>
-          <Textarea
-            {...form.register("instructions")}
-            aria-describedby={`${instructionsId}-hint ${instructionsId}-count${form.formState.errors.instructions ? ` ${instructionsId}-error` : ""}`}
-            aria-invalid={Boolean(form.formState.errors.instructions)}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            className="max-h-64 min-h-0 resize-none overflow-y-auto font-content"
-            disabled={isGenerationWidgetDisabled}
-            id={instructionsId}
-            maxLength={MAX_STORY_PROSE_INSTRUCTIONS_LENGTH}
-            rows={1}
-          />
-          <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 gap-y-1 text-caption text-muted-foreground">
-            <p id={`${instructionsId}-hint`}>
-              Enter for a new line · ⌘/Ctrl+Enter to generate
-            </p>
-            <p id={`${instructionsId}-count`}>
-              {instructions.length.toLocaleString("en-US")} / 10,000
-            </p>
+        <div className="shrink-0 p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <label
+              className="text-label font-medium"
+              htmlFor={suggestions.isOpen ? undefined : instructionsId}
+              id={`${formId}-prompt-label`}
+            >
+              {suggestions.isOpen
+                ? "Ideas for what happens next"
+                : hasSelectedText
+                  ? "How should the selected prose change?"
+                  : "What happens next?"}
+            </label>
+            <div className="flex items-center gap-1">
+              {suggestions.isOpen ? (
+                <>
+                  <Button
+                    className="h-7 px-2 text-caption"
+                    disabled={Boolean(suggestions.pending)}
+                    leftSection={<RefreshCw aria-hidden="true" />}
+                    onClick={() => void suggestions.showIdeas(true)}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Refresh
+                  </Button>
+                  <Button
+                    className="h-7 px-2 text-caption"
+                    onClick={backToPrompt}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Back to prompt
+                  </Button>
+                </>
+              ) : (
+                <>
+                  {canUndoPrompt ? (
+                    <Button
+                      className="h-7 px-2 text-caption"
+                      disabled={isGenerationWidgetDisabled}
+                      leftSection={<Undo2 aria-hidden="true" />}
+                      onClick={undoSuggestedPrompt}
+                      size="sm"
+                      type="button"
+                      variant="ghost"
+                    >
+                      Undo
+                    </Button>
+                  ) : null}
+                  <Button
+                    aria-controls={`${formId}-ideas`}
+                    aria-expanded={suggestions.isOpen}
+                    className="h-7 px-2 text-caption"
+                    disabled={
+                      isGenerationWidgetDisabled ||
+                      hasSelectedText ||
+                      !focusedChapterId
+                    }
+                    leftSection={<Lightbulb aria-hidden="true" />}
+                    onClick={() => void suggestions.showIdeas()}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Ideas
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-          {form.formState.errors.instructions ? (
-            <p
-              className="mt-1 text-caption text-destructive"
-              id={`${instructionsId}-error`}
-              role="alert"
+          {suggestions.isOpen ? (
+            <section
+              id={`${formId}-ideas`}
+              aria-busy={Boolean(suggestions.pending)}
+              aria-labelledby={`${formId}-prompt-label`}
+              className="outline-none"
+              ref={ideasPanelRef}
+              tabIndex={-1}
             >
-              {form.formState.errors.instructions.message}
-            </p>
-          ) : null}
-          <div className={showBeatGoal ? "mt-2" : "mt-1"}>
-            <Button
-              aria-controls={`${beatGoalId}-details`}
-              aria-expanded={showBeatGoal}
-              className={
-                showBeatGoal
-                  ? "h-auto min-h-7 max-w-full justify-start whitespace-normal px-2 py-1 text-left"
-                  : "h-auto min-h-0 max-w-full justify-start gap-1 whitespace-normal px-0 py-0.5 text-left text-caption"
-              }
-              leftSection={
-                showBeatGoal ? (
-                  <ChevronUp aria-hidden="true" />
-                ) : (
-                  <ChevronDown aria-hidden="true" className="size-3" />
-                )
-              }
-              onClick={() => setShowBeatGoal((shown) => !shown)}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <span className="min-w-0">
-                {showBeatGoal || beatGoal.trim()
-                  ? "Beat change"
-                  : "Add beat change"}
-                {showBeatGoal || beatGoal.trim() ? (
-                  <span className="font-normal text-muted-foreground">
-                    {showBeatGoal ? " · Optional" : " · Added"}
-                  </span>
-                ) : null}
-              </span>
-            </Button>
-            <div
-              hidden={!showBeatGoal}
-              id={`${beatGoalId}-details`}
-              className="mt-2 space-y-1.5"
-            >
-              <label className="text-label" htmlFor={beatGoalId}>
-                What changes in this beat?{" "}
-                <span className="text-muted-foreground">(optional)</span>
-              </label>
               <p
-                className="text-caption text-muted-foreground"
-                id={`${beatGoalId}-hint`}
+                className="mb-2 text-caption text-muted-foreground"
+                role="status"
               >
-                What should be different by the end?
+                {suggestions.pending === "ideas"
+                  ? "Finding ideas…"
+                  : suggestions.pending === "expand"
+                    ? "Drafting prompt…"
+                    : suggestions.isStale
+                      ? "The context changed. Refresh for current ideas."
+                      : "Choose an idea to turn it into a prompt you can edit."}
               </p>
-              <Input
-                {...form.register("beatGoal")}
-                aria-describedby={`${beatGoalId}-hint${form.formState.errors.beatGoal ? ` ${beatGoalId}-error` : ""}`}
-                aria-invalid={Boolean(form.formState.errors.beatGoal)}
-                className="min-w-0"
-                disabled={isGenerationWidgetDisabled}
-                id={beatGoalId}
-                maxLength={MAX_STORY_PROSE_BEAT_GOAL_LENGTH}
-                placeholder="A decision made, a secret revealed, a relationship changed…"
-              />
-              {form.formState.errors.beatGoal ? (
+              <ul className="grid gap-1">
+                {suggestions.ideas.map((idea) => (
+                  <li key={idea} className="min-w-0">
+                    <Button
+                      className="h-auto w-full justify-start whitespace-normal px-2 py-2 text-left font-content text-body"
+                      disabled={
+                        Boolean(suggestions.pending) || suggestions.isStale
+                      }
+                      loading={
+                        suggestions.pending === "expand" &&
+                        suggestions.selectedIdea === idea
+                      }
+                      onClick={() => void suggestions.expand(idea)}
+                      type="button"
+                      variant="outline"
+                    >
+                      {idea}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          <div hidden={suggestions.isOpen}>
+            <Textarea
+              {...form.register("instructions", {
+                onChange: () => setPromptUndo(null),
+              })}
+              aria-describedby={`${instructionsId}-hint ${instructionsId}-count${form.formState.errors.instructions ? ` ${instructionsId}-error` : ""}`}
+              aria-invalid={Boolean(form.formState.errors.instructions)}
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+              className="max-h-32 min-h-0 resize-none overflow-y-auto font-content"
+              disabled={isGenerationWidgetDisabled}
+              id={instructionsId}
+              maxLength={MAX_STORY_PROSE_INSTRUCTIONS_LENGTH}
+              rows={1}
+            />
+            <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 gap-y-1 text-caption text-muted-foreground">
+              <p id={`${instructionsId}-hint`}>
+                Enter for a new line · ⌘/Ctrl+Enter to generate
+              </p>
+              <p id={`${instructionsId}-count`}>
+                {instructions.length.toLocaleString("en-US")} / 10,000
+              </p>
+            </div>
+            {form.formState.errors.instructions ? (
+              <p
+                className="mt-1 text-caption text-destructive"
+                id={`${instructionsId}-error`}
+                role="alert"
+              >
+                {form.formState.errors.instructions.message}
+              </p>
+            ) : null}
+            <div className={showBeatGoal ? "mt-2" : "mt-1"}>
+              <Button
+                aria-controls={`${beatGoalId}-details`}
+                aria-expanded={showBeatGoal}
+                className={
+                  showBeatGoal
+                    ? "h-auto min-h-7 max-w-full justify-start whitespace-normal px-2 py-1 text-left"
+                    : "h-auto min-h-0 max-w-full justify-start gap-1 whitespace-normal px-0 py-0.5 text-left text-caption"
+                }
+                leftSection={
+                  showBeatGoal ? (
+                    <ChevronUp aria-hidden="true" />
+                  ) : (
+                    <ChevronDown aria-hidden="true" className="size-3" />
+                  )
+                }
+                onClick={() => setShowBeatGoal((shown) => !shown)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                <span className="min-w-0">
+                  {showBeatGoal || beatGoal.trim()
+                    ? "Beat change"
+                    : "Add beat change"}
+                  {showBeatGoal || beatGoal.trim() ? (
+                    <span className="font-normal text-muted-foreground">
+                      {showBeatGoal ? " · Optional" : " · Added"}
+                    </span>
+                  ) : null}
+                </span>
+              </Button>
+              <div
+                hidden={!showBeatGoal}
+                id={`${beatGoalId}-details`}
+                className="mt-2 space-y-1.5"
+              >
+                <label className="text-label" htmlFor={beatGoalId}>
+                  What changes in this beat?{" "}
+                  <span className="text-muted-foreground">(optional)</span>
+                </label>
                 <p
-                  className="text-caption text-destructive"
-                  id={`${beatGoalId}-error`}
-                  role="alert"
+                  className="text-caption text-muted-foreground"
+                  id={`${beatGoalId}-hint`}
                 >
-                  {form.formState.errors.beatGoal.message}
+                  What should be different by the end?
                 </p>
-              ) : null}
+                <Input
+                  {...form.register("beatGoal")}
+                  aria-describedby={`${beatGoalId}-hint${form.formState.errors.beatGoal ? ` ${beatGoalId}-error` : ""}`}
+                  aria-invalid={Boolean(form.formState.errors.beatGoal)}
+                  className="min-w-0"
+                  disabled={isGenerationWidgetDisabled}
+                  id={beatGoalId}
+                  maxLength={MAX_STORY_PROSE_BEAT_GOAL_LENGTH}
+                  placeholder="A decision made, a secret revealed, a relationship changed…"
+                />
+                {form.formState.errors.beatGoal ? (
+                  <p
+                    className="text-caption text-destructive"
+                    id={`${beatGoalId}-error`}
+                    role="alert"
+                  >
+                    {form.formState.errors.beatGoal.message}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
           {errorMessage ? (
@@ -731,105 +965,107 @@ export function AiProseGenerationWidget({
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/70 bg-muted/30 px-3 py-2">
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
-            <label
-              className="text-caption text-muted-foreground"
-              htmlFor={pacingId}
-            >
-              Pacing
-            </label>
-            <select
-              {...form.register("pacing")}
-              aria-invalid={Boolean(form.formState.errors.pacing)}
-              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              disabled={isGenerationWidgetDisabled}
-              id={pacingId}
-            >
-              {PACING_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+        {!suggestions.isOpen ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/70 bg-muted/30 px-3 py-2">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+              <label
+                className="text-caption text-muted-foreground"
+                htmlFor={pacingId}
+              >
+                Pacing
+              </label>
+              <select
+                {...form.register("pacing")}
+                aria-invalid={Boolean(form.formState.errors.pacing)}
+                className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                disabled={isGenerationWidgetDisabled}
+                id={pacingId}
+              >
+                {PACING_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+              <label
+                className="text-caption text-muted-foreground"
+                htmlFor={lengthId}
+              >
+                Word count
+              </label>
+              <select
+                {...form.register("approximateLength", {
+                  setValueAs: parseLengthOption,
+                })}
+                aria-invalid={Boolean(form.formState.errors.approximateLength)}
+                className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                disabled={isGenerationWidgetDisabled}
+                id={lengthId}
+              >
+                {LENGTH_OPTIONS.map((option) => (
+                  <option key={option.value} value={String(option.value)}>
+                    {option.value === "unlimited"
+                      ? option.label
+                      : `≈${option.label}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
+              <label
+                className="text-caption text-muted-foreground"
+                htmlFor={modelId}
+              >
+                Model
+              </label>
+              <select
+                {...form.register("model", {
+                  onChange: (event) =>
+                    onModelChange(event.target.value as StoryGenerationModel),
+                })}
+                aria-invalid={Boolean(form.formState.errors.model)}
+                className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
+                disabled={isStreaming}
+                id={modelId}
+              >
+                {STORY_GENERATION_MODELS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {isStreaming ? (
+              <Button
+                className="ml-auto h-8"
+                leftSection={<Square aria-hidden="true" />}
+                onClick={handleStop}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Stop
+              </Button>
+            ) : !activeDraft ? (
+              <Button
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                className="ml-auto h-8"
+                disabled={!chapters.length}
+                leftSection={<WandSparkles aria-hidden="true" />}
+                size="sm"
+                type="submit"
+              >
+                Generate
+              </Button>
+            ) : (
+              <p className="ml-auto text-caption text-muted-foreground">
+                Review the draft in your manuscript.
+              </p>
+            )}
           </div>
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
-            <label
-              className="text-caption text-muted-foreground"
-              htmlFor={lengthId}
-            >
-              Word count
-            </label>
-            <select
-              {...form.register("approximateLength", {
-                setValueAs: parseLengthOption,
-              })}
-              aria-invalid={Boolean(form.formState.errors.approximateLength)}
-              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              disabled={isGenerationWidgetDisabled}
-              id={lengthId}
-            >
-              {LENGTH_OPTIONS.map((option) => (
-                <option key={option.value} value={String(option.value)}>
-                  {option.value === "unlimited"
-                    ? option.label
-                    : `≈${option.label}`}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
-            <label
-              className="text-caption text-muted-foreground"
-              htmlFor={modelId}
-            >
-              Model
-            </label>
-            <select
-              {...form.register("model", {
-                onChange: (event) =>
-                  onModelChange(event.target.value as StoryGenerationModel),
-              })}
-              aria-invalid={Boolean(form.formState.errors.model)}
-              className="h-6 min-w-0 max-w-full rounded-md border border-input bg-card/80 px-1.5 py-0.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:bg-card focus-visible:ring-[3px] focus-visible:ring-ring/35"
-              disabled={isStreaming}
-              id={modelId}
-            >
-              {STORY_GENERATION_MODELS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {isStreaming ? (
-            <Button
-              className="ml-auto h-8"
-              leftSection={<Square aria-hidden="true" />}
-              onClick={handleStop}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Stop
-            </Button>
-          ) : !activeDraft ? (
-            <Button
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-              className="ml-auto h-8"
-              disabled={!chapters.length}
-              leftSection={<WandSparkles aria-hidden="true" />}
-              size="sm"
-              type="submit"
-            >
-              Generate
-            </Button>
-          ) : (
-            <p className="ml-auto text-caption text-muted-foreground">
-              Review the draft in your manuscript.
-            </p>
-          )}
-        </div>
+        ) : null}
       </form>
     </div>
   );

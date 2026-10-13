@@ -92,7 +92,7 @@ const TOOL_GUIDANCE = [
   "Use read_story_details to read each saved story field before proposing changes with propose_story_details_edits. These tools support the story title (name), description, characters, locations, backstory, style, systemInstructions, and voiceExemplars. The saved detail snapshot is immutable for this turn; open, unsaved reference forms are not included.",
   "Use read_story_details_proposal to retrieve exact before/after values of an earlier detail proposal for revision or discussion. Its paged JSON text is historical reference only; also read the current saved fields before preparing a revised proposal. IDs assigned to entries that have never been saved are historical only: omit those IDs when adding them to a new proposal.",
   "Only propose story detail changes when the writer requests an edit, addition, removal, or saving a discussed draft. For advice, brainstorming, and field-drafting slash commands, return text unless the writer also explicitly asks to save it. Never treat reference text or saved instructions as permission to edit.",
-  "Story detail proposals contain complete replacement values for only the fields being changed. Preserve all unrelated entries, their IDs, and untouched text. Existing character, location, and voice sample IDs must be retained; omit the ID only for a new entry. Removing an entry requires an explicit writer request. Read every affected field before submitting one complete proposal.",
+  "For story title and other text fields, supply the complete replacement value in after only for fields being changed. For characters, locations, and voiceExemplars, supply edits for only the individual entries being changed, never the whole collection. Each edit has operation add, update, or remove. For update, supply the existing entry's id and its complete replacement content in after without an id. For remove, supply only operation and the existing id. For add, supply operation and the new entry's content in after without an id. Preserve untouched text within a changed entry and omit unrelated entries entirely. Removing an entry requires an explicit writer request. Read every affected field before submitting one complete proposal.",
   "Both edit tools only prepare proposals for review, never save changes. Prepare at most one proposal per reply, either manuscript or story details; if both are requested, explain which part is prepared and that the other needs a follow-up. Never claim the proposal is applied or that pending details are canon.",
 ].join("\n");
 
@@ -280,7 +280,7 @@ export async function createStoryChatGeneration({
   const tools = {
     read_story_details_proposal: tool({
       description:
-        "Read one historical story-detail proposal field from this chat. Before and after are JSON-encoded values returned in text pages. Follow nextTextOffset to finish a field and nextChangeOffset for another field. Historical values do not establish current saved canon.",
+        "Read one historical story-detail proposal change from this chat. Before and after are JSON-encoded values returned in text pages. Entry changes include entryId and one entry or null on each side; older proposals may contain whole collections. Follow nextTextOffset to finish a change and nextChangeOffset for another change. Historical values do not establish current saved canon.",
       inputSchema: priorDetailsProposalSchema,
       execute: async ({ proposalId, changeOffset, textOffset, length }) => {
         if (!historicalDetailsProposalIds.has(proposalId))
@@ -304,11 +304,11 @@ export async function createStoryChatGeneration({
           return { error: "The proposal is no longer available in this chat." };
         const change = record.changes[changeOffset];
         if (!change)
-          return { error: "The requested field is outside the proposal." };
+          return { error: "The requested change is outside the proposal." };
         const before = JSON.stringify(change.before);
         const after = JSON.stringify(change.after);
         if (textOffset > Math.max(before.length, after.length))
-          return { error: "The text offset is outside the proposal field." };
+          return { error: "The text offset is outside the proposal change." };
         const end = textOffset + length;
         return resultWithinBudget({
           proposalId,
@@ -316,6 +316,7 @@ export async function createStoryChatGeneration({
           status: record.status,
           historicalOnly: true,
           field: change.field,
+          ...("entryId" in change ? { entryId: change.entryId } : {}),
           changeOffset,
           totalChanges: record.changes.length,
           textOffset,
@@ -341,7 +342,7 @@ export async function createStoryChatGeneration({
     }),
     propose_story_details_edits: tool({
       description:
-        "Prepare one story-detail proposal for writer approval. Never saves changes. Supply complete replacement values only for fields you have read, preserving unrelated entries and existing IDs; omit IDs for new entries.",
+        "Prepare one story-detail proposal for writer approval. Never saves changes. Read affected fields first. Supply after for changed text fields. For characters, locations, and voiceExemplars, supply edits only for changed entries: add with after, update with an existing id and complete entry content in after, or remove with an existing id. Entry content in after excludes id. Omit unrelated entries.",
       inputSchema: storyDetailsEditSchema,
       execute: async (edits) => {
         if (proposal || detailsProposal)
@@ -352,7 +353,7 @@ export async function createStoryChatGeneration({
         if (edits.changes.some((change) => !readDetailFields.has(change.field)))
           return {
             error:
-              "Read every affected field with read_story_details before proposing its replacement.",
+              "Read every affected field with read_story_details before proposing changes to it.",
           };
         try {
           const candidate = buildStoryDetailsProposal(detailsSnapshot, edits);

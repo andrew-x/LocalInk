@@ -120,12 +120,14 @@ export type ChapterAiDraftHandle = {
   acceptDraft: (draftId: string, text: string) => boolean;
   beginDraftVersion: (draftId: string) => void;
   createDraftSnapshot: () => ChapterAiDraftSnapshot | null;
+  readCurrentInsertionContext: () => ChapterAiDraftInsertionContext | null;
   readInsertionContext: (
     draftId: string,
   ) => ChapterAiDraftInsertionContext | null;
   removeDraft: (draftId: string) => void;
   selectDraftVersion: (draftId: string, index: number) => void;
   setContentEditable: (isEditable: boolean) => void;
+  subscribeToContextChanges: (listener: () => void) => () => void;
   updateDraft: (
     draftId: string,
     text: string,
@@ -620,6 +622,20 @@ export function createChapterAiDraftHandle(
       );
       return snapshot;
     },
+    readCurrentInsertionContext() {
+      if (transaction.current || manuscriptLocked.current) return null;
+      // Flush pending typing without creating an update, draft, or selection.
+      return editor.read(() => {
+        if (
+          transaction.current ||
+          manuscriptLocked.current ||
+          $nodesOfType(AiDraftNode).length > 0
+        ) {
+          return null;
+        }
+        return getSelectionMarkdownSplit(readCurrentRangeSelection());
+      });
+    },
     readInsertionContext(draftId) {
       if (transaction.current?.draftId === draftId)
         return transaction.current.insertionContext;
@@ -651,6 +667,26 @@ export function createChapterAiDraftHandle(
     setContentEditable(isEditable) {
       editor.setEditable(
         isEditable && !transaction.current && !manuscriptLocked.current,
+      );
+    },
+    subscribeToContextChanges(listener) {
+      return editor.registerUpdateListener(
+        ({ dirtyElements, dirtyLeaves, editorState, prevEditorState }) => {
+          if (dirtyElements.size > 0 || dirtyLeaves.size > 0) {
+            listener();
+            return;
+          }
+
+          const selection = editorState.read($getSelection);
+          const previousSelection = prevEditorState.read($getSelection);
+          const hasSameSelection = selection
+            ? selection.is(previousSelection)
+            : previousSelection === null;
+
+          // Snapshot flushing also emits updates; only actual context changes
+          // should schedule a fresh read outside this update listener.
+          if (!hasSameSelection) listener();
+        },
       );
     },
     updateDraft(draftId, text, status, promptSnapshotId) {
@@ -1486,18 +1522,21 @@ function removeAiDraftNodes() {
  * end, so selecting a paragraph and generating silently appended somewhere
  * else and accepted prose could never be revised.
  */
-function prepareInsertionSelection(): RangeSelection | null {
+function readCurrentRangeSelection(): RangeSelection | null {
   const selection = $getSelection();
+  return $isRangeSelection(selection) ? selection : null;
+}
 
-  if ($isRangeSelection(selection)) {
+function prepareInsertionSelection(): RangeSelection | null {
+  const selection = readCurrentRangeSelection();
+
+  if (selection) {
     return selection;
   }
 
   selectChapterEnd();
 
-  const endSelection = $getSelection();
-
-  return $isRangeSelection(endSelection) ? endSelection : null;
+  return readCurrentRangeSelection();
 }
 
 function selectChapterEnd() {

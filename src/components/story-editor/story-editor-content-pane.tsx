@@ -17,6 +17,7 @@ import {
   DEFAULT_STORY_GENERATION_MODEL,
   type StoryGenerationModel,
 } from "@/lib/story-generation-models";
+import type { ManuscriptSnapshot } from "@/lib/story-manuscript-contract";
 
 const SCROLL_BOTTOM_THRESHOLD_PX = 24;
 const DRAFT_FOLLOW_BOTTOM_PADDING_PX = 24;
@@ -27,6 +28,7 @@ type StoryEditorContentPaneProps = {
   chapters: StoryChapterItem[];
   characters: StoryContext["characters"];
   focusedChapterId: string | null;
+  getManuscriptSnapshot: () => ManuscriptSnapshot;
   isCreatingChapter: boolean;
   locations: StoryContext["locations"];
   onAddChapter: () => void;
@@ -54,6 +56,7 @@ export function StoryEditorContentPane({
   chapters,
   characters,
   focusedChapterId,
+  getManuscriptSnapshot,
   isCreatingChapter,
   locations,
   onAddChapter,
@@ -383,6 +386,7 @@ export function StoryEditorContentPane({
           chapters={chapters}
           focusedChapterId={focusedChapterId}
           getAiDraftHandle={getAiDraftHandle}
+          getManuscriptSnapshot={getManuscriptSnapshot}
           initialModel={proseModel}
           locations={locations}
           hasSelectedText={

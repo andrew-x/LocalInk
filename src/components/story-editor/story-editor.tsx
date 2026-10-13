@@ -543,6 +543,7 @@ export function StoryEditor({ story }: StoryEditorProps) {
         chapters={chapters}
         characters={storyContext.characters}
         focusedChapterId={focusedChapter?.id ?? null}
+        getManuscriptSnapshot={getManuscriptSnapshot}
         isCreatingChapter={createChapterAction.isPending}
         locations={storyContext.locations}
         onAddChapter={handleAddChapter}
