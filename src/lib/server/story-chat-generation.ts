@@ -34,6 +34,8 @@ const CONTEXT_WINDOWS = {
   glm53: 1_048_576,
   mistralLarge40: 524_288,
   gemini4Argon: 1_048_576,
+  hy4Preview: 131_000,
+  grok420: 2_000_000,
 } as const;
 const OUTPUT_RESERVE = 32_768;
 const TOOL_FRAMING_RESERVE = 16_384;

@@ -51,12 +51,16 @@ const LOCALINK_AI_MODELS = {
   // GLM 5.3 33. Mistral Large 4.0 verified 2026-10-08: 2 endpoints
   // (mistral/eu and mistral/zdr). Gemini 4 Argon verified 2026-10-14:
   // 3 tool-capable endpoints (google-vertex/us, google-vertex/global/priority,
-  // google-vertex/global). All choices keep default ZDR routing.
+  // google-vertex/global). HY4 Preview and Grok 4.20 verified 2026-10-14:
+  // 5 and 2 tool-capable endpoints, respectively. All choices keep default ZDR
+  // routing; endpoint limits and reasoning constraints are in the prose docs.
   "prose-deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
   "prose-kimi-k3": "moonshotai/kimi-k3",
   "prose-glm-5.3": "z-ai/glm-5.3",
   "prose-mistral-large-4.0": "mistralai/mistral-large-4-0",
   "prose-gemini-4-argon": "google/gemini-4-argon",
+  "prose-hy4-preview": "tencent/hy4-preview",
+  "prose-grok-4.20": "x-ai/grok-4.20",
 } as const;
 
 /**
@@ -101,6 +105,8 @@ export const STORY_GENERATION_AI_MODELS = {
   glm53: "prose-glm-5.3",
   mistralLarge40: "prose-mistral-large-4.0",
   gemini4Argon: "prose-gemini-4-argon",
+  hy4Preview: "prose-hy4-preview",
+  grok420: "prose-grok-4.20",
 } as const satisfies Record<StoryGenerationModel, LocalinkAiModel>;
 
 // Note: the OpenRouter provider spreads `providerOptions.openrouter` over the
@@ -109,7 +115,11 @@ export const STORY_GENERATION_AI_MODELS = {
 // the ZDR routing pinned below. Keep these options limited to `reasoning`.
 export type LocalinkProviderOptions = {
   openrouter: {
-    reasoning: NonNullable<OpenRouterChatSettings["reasoning"]>;
+    // The installed SDK type requires effort/budget even when disabled, but
+    // OpenRouter accepts enabled:false alone (needed for models without effort).
+    reasoning:
+      | NonNullable<OpenRouterChatSettings["reasoning"]>
+      | { enabled: false; exclude?: boolean };
   };
 };
 

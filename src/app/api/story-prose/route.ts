@@ -70,10 +70,10 @@ const NO_REASONING = {
  * profile once you have a read on it.
  *
  * All choices retain mandatory ZDR routing; availability checks are recorded
- * in ai.ts. Mistral's 524k context is the smallest of the choices.
+ * in ai.ts. HY4's 131k context is the smallest of the choices.
  * Context/output limits below use the
  * lower advertised model/top-provider context from OpenRouter's public models
- * endpoint, checked 2026-09-22, except Mistral and Gemini (see below).
+ * endpoint, checked 2026-09-22, except newer additions (see below).
  * No request-time metadata lookup is needed.
  */
 const STORY_PROSE_MODEL_PROFILES = {
@@ -130,6 +130,27 @@ const STORY_PROSE_MODEL_PROFILES = {
     },
     // Extra completion headroom for bounded drafts, not a hard reasoning cap.
     reasoningOutputTokenAllowance: 4_096,
+  },
+  hy4Preview: {
+    model: STORY_GENERATION_AI_MODELS.hy4Preview,
+    // Lowest limits across five ZDR endpoints (checked 2026-10-14).
+    // Makora limits context; Tencent and Novita limit completion length.
+    // See docs/ai-prose-generation.md for the provider check.
+    contextWindowTokens: 131_000,
+    maxCompletionTokens: 64_000,
+    temperature: 0.82,
+    providerOptions: NO_REASONING,
+  },
+  grok420: {
+    model: STORY_GENERATION_AI_MODELS.grok420,
+    // Both ZDR endpoints share these limits (checked 2026-10-14).
+    contextWindowTokens: 2_000_000,
+    maxCompletionTokens: 1_800_000,
+    temperature: 0.82,
+    // Reasoning is optional, but this model does not expose effort selection.
+    providerOptions: {
+      openrouter: { reasoning: { enabled: false, exclude: true } },
+    },
   },
 } as const satisfies Record<StoryGenerationModel, StoryProseModelProfile>;
 
