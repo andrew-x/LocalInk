@@ -65,15 +65,15 @@ const NO_REASONING = {
 /**
  * Story prose profiles selected for each generation request.
  *
- * All four start at the same temperature so the first comparison is
+ * All choices start at the same temperature so the first comparison is
  * like-for-like against the value DeepSeek was tuned at; tune an individual
  * profile once you have a read on it.
  *
  * All choices retain mandatory ZDR routing; availability checks are recorded
- * in ai.ts. Mistral's 524k context is the smallest of the four.
+ * in ai.ts. Mistral's 524k context is the smallest of the choices.
  * Context/output limits below use the
  * lower advertised model/top-provider context from OpenRouter's public models
- * endpoint, checked 2026-09-22, except Mistral (see below).
+ * endpoint, checked 2026-09-22, except Mistral and Gemini (see below).
  * No request-time metadata lookup is needed.
  */
 const STORY_PROSE_MODEL_PROFILES = {
@@ -114,6 +114,22 @@ const STORY_PROSE_MODEL_PROFILES = {
     maxCompletionTokens: 262_144,
     temperature: 0.82,
     providerOptions: NO_REASONING,
+  },
+  gemini4Argon: {
+    model: STORY_GENERATION_AI_MODELS.gemini4Argon,
+    // All three ZDR endpoints share these limits (checked 2026-10-14).
+    // Keep the output cap within Gemini's single-request limit.
+    // https://openrouter.ai/api/v1/endpoints/zdr
+    contextWindowTokens: 1_048_576,
+    maxCompletionTokens: 65_536,
+    temperature: 0.82,
+    // Reasoning is mandatory; low is the smallest supported effort.
+    // See docs/ai-prose-generation.md for the verified provider constraints.
+    providerOptions: {
+      openrouter: { reasoning: { effort: "low", exclude: true } },
+    },
+    // Extra completion headroom for bounded drafts, not a hard reasoning cap.
+    reasoningOutputTokenAllowance: 4_096,
   },
 } as const satisfies Record<StoryGenerationModel, StoryProseModelProfile>;
 

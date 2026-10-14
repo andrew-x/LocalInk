@@ -5,6 +5,7 @@ export const STORY_GENERATION_MODELS = [
   { value: "kimiK3", label: "Kimi K3" },
   { value: "glm53", label: "GLM 5.3" },
   { value: "mistralLarge40", label: "Mistral Large 4.0" },
+  { value: "gemini4Argon", label: "Gemini 4 Argon" },
 ] as const;
 
 export type StoryGenerationModel =

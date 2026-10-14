@@ -33,6 +33,7 @@ const CONTEXT_WINDOWS = {
   kimiK3: 1_048_576,
   glm53: 1_048_576,
   mistralLarge40: 524_288,
+  gemini4Argon: 1_048_576,
 } as const;
 const OUTPUT_RESERVE = 32_768;
 const TOOL_FRAMING_RESERVE = 16_384;
