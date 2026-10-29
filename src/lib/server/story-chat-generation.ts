@@ -5,7 +5,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { ActionError } from "@/lib/action-error";
-import { STORY_GENERATION_AI_MODELS, streamLocalinkChat } from "@/lib/ai";
+import { LOCALINK_AI_MODEL_PROFILES, streamLocalinkChat } from "@/lib/ai";
 import { getDb } from "@/lib/drizzle/db";
 import {
   chapters,
@@ -26,17 +26,6 @@ import {
 } from "@/lib/story-details-contract";
 import type { ManuscriptProposalCandidate } from "@/lib/story-manuscript-contract";
 
-// Same verified context windows used by prose. Byte counts intentionally upper
-// bound token counts, including escaped JSON and all tool call/result messages.
-const CONTEXT_WINDOWS = {
-  deepseekV4Pro: 1_024_000,
-  kimiK3: 1_048_576,
-  glm53: 1_048_576,
-  mistralLarge40: 524_288,
-  gemini4Argon: 1_048_576,
-  hy4Preview: 131_000,
-  grok420: 2_000_000,
-} as const;
 const OUTPUT_RESERVE = 32_768;
 const TOOL_FRAMING_RESERVE = 16_384;
 const MAX_READ = 32_000;
@@ -193,7 +182,9 @@ export async function createStoryChatGeneration({
   let remainingToolBytes = 0;
   const fullSystem = `${system}\n\n${TOOL_GUIDANCE}`;
   const inputBudget =
-    CONTEXT_WINDOWS[input.model] - OUTPUT_RESERVE - TOOL_FRAMING_RESERVE;
+    LOCALINK_AI_MODEL_PROFILES[input.model].contextWindowTokens -
+    OUTPUT_RESERVE -
+    TOOL_FRAMING_RESERVE;
   const toolSchemaBytes = byteSize([
     z.toJSONSchema(readSchema),
     z.toJSONSchema(searchSchema),
@@ -626,7 +617,7 @@ export async function createStoryChatGeneration({
     }),
   };
   const stream = streamLocalinkChat({
-    model: STORY_GENERATION_AI_MODELS[input.model],
+    model: input.model,
     system: fullSystem,
     messages: initialMessages,
     tools,

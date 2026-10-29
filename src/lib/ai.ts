@@ -1,10 +1,6 @@
 import "server-only";
 
-import {
-  createOpenRouter,
-  type OpenRouterChatSettings,
-  type OpenRouterProvider,
-} from "@openrouter/ai-sdk-provider";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
   APICallError,
   type CallSettings,
@@ -16,112 +12,68 @@ import {
   type ToolSet,
 } from "ai";
 
-import type { StoryGenerationModel } from "@/lib/story-generation-models";
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
 
-// Keep role IDs and their capabilities together: background features select a
-// role, and replacing its model only requires updating this central profile.
-// ZDR endpoints checked 2026-10-13: fast 25 (21 structured), main 15.
-export const LOCALINK_AI_ROLE_PROFILES = {
-  main: {
-    id: "deepseek/deepseek-v4-pro-0813",
-    contextWindowTokens: 524_288,
-    maxCompletionTokens: 16_384,
-    providerOptions: {
-      openrouter: { reasoning: { effort: "none", exclude: true } },
-    },
-  },
-  fast: {
-    id: "deepseek/deepseek-v4.1-flash",
+export type LocalinkAiModel = StoryGenerationModel;
+export type LocalinkAiModelProfile = {
+  model: LocalinkAiModel;
+  contextWindowTokens: number;
+  maxCompletionTokens: number;
+  temperature: number;
+  reasoningEffort?: "none" | "low";
+  reasoningOutputTokenAllowance: number;
+};
+
+// Venice /models checked 2026-10-28. Kimi is an explicitly accepted Anonymized
+// choice; the other profiles are Private. Never substitute another model.
+export const LOCALINK_AI_MODEL_PROFILES = {
+  "deepseek-v4-1-flash-1017-uncensored": {
+    model: "deepseek-v4-1-flash-1017-uncensored",
     contextWindowTokens: 1_000_000,
     maxCompletionTokens: 131_072,
-    providerOptions: {
-      openrouter: { reasoning: { effort: "none", exclude: true } },
-    },
+    temperature: 0.82,
+    reasoningEffort: "none",
+    reasoningOutputTokenAllowance: 0,
   },
-} as const;
+  "deepseek-v4-pro-0813": {
+    model: "deepseek-v4-pro-0813",
+    contextWindowTokens: 1_000_000,
+    maxCompletionTokens: 32_768,
+    temperature: 0.82,
+    reasoningEffort: "none",
+    reasoningOutputTokenAllowance: 0,
+  },
+  "kimi-k3-1-pro": {
+    model: "kimi-k3-1-pro",
+    contextWindowTokens: 1_000_000,
+    maxCompletionTokens: 131_072,
+    temperature: 0.82,
+    reasoningEffort: "none",
+    reasoningOutputTokenAllowance: 0,
+  },
+  "grok-4-7": {
+    model: "grok-4-7",
+    contextWindowTokens: 500_000,
+    maxCompletionTokens: 200_000,
+    temperature: 0.82,
+    reasoningEffort: "low",
+    reasoningOutputTokenAllowance: 4_096,
+  },
+  "z-ai-glm-5-3": {
+    model: "z-ai-glm-5-3",
+    contextWindowTokens: 1_000_000,
+    maxCompletionTokens: 131_072,
+    temperature: 0.82,
+    // Venice does not advertise effort selection for this model.
+    reasoningOutputTokenAllowance: 4_096,
+  },
+} satisfies Record<StoryGenerationModel, LocalinkAiModelProfile>;
 
-const LOCALINK_AI_MODELS = {
-  main: LOCALINK_AI_ROLE_PROFILES.main.id,
-  fast: LOCALINK_AI_ROLE_PROFILES.fast.id,
-  // Story prose and chat selections stay separate from background uses of
-  // `main` and `fast`. Prose also pairs each choice with its sampling profile.
-  //
-  // ZDR endpoints verified 2026-10-06 against
-  // https://openrouter.ai/api/v1/endpoints/zdr: DeepSeek V4 Pro 15, Kimi K3 21,
-  // GLM 5.3 33. Mistral Large 4.0 verified 2026-10-08: 2 endpoints
-  // (mistral/eu and mistral/zdr). Gemini 4 Argon verified 2026-10-14:
-  // 3 tool-capable endpoints (google-vertex/us, google-vertex/global/priority,
-  // google-vertex/global). HY4 Preview and Grok 4.20 verified 2026-10-14:
-  // 5 and 2 tool-capable endpoints, respectively. All choices keep default ZDR
-  // routing; endpoint limits and reasoning constraints are in the prose docs.
-  "prose-deepseek-v4-pro": "deepseek/deepseek-v4-pro-0813",
-  "prose-kimi-k3": "moonshotai/kimi-k3",
-  "prose-glm-5.3": "z-ai/glm-5.3",
-  "prose-mistral-large-4.0": "mistralai/mistral-large-4-0",
-  "prose-gemini-4-argon": "google/gemini-4-argon",
-  "prose-hy4-preview": "tencent/hy4-preview",
-  "prose-grok-4.20": "x-ai/grok-4.20",
-} as const;
-
-/**
- * Zero Data Retention routing, sent on every OpenRouter request LocalInk makes.
- *
- * LocalInk is a local-first app, so a prompt or manuscript excerpt leaving the
- * machine at all is the exception; when it does, it must only be handled by an
- * endpoint that does not retain it. OpenRouter ORs this with the account-level
- * setting, so the flag can only tighten routing, never loosen it. A model with
- * no ZDR endpoint answers 404 "No endpoints found matching your data policy
- * (Zero data retention)" rather than quietly falling back to a retaining
- * provider, which is the failure mode worth having.
- *
- * Verified 2026-08-16: honored on /api/v1/chat/completions. It is NOT honored on
- * /api/v1/images, which accepts the field and generates anyway — see
- * `docs/ai-image-generation.md` for how the image path covers that gap.
- */
-export const OPENROUTER_ZDR_PROVIDER_ROUTING = {
-  zdr: true,
-} as const satisfies NonNullable<OpenRouterChatSettings["provider"]>;
-
-// Markers from OpenRouter's 404 body when privacy routing leaves no eligible
-// endpoint. Matched on the message because the status alone also covers an
-// unknown model ID.
-//
-// Two different wordings reach this check. The `zdr` flag refuses with "No
-// endpoints found matching your data policy"; a `provider.only` list that
-// matches nothing refuses with "No allowed providers are available". Both count
-// here because LocalInk only ever sends `only` to pin a ZDR provider, so either
-// message means the same thing to the user.
-const ZDR_REFUSAL_MARKERS = [
-  "data policy",
-  "zero data retention",
-  "no allowed providers",
-] as const;
-
-export type LocalinkAiModel = keyof typeof LOCALINK_AI_MODELS;
-
-export const STORY_GENERATION_AI_MODELS = {
-  deepseekV4Pro: "prose-deepseek-v4-pro",
-  kimiK3: "prose-kimi-k3",
-  glm53: "prose-glm-5.3",
-  mistralLarge40: "prose-mistral-large-4.0",
-  gemini4Argon: "prose-gemini-4-argon",
-  hy4Preview: "prose-hy4-preview",
-  grok420: "prose-grok-4.20",
-} as const satisfies Record<StoryGenerationModel, LocalinkAiModel>;
-
-// Note: the OpenRouter provider spreads `providerOptions.openrouter` over the
-// request body last and replaces `provider` wholesale rather than merging it, so
-// a caller passing `{ openrouter: { provider: ... } }` here would silently drop
-// the ZDR routing pinned below. Keep these options limited to `reasoning`.
-export type LocalinkProviderOptions = {
-  openrouter: {
-    // The installed SDK type requires effort/budget even when disabled, but
-    // OpenRouter accepts enabled:false alone (needed for models without effort).
-    reasoning:
-      | NonNullable<OpenRouterChatSettings["reasoning"]>
-      | { enabled: false; exclude?: boolean };
-  };
-};
+export const DEFAULT_LOCALINK_AI_PROFILE =
+  LOCALINK_AI_MODEL_PROFILES[DEFAULT_STORY_GENERATION_MODEL];
 
 export type StreamLocalinkTextOptions = Prompt &
   CallSettings & {
@@ -130,88 +82,75 @@ export type StreamLocalinkTextOptions = Prompt &
     onError?: (event: { error: unknown }) => PromiseLike<void> | void;
     onFinish?: () => PromiseLike<void> | void;
     model?: LocalinkAiModel;
-    providerOptions?: LocalinkProviderOptions;
   };
 
 export type GenerateLocalinkTextOptions = Prompt &
   CallSettings & {
     abortSignal?: AbortSignal;
     model?: LocalinkAiModel;
-    providerOptions?: LocalinkProviderOptions;
   };
 
-let cachedOpenRouter: OpenRouterProvider | null = null;
+let cachedVenice: ReturnType<typeof createOpenAICompatible> | null = null;
 
-function getOpenRouterProvider(): OpenRouterProvider {
-  if (cachedOpenRouter) {
-    return cachedOpenRouter;
-  }
-
-  const apiKey = process.env.OPENROUTER_API_KEY;
-
+function getVeniceProvider() {
+  if (cachedVenice) return cachedVenice;
+  const apiKey = process.env.VENICE_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      "OPENROUTER_API_KEY must be set before calling OpenRouter.",
-    );
+    throw new Error("VENICE_API_KEY must be set before calling Venice.");
   }
-
-  cachedOpenRouter = createOpenRouter({
+  cachedVenice = createOpenAICompatible({
+    name: "venice",
     apiKey,
-    appName: process.env.OPENROUTER_APP_NAME ?? "Localink",
-    appUrl: process.env.OPENROUTER_APP_URL,
+    baseURL: "https://api.venice.ai/api/v1",
+    supportsStructuredOutputs: true,
+    includeUsage: true,
+    transformRequestBody: (body) => {
+      const profile: LocalinkAiModelProfile =
+        LOCALINK_AI_MODEL_PROFILES[body.model as LocalinkAiModel];
+      return {
+        ...body,
+        ...(profile.reasoningEffort
+          ? { reasoning_effort: profile.reasoningEffort }
+          : {}),
+        venice_parameters: {
+          include_venice_system_prompt: false,
+          enable_web_search: "off",
+          enable_web_scraping: false,
+          enable_x_search: false,
+          strip_thinking_response: true,
+        },
+      };
+    },
   });
-
-  return cachedOpenRouter;
+  return cachedVenice;
 }
 
-function getLocalinkLanguageModel(model: LocalinkAiModel = "main") {
-  return getOpenRouterProvider().chat(LOCALINK_AI_MODELS[model], {
-    provider: OPENROUTER_ZDR_PROVIDER_ROUTING,
-  });
-}
-
-/**
- * True when OpenRouter refused the request because ZDR routing left no eligible
- * endpoint for the model.
- *
- * Worth separating from a generic outage: it is not transient and retrying will
- * not help, so the caller can say the model has no zero-data-retention provider
- * instead of reporting an unexplained failure.
- */
-export function isOpenRouterZdrUnavailableError(error: unknown): boolean {
+export function isVeniceConfigurationError(error: unknown): boolean {
   return (
-    APICallError.isInstance(error) &&
-    error.statusCode === 404 &&
-    looksLikeOpenRouterZdrUnavailableBody(error.responseBody)
+    (error instanceof Error && error.message.includes("VENICE_API_KEY")) ||
+    (APICallError.isInstance(error) &&
+      (error.statusCode === 401 || error.statusCode === 403))
   );
 }
 
-/**
- * Same check against a raw response body, for the image paths that call
- * OpenRouter with `fetch` instead of going through the AI SDK. Callers pair it
- * with a 404 status, since the status alone also covers an unknown model ID.
- */
-export function looksLikeOpenRouterZdrUnavailableBody(
-  body: string | null | undefined,
-): boolean {
-  const normalized = (body ?? "").toLowerCase();
-
-  return ZDR_REFUSAL_MARKERS.some((marker) => normalized.includes(marker));
+function boundedOutput(model: LocalinkAiModel, requested?: number) {
+  const limit = LOCALINK_AI_MODEL_PROFILES[model].maxCompletionTokens;
+  return requested === undefined ? limit : Math.min(requested, limit);
 }
 
 export function streamLocalinkText({
-  model = "main",
+  model = DEFAULT_STORY_GENERATION_MODEL,
   ...options
 }: StreamLocalinkTextOptions) {
   return streamText({
-    model: getLocalinkLanguageModel(model),
     ...options,
+    model: getVeniceProvider().chatModel(model),
+    maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
 
-/** Chat tools require a capable provider without weakening privacy routing. */
 export function streamLocalinkChat<TOOLS extends ToolSet>({
-  model = "main",
+  model = DEFAULT_STORY_GENERATION_MODEL,
   ...options
 }: Omit<
   Parameters<typeof streamText<TOOLS>>[0],
@@ -222,39 +161,31 @@ export function streamLocalinkChat<TOOLS extends ToolSet>({
   }) {
   return streamText({
     ...options,
-    model: getOpenRouterProvider().chat(LOCALINK_AI_MODELS[model], {
-      provider: {
-        ...OPENROUTER_ZDR_PROVIDER_ROUTING,
-        require_parameters: true,
-      },
-    }),
+    model: getVeniceProvider().chatModel(model),
+    maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
 
 export function generateLocalinkText({
-  model = "main",
+  model = DEFAULT_STORY_GENERATION_MODEL,
   ...options
 }: GenerateLocalinkTextOptions) {
   return generateText({
-    model: getLocalinkLanguageModel(model),
     ...options,
+    model: getVeniceProvider().chatModel(model),
+    maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
 
-/** Structured-output routing must preserve ZDR and require schema support. */
 export function generateLocalinkObject<OBJECT>({
-  model = "fast",
+  model = DEFAULT_STORY_GENERATION_MODEL,
   schema,
   ...options
 }: GenerateLocalinkTextOptions & { schema: FlexibleSchema<OBJECT> }) {
   return generateText({
     ...options,
-    model: getOpenRouterProvider().chat(LOCALINK_AI_MODELS[model], {
-      provider: {
-        ...OPENROUTER_ZDR_PROVIDER_ROUTING,
-        require_parameters: true,
-      },
-    }),
+    model: getVeniceProvider().chatModel(model),
+    maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
     output: Output.object({ schema }),
   });
 }

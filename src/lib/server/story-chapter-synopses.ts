@@ -72,7 +72,7 @@ export function isChapterSynopsisWorthGenerating(content: string): boolean {
 }
 
 /**
- * Generates a chapter synopsis with the fast model.
+ * Generates a chapter synopsis with the default Flash model.
  *
  * Deliberately not part of the prose request: it runs in the background after
  * a chapter is saved, so drafting stays a single model call with no added
@@ -98,7 +98,6 @@ export async function generateStoryChapterSynopsis({
   }
 
   const result = await generateText({
-    model: "fast",
     system: SYNOPSIS_SYSTEM_PROMPT,
     prompt: buildChapterSynopsisPrompt(name, trimmedContent),
     abortSignal,

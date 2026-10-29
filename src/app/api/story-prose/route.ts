@@ -1,8 +1,7 @@
 import {
-  isOpenRouterZdrUnavailableError,
-  type LocalinkAiModel,
-  type LocalinkProviderOptions,
-  STORY_GENERATION_AI_MODELS,
+  isVeniceConfigurationError,
+  LOCALINK_AI_MODEL_PROFILES,
+  type LocalinkAiModelProfile,
   streamLocalinkText,
 } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
@@ -15,10 +14,8 @@ import {
   buildBudgetedStoryProsePrompt,
   buildStoryProseSystemPrompt,
   StoryProseContextTooLargeError,
-  type StoryProseModelLimits,
 } from "@/lib/server/story-prose-generation";
 import { saveStoryProsePromptSnapshot } from "@/lib/server/story-prose-prompt-snapshots";
-import type { StoryGenerationModel } from "@/lib/story-generation-models";
 import {
   type StoryProseGenerationRequest,
   storyProseGenerationRequestSchema,
@@ -38,121 +35,7 @@ const PROSE_MAX_OUTPUT_TOKENS_BY_LENGTH = {
   Exclude<StoryProseGenerationRequest["approximateLength"], "unlimited">,
   number
 >;
-/**
- * A prose model paired with the sampling settings it should be judged at.
- *
- * Kept as a unit because temperature is not portable between models: reading a
- * model at another model's temperature makes it look worse than it is, which
- * defeats the point of comparing them.
- */
-type StoryProseModelProfile = StoryProseModelLimits & {
-  model: LocalinkAiModel;
-  temperature: number;
-  providerOptions?: LocalinkProviderOptions;
-  reasoningOutputTokenAllowance?: number;
-};
-
-// Prefer direct prose output for models that allow reasoning to be disabled.
-const NO_REASONING = {
-  openrouter: {
-    reasoning: {
-      effort: "none",
-      exclude: true,
-    },
-  },
-} satisfies LocalinkProviderOptions;
-
-/**
- * Story prose profiles selected for each generation request.
- *
- * All choices start at the same temperature so the first comparison is
- * like-for-like against the value DeepSeek was tuned at; tune an individual
- * profile once you have a read on it.
- *
- * All choices retain mandatory ZDR routing; availability checks are recorded
- * in ai.ts. HY4's 131k context is the smallest of the choices.
- * Context/output limits below use the
- * lower advertised model/top-provider context from OpenRouter's public models
- * endpoint, checked 2026-09-22, except newer additions (see below).
- * No request-time metadata lookup is needed.
- */
-const STORY_PROSE_MODEL_PROFILES = {
-  deepseekV4Pro: {
-    model: STORY_GENERATION_AI_MODELS.deepseekV4Pro,
-    contextWindowTokens: 1_024_000,
-    maxCompletionTokens: 384_000,
-    temperature: 0.82,
-    providerOptions: NO_REASONING,
-  },
-  kimiK3: {
-    model: STORY_GENERATION_AI_MODELS.kimiK3,
-    contextWindowTokens: 1_048_576,
-    maxCompletionTokens: 943_718,
-    temperature: 0.82,
-    providerOptions: NO_REASONING,
-  },
-  glm53: {
-    model: STORY_GENERATION_AI_MODELS.glm53,
-    contextWindowTokens: 1_048_576,
-    maxCompletionTokens: 131_072,
-    temperature: 0.82,
-    // GLM 5.3 requires reasoning; low is its smallest supported effort.
-    // Excluding reasoning hides it from output but still consumes tokens.
-    // https://openrouter.ai/z-ai/glm-5.3 (checked 2026-10-06)
-    providerOptions: {
-      openrouter: { reasoning: { effort: "low", exclude: true } },
-    },
-    // Extra completion headroom for bounded drafts, not a hard reasoning cap.
-    reasoningOutputTokenAllowance: 4_096,
-  },
-  mistralLarge40: {
-    model: STORY_GENERATION_AI_MODELS.mistralLarge40,
-    // Verified 2026-10-08: mistral/eu supports 524,288 context tokens;
-    // mistral/zdr supports 1,048,576. Use the smaller limit for either endpoint.
-    // https://openrouter.ai/api/v1/endpoints/zdr
-    contextWindowTokens: 524_288,
-    maxCompletionTokens: 262_144,
-    temperature: 0.82,
-    providerOptions: NO_REASONING,
-  },
-  gemini4Argon: {
-    model: STORY_GENERATION_AI_MODELS.gemini4Argon,
-    // All three ZDR endpoints share these limits (checked 2026-10-14).
-    // Keep the output cap within Gemini's single-request limit.
-    // https://openrouter.ai/api/v1/endpoints/zdr
-    contextWindowTokens: 1_048_576,
-    maxCompletionTokens: 65_536,
-    temperature: 0.82,
-    // Reasoning is mandatory; low is the smallest supported effort.
-    // See docs/ai-prose-generation.md for the verified provider constraints.
-    providerOptions: {
-      openrouter: { reasoning: { effort: "low", exclude: true } },
-    },
-    // Extra completion headroom for bounded drafts, not a hard reasoning cap.
-    reasoningOutputTokenAllowance: 4_096,
-  },
-  hy4Preview: {
-    model: STORY_GENERATION_AI_MODELS.hy4Preview,
-    // Lowest limits across five ZDR endpoints (checked 2026-10-14).
-    // Makora limits context; Tencent and Novita limit completion length.
-    // See docs/ai-prose-generation.md for the provider check.
-    contextWindowTokens: 131_000,
-    maxCompletionTokens: 64_000,
-    temperature: 0.82,
-    providerOptions: NO_REASONING,
-  },
-  grok420: {
-    model: STORY_GENERATION_AI_MODELS.grok420,
-    // Both ZDR endpoints share these limits (checked 2026-10-14).
-    contextWindowTokens: 2_000_000,
-    maxCompletionTokens: 1_800_000,
-    temperature: 0.82,
-    // Reasoning is optional, but this model does not expose effort selection.
-    providerOptions: {
-      openrouter: { reasoning: { enabled: false, exclude: true } },
-    },
-  },
-} as const satisfies Record<StoryGenerationModel, StoryProseModelProfile>;
+type StoryProseModelProfile = LocalinkAiModelProfile;
 
 // A fresh alternative reuses the brief, the insertion point, and the whole
 // manuscript, so the only things separating it from the draft the writer just
@@ -165,7 +48,6 @@ const PROSE_MAX_TEMPERATURE = 1;
 type StoryProseRouteError = {
   code:
     | "AI_NOT_CONFIGURED"
-    | "AI_ZDR_UNAVAILABLE"
     | "BAD_REQUEST"
     | "GENERATION_FAILED"
     | "STREAM_OUTPUT_LIMIT"
@@ -203,7 +85,7 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     parsedInput = result.data;
-    const profile = STORY_PROSE_MODEL_PROFILES[parsedInput.model];
+    const profile = LOCALINK_AI_MODEL_PROFILES[parsedInput.model];
     storyProseLogger.info("start", {
       action: ACTION_NAME,
       model: profile.model,
@@ -239,7 +121,6 @@ export async function POST(request: Request): Promise<Response> {
     });
     const stream = streamLocalinkText({
       model: profile.model,
-      providerOptions: profile.providerOptions,
       temperature: getProseTemperature(parsedInput, profile),
       system: systemPrompt,
       prompt: prosePrompt,
@@ -321,20 +202,11 @@ function toRouteError(error: unknown): StoryProseRouteError {
   if (error instanceof LocalinkTextStreamFinishError) {
     return { code: error.code, message: error.message, status: 500 };
   }
-  if (isMissingOpenRouterApiKeyError(error)) {
+  if (isVeniceConfigurationError(error)) {
     return {
       code: "AI_NOT_CONFIGURED",
       message:
-        "AI generation is not configured. Add the OpenRouter API key and try again.",
-      status: 503,
-    };
-  }
-
-  if (isOpenRouterZdrUnavailableError(error)) {
-    return {
-      code: "AI_ZDR_UNAVAILABLE",
-      message:
-        "AI generation is unavailable because no zero-data-retention provider is currently serving the writing model.",
+        "AI generation is not configured. Add the Venice API key and try again.",
       status: 503,
     };
   }
@@ -344,10 +216,6 @@ function toRouteError(error: unknown): StoryProseRouteError {
     message: "The prose could not be generated.",
     status: 500,
   };
-}
-
-function isMissingOpenRouterApiKeyError(error: unknown) {
-  return error instanceof Error && error.message.includes("OPENROUTER_API_KEY");
 }
 
 function getErrorName(error: unknown) {

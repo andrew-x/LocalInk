@@ -2,11 +2,11 @@ import "server-only";
 
 import { ActionError } from "@/lib/action-error";
 import {
+  DEFAULT_LOCALINK_AI_PROFILE,
   type GenerateLocalinkTextOptions,
   generateLocalinkObject,
   generateLocalinkText,
-  isOpenRouterZdrUnavailableError,
-  LOCALINK_AI_ROLE_PROFILES,
+  isVeniceConfigurationError,
 } from "@/lib/ai";
 import { getAppSettings } from "@/lib/server/app-settings";
 import { prepareStoryProseContext } from "@/lib/server/story-prose-context";
@@ -49,10 +49,10 @@ export async function generateStoryPromptSuggestions(
 ) {
   try {
     abortSignal.throwIfAborted();
-    if (!process.env.OPENROUTER_API_KEY) {
+    if (!process.env.VENICE_API_KEY) {
       throw new ActionError(
         "AI_NOT_CONFIGURED",
-        "AI generation is not configured. Add the OpenRouter API key and try again.",
+        "AI generation is not configured. Add the Venice API key and try again.",
       );
     }
     if (
@@ -72,8 +72,7 @@ export async function generateStoryPromptSuggestions(
     abortSignal.throwIfAborted();
 
     const isIdeas = request.operation === "ideas";
-    const model = isIdeas ? "fast" : "main";
-    const profile = LOCALINK_AI_ROLE_PROFILES[model];
+    const profile = DEFAULT_LOCALINK_AI_PROFILE;
     const system = [
       ...PLANNING_RULES,
       optionalXmlTextElement(
@@ -125,8 +124,6 @@ export async function generateStoryPromptSuggestions(
           .join("\n\n"),
     );
     const options = {
-      model,
-      providerOptions: profile.providerOptions,
       system,
       prompt,
       maxOutputTokens,
@@ -160,10 +157,10 @@ export async function generateStoryPromptSuggestions(
     if (error instanceof StoryWritingContextTooLargeError) {
       throw new StoryPromptContextTooLargeError();
     }
-    if (isOpenRouterZdrUnavailableError(error)) {
+    if (isVeniceConfigurationError(error)) {
       throw new ActionError(
-        "AI_ZDR_UNAVAILABLE",
-        "Story ideas are unavailable because no zero-data-retention provider is currently serving the selected model role.",
+        "AI_NOT_CONFIGURED",
+        "AI generation is not configured. Check the Venice API key and try again.",
       );
     }
     throw new ActionError(

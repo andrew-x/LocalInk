@@ -12,109 +12,57 @@ export {
 
 export const GENERATED_IMAGE_MODELS = [
   {
-    id: "openai/gpt-image-2.5-sunburst",
+    id: "gpt-image-2-5-sunburst",
     name: "GPT Image 2.5 Sunburst",
     outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "openai/gpt-image-2.5-sunburst",
+    provider: "venice",
+    providerModelId: "gpt-image-2-5-sunburst",
   },
   {
-    id: "openai/gpt-image-2.5-flare",
-    name: "GPT Image 2.5 Flare",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "openai/gpt-image-2.5-flare",
-  },
-  {
-    id: "google/gemini-3-pro-image",
-    name: "Nano Banana Pro",
-    outputModalities: ["image", "text"],
-    provider: "openrouter",
-    providerModelId: "google/gemini-3-pro-image",
-  },
-  {
-    id: "google/gemini-nano-banana-2.1",
+    id: "nano-banana-2-1",
     name: "Nano Banana 2.1",
-    outputModalities: ["image", "text"],
-    provider: "openrouter",
-    providerModelId: "google/gemini-nano-banana-2.1",
+    outputModalities: ["image"],
+    provider: "venice",
+    providerModelId: "nano-banana-2-1",
   },
   {
-    id: "google/gemini-3.1-flash-lite-image",
+    id: "nano-banana-pro",
+    name: "Nano Banana Pro",
+    outputModalities: ["image"],
+    provider: "venice",
+    providerModelId: "nano-banana-pro",
+  },
+  {
+    id: "nano-banana-2-lite",
     name: "Nano Banana 2 Lite",
-    outputModalities: ["image", "text"],
-    provider: "openrouter",
-    providerModelId: "google/gemini-3.1-flash-lite-image",
-  },
-  {
-    id: "bytedance-seed/seedream-5-0-pro",
-    name: "Seedream 5 Pro",
     outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "bytedance-seed/seedream-5-0-pro",
+    provider: "venice",
+    providerModelId: "nano-banana-2-lite",
   },
   {
-    id: "bytedance-seed/seedream-5-0-flash",
-    name: "Seedream 5.0 Flash",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "bytedance-seed/seedream-5-0-flash",
-  },
-  {
-    id: "krea/krea-2-large",
-    name: "Krea 2 Large",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "krea/krea-2-large",
-  },
-  {
-    id: "sourceful/riverflow-v2.5-pro",
-    name: "Riverflow V2.5 Pro",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "sourceful/riverflow-v2.5-pro",
-  },
-  {
-    id: "black-forest-labs/flux-3-image",
+    id: "flux-3-image",
     name: "FLUX.3 Image",
     outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "black-forest-labs/flux-3-image",
+    provider: "venice",
+    providerModelId: "flux-3-image",
   },
   {
-    id: "qwen/qwen-image-3-pro",
+    id: "seedream-v5-pro",
+    name: "Seedream V5 Pro",
+    outputModalities: ["image"],
+    provider: "venice",
+    providerModelId: "seedream-v5-pro",
+  },
+  {
+    id: "qwen-image-3-pro",
     name: "Qwen Image 3 Pro",
     outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "qwen/qwen-image-3-pro",
+    provider: "venice",
+    providerModelId: "qwen-image-3-pro",
   },
-  {
-    id: "tencent/hy-image-v3.5-preview",
-    name: "HY Image 3.5 Preview",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "tencent/hy-image-v3.5-preview",
-  },
-  {
-    id: "x-ai/grok-imagine-image-2.0",
-    name: "Grok Imagine Image 2.0",
-    outputModalities: ["image"],
-    provider: "openrouter",
-    providerModelId: "x-ai/grok-imagine-image-2.0",
-  },
-] as const satisfies ReadonlyArray<{
-  id: string;
-  name: string;
-  outputModalities: readonly ("image" | "text")[];
-  provider: GeneratedImageProvider;
-  providerModelId: string;
-}>;
+] as const;
 
-// Providers LocalInk can send an image request to. Every shipped model goes
-// through OpenRouter today; "wavespeed" stays in the union so the WaveSpeed
-// request path in src/lib/server/generated-images.ts keeps typechecking and can
-// be re-enabled by pointing a model entry back at it.
-export const GENERATED_IMAGE_PROVIDERS = ["openrouter", "wavespeed"] as const;
+export const GENERATED_IMAGE_PROVIDERS = ["venice"] as const;
 
 export const GENERATED_IMAGE_STYLE_PRESETS = [
   {
@@ -207,7 +155,7 @@ export const GENERATED_IMAGE_ASPECT_RATIOS = [
 
 export const GENERATED_IMAGE_SIZES = ["1K", "2K", "4K"] as const;
 
-export const DEFAULT_GENERATED_IMAGE_MODEL = "google/gemini-nano-banana-2.1";
+export const DEFAULT_GENERATED_IMAGE_MODEL = "nano-banana-2-1";
 export const DEFAULT_GENERATED_IMAGE_STYLE_PRESET = "amateur-photo";
 export const DEFAULT_GENERATED_IMAGE_ASPECT_RATIO = "1:1";
 export const DEFAULT_GENERATED_IMAGE_SIZE = "1K";
@@ -223,10 +171,6 @@ export type GeneratedImageModel = (typeof GENERATED_IMAGE_MODELS)[number]["id"];
 export type GeneratedImageOutputModalities =
   (typeof GENERATED_IMAGE_MODELS)[number]["outputModalities"];
 export type GeneratedImageProvider = (typeof GENERATED_IMAGE_PROVIDERS)[number];
-// Declared structurally rather than as `(typeof GENERATED_IMAGE_MODELS)[number]`
-// so `provider` stays the full provider union. Inferring it from the model list
-// would narrow it to the providers currently in use and make the dormant
-// WaveSpeed branches unreachable at the type level.
 export type GeneratedImageModelConfig = {
   id: GeneratedImageModel;
   name: string;
@@ -278,118 +222,27 @@ export const PHOTOREALISM_NEGATIVE_PROMPT =
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT =
   "This is a real, unretouched photograph taken on a physical camera with a real lens. Skin is clear and healthy with ordinary unretouched texture — visible pores, fine hairs, faint freckles, gentle tone variation, and light asymmetry. Lighting, shadows, and reflections are physically plausible, with realistic depth of field and lens-shaped bokeh. Colors and contrast stay believable for the depicted light. The setting is a clean, well-kept ordinary space, lived-in rather than staged for the camera. When a person appears, they are an ordinary real human with natural untouched hair, realistic proportions, and a relaxed, candid expression.";
 
-// Compact photorealism direction for models with a hard prompt-length cap
-// (Qwen Image 3 Pro). It carries the same affirmation-only intent as
+// Compact photorealism direction for prompts approaching a provider cap. It carries the same affirmation-only intent as
 // PHOTOREALISM_AFFIRMATIVE_PROMPT in roughly a third of the characters, so the
 // subject and style still fit inside the provider's limit.
 export const PHOTOREALISM_AFFIRMATIVE_PROMPT_COMPACT =
   "Clear healthy skin with ordinary unretouched texture, visible pores, and fine hairs, physically plausible light and shadow, realistic depth of field, believable color, clean well-kept ordinary settings, and ordinary real people with candid expressions.";
 
-// Models that must never receive the negation-based prompt or the long
-// instruction block that goes with it.
-//
-// Native image models below use an affirmation-only, photorealism-first
-// prompt. This preserves the existing diffusion-model prompt strategy for
-// Seedream and FLUX upgrades and uses the same conservative shape for HY,
-// without assuming that negative lists suppress unwanted visual content.
-//
-// Grok Imagine Image 2.0 is listed for the second reason: its prompt cap is
-// smaller than the negation-based system instruction alone, so prepending that
-// block would consume the whole budget before the subject was reached.
+// Preserve affirmation-first prompting for the diffusion model families.
 const AFFIRMATIVE_PROMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> =
-  new Set([
-    "black-forest-labs/flux-3-image",
-    "bytedance-seed/seedream-5-0-pro",
-    "bytedance-seed/seedream-5-0-flash",
-    "krea/krea-2-large",
-    "qwen/qwen-image-3-pro",
-    "sourceful/riverflow-v2.5-pro",
-    "tencent/hy-image-v3.5-preview",
-    "x-ai/grok-imagine-image-2.0",
-  ]);
+  new Set(["flux-3-image", "seedream-v5-pro", "qwen-image-3-pro"]);
 
-// OpenRouter serves two kinds of image model. Models that behave like chat
-// models (the Nano Banana models) take a messages array on
-// /api/v1/chat/completions. Native image-generation models reject that endpoint
-// outright ("cannot be used with the chat/completions endpoint") and must go to
-// /api/v1/images, which takes a single prompt string and returns base64 image
-// data. This cannot be inferred from the model ID, so it is listed explicitly.
-// The check when adding a model is /api/v1/models: a model absent from it is
-// native-only and belongs here. Presence in /api/v1/images/models does not
-// decide anything, since the chat-style Nano Banana models are listed there too
-// and work on both endpoints.
-const OPENROUTER_IMAGES_ENDPOINT_MODELS: ReadonlySet<GeneratedImageModel> =
-  new Set([
-    "black-forest-labs/flux-3-image",
-    "bytedance-seed/seedream-5-0-pro",
-    "bytedance-seed/seedream-5-0-flash",
-    "krea/krea-2-large",
-    "openai/gpt-image-2.5-flare",
-    "openai/gpt-image-2.5-sunburst",
-    "qwen/qwen-image-3-pro",
-    "sourceful/riverflow-v2.5-pro",
-    "tencent/hy-image-v3.5-preview",
-    "x-ai/grok-imagine-image-2.0",
-  ]);
-
-// Image models allowed to run without Zero Data Retention routing, because
-// OpenRouter publishes no ZDR endpoint for them at all. Requesting ZDR for these
-// does not route them somewhere safer, it just makes them 404, so the field is
-// omitted rather than sent. Every other model, text or image, is sent
-// `provider: { zdr: true }`.
-//
-// The check when adding or reviewing a model is
-// https://openrouter.ai/api/v1/endpoints/zdr: a model absent from that list
-// belongs here, and a model that gains a ZDR endpoint should be taken out.
-// Verified 2026-10-06: Nano Banana 2.1 and FLUX.3 Image have no ZDR-listed
-// endpoints, so both are explicitly exempt. Seedream 5.0 Flash (seed) and
-// HY Image 3.5 Preview (tencent) each have one and must remain pinned below.
-// Existing exemptions for the GPT Image 2.5 tiers, Qwen, Riverflow, and Grok
-// remain unchanged.
-const ZDR_EXEMPT_IMAGE_MODELS: ReadonlySet<GeneratedImageModel> = new Set([
-  "black-forest-labs/flux-3-image",
-  "google/gemini-nano-banana-2.1",
-  "openai/gpt-image-2.5-flare",
-  "openai/gpt-image-2.5-sunburst",
-  "qwen/qwen-image-3-pro",
-  "sourceful/riverflow-v2.5-pro",
-  "x-ai/grok-imagine-image-2.0",
-]);
-
-// The /api/v1/images endpoint accepts `provider.zdr` but does not act on it.
-// Verified 2026-08-16: a ZDR-only request for a model with no ZDR endpoint still
-// returned an image, where /api/v1/chat/completions correctly refused with "No
-// endpoints found matching your data policy". That endpoint does honor
-// `provider.only`, so the images-endpoint models that must stay ZDR pin their
-// ZDR-listed provider directly instead of trusting the flag.
-//
-// Verified 2026-10-06: invalid-provider probes for Flash and HY returned 404
-// with available_providers matching seed and tencent, confirming only is honored.
-// Slugs are the `tag` field from https://openrouter.ai/api/v1/endpoints/zdr.
-// These models are currently served by exactly one provider, which is also their
-// ZDR-listed one, so pinning costs no routing breadth today — it keeps the
-// request correct if OpenRouter later adds a non-ZDR provider for them.
-const ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL: Partial<
-  Record<GeneratedImageModel, readonly string[]>
-> = {
-  "bytedance-seed/seedream-5-0-pro": ["seed"],
-  "bytedance-seed/seedream-5-0-flash": ["seed"],
-  "krea/krea-2-large": ["krea"],
-  "tencent/hy-image-v3.5-preview": ["tencent"],
-};
-
-// Models that reject or silently truncate prompts past their upstream limit.
-// Qwen Image accepts at most 800 characters and Grok about 1,000 (xAI's own cap
-// is 1,024), both well under LocalInk's usual composed prompt length, so those
-// models get the compact prompt shape below. OpenRouter publishes no
-// prompt-length limit of its own, but it proxies these requests to the same
-// upstreams (Alibaba Cloud, xAI), so the caps still apply.
-const GENERATED_IMAGE_MODEL_PROMPT_LIMITS: Partial<
-  Record<GeneratedImageModel, number>
-> = {
-  "qwen/qwen-image-3-pro": 800,
-  "x-ai/grok-imagine-image-2.0": 1000,
-};
+// Venice /models?type=image constraints, verified 2026-10-28.
+const GENERATED_IMAGE_MODEL_PROMPT_LIMITS: Record<GeneratedImageModel, number> =
+  {
+    "gpt-image-2-5-sunburst": 10_000,
+    "nano-banana-2-1": 32_768,
+    "nano-banana-pro": 32_768,
+    "nano-banana-2-lite": 10_000,
+    "flux-3-image": 32_000,
+    "seedream-v5-pro": 10_000,
+    "qwen-image-3-pro": 10_000,
+  };
 
 const COMPACT_PROMPT_ANCHOR = "Real photograph, shot on a physical camera.";
 // Characters held back for the style direction before the subject is allowed to
@@ -401,38 +254,6 @@ export function generatedImageModelPrefersAffirmativePrompt(
   model: GeneratedImageModel,
 ): boolean {
   return AFFIRMATIVE_PROMPT_IMAGE_MODELS.has(model);
-}
-
-export function generatedImageModelUsesOpenRouterImagesEndpoint(
-  model: GeneratedImageModel,
-): boolean {
-  return OPENROUTER_IMAGES_ENDPOINT_MODELS.has(model);
-}
-
-/**
- * Whether the model's OpenRouter requests should pin ZDR provider routing.
- *
- * A model added to the registry without being classified defaults to requiring
- * ZDR, so the failure mode is a 404 at generation time rather than a request
- * that quietly reaches a retaining provider.
- */
-export function generatedImageModelRequiresZdrProvider(
-  model: GeneratedImageModel,
-): boolean {
-  return !ZDR_EXEMPT_IMAGE_MODELS.has(model);
-}
-
-/**
- * ZDR-listed provider slugs to pin for a model, or null when the `zdr` flag
- * alone is enough.
- *
- * Only the images-endpoint models need this, because that endpoint ignores
- * `provider.zdr`.
- */
-export function getGeneratedImageModelZdrProviderSlugs(
-  model: GeneratedImageModel,
-): readonly string[] | null {
-  return ZDR_PROVIDER_SLUGS_BY_IMAGE_MODEL[model] ?? null;
 }
 
 export function getGeneratedImageModelPromptLimit(
@@ -456,7 +277,10 @@ export function getGeneratedImageModelSubjectLimit(
 
   return Math.max(
     0,
-    promptLimit - getCompactPromptOverhead() - COMPACT_PROMPT_STYLE_RESERVE,
+    promptLimit -
+      getGeneratedImageSystemOverhead(model) -
+      getCompactPromptOverhead() -
+      COMPACT_PROMPT_STYLE_RESERVE,
   );
 }
 
@@ -598,47 +422,49 @@ export function buildGeneratedImageProviderPrompt({
     trimmedStylePrompt ||
     "Unstyled documentary photograph, ~35mm equivalent lens, available light, mild grain, no retouching.";
 
-  // Prompt-capped models (Qwen Image 3 Pro) reject or truncate anything past
-  // their limit, so they get a shorter shape that keeps the photorealism anchor,
-  // the subject, and as much style direction as still fits.
-  const promptLimit = model ? getGeneratedImageModelPromptLimit(model) : null;
+  // Reserve the instruction prefix too: Venice counts the complete single prompt.
+  const limit = model ? getGeneratedImageModelPromptLimit(model) : null;
+  const budget =
+    model && limit !== null
+      ? limit - getGeneratedImageSystemOverhead(model)
+      : null;
+  const composed =
+    model && generatedImageModelPrefersAffirmativePrompt(model)
+      ? [
+          "Real photograph. Photorealistic, shot on a physical camera with a real lens.",
+          "",
+          "Subject:",
+          trimmedPrompt,
+          "",
+          "Photographic style:",
+          styleDirection,
+          "",
+          PHOTOREALISM_AFFIRMATIVE_PROMPT,
+        ].join("\n")
+      : [
+          "Photographic style:",
+          styleDirection,
+          "",
+          "Subject:",
+          trimmedPrompt,
+          "",
+          "Avoid:",
+          PHOTOREALISM_NEGATIVE_PROMPT,
+        ].join("\n");
 
-  if (promptLimit !== null) {
-    return buildCompactGeneratedImageProviderPrompt({
-      maxLength: promptLimit,
-      styleDirection,
-      subject: trimmedPrompt,
-    });
-  }
+  return budget !== null && composed.length > budget
+    ? buildCompactGeneratedImageProviderPrompt({
+        maxLength: budget,
+        styleDirection,
+        subject: trimmedPrompt,
+      })
+    : composed;
+}
 
-  // Seedream and other diffusion models weight the earliest tokens most and do
-  // not honor negation. Lead with the photorealism anchor, then the subject,
-  // and never send an "Avoid:" list of style names — it would be read as
-  // content and pull those styles into the image.
-  if (model && generatedImageModelPrefersAffirmativePrompt(model)) {
-    return [
-      "Real photograph. Photorealistic, shot on a physical camera with a real lens.",
-      "",
-      "Subject:",
-      trimmedPrompt,
-      "",
-      "Photographic style:",
-      styleDirection,
-      "",
-      PHOTOREALISM_AFFIRMATIVE_PROMPT,
-    ].join("\n");
-  }
-
-  return [
-    "Photographic style:",
-    styleDirection,
-    "",
-    "Subject:",
-    trimmedPrompt,
-    "",
-    "Avoid:",
-    PHOTOREALISM_NEGATIVE_PROMPT,
-  ].join("\n");
+function getGeneratedImageSystemOverhead(model: GeneratedImageModel): number {
+  return generatedImageModelPrefersAffirmativePrompt(model)
+    ? 0
+    : buildGeneratedImageSystemInstruction(model).length + 2;
 }
 
 function composeCompactGeneratedImagePrompt({

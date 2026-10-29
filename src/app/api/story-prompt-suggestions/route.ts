@@ -11,7 +11,6 @@ export const runtime = "nodejs";
 
 const STATUS_BY_ERROR_CODE: Record<ActionErrorCode, number> = {
   AI_NOT_CONFIGURED: 503,
-  AI_ZDR_UNAVAILABLE: 503,
   BAD_REQUEST: 400,
   CONFLICT: 409,
   GENERATION_FAILED: 500,

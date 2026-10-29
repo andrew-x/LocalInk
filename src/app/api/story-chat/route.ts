@@ -1,8 +1,5 @@
 import { ActionError } from "@/lib/action-error";
-import {
-  isOpenRouterZdrUnavailableError,
-  STORY_GENERATION_AI_MODELS,
-} from "@/lib/ai";
+import { isVeniceConfigurationError } from "@/lib/ai";
 import {
   LOCALINK_TEXT_STREAM_CONTENT_TYPE,
   LocalinkTextStreamFinishError,
@@ -34,7 +31,6 @@ const ACTION_NAME = "story-chat-generate";
 type StoryChatRouteError = {
   code:
     | "AI_NOT_CONFIGURED"
-    | "AI_ZDR_UNAVAILABLE"
     | "BAD_REQUEST"
     | "GENERATION_FAILED"
     | "STREAM_OUTPUT_LIMIT"
@@ -75,7 +71,7 @@ export async function POST(request: Request): Promise<Response> {
     parsedInput = result.data;
     storyChatLogger.info("start", {
       action: ACTION_NAME,
-      model: STORY_GENERATION_AI_MODELS[parsedInput.model],
+      model: parsedInput.model,
       storyId: parsedInput.storyId,
       chatId: parsedInput.chatId,
       generationId: parsedInput.generationId,
@@ -160,20 +156,11 @@ function toRouteError(error: unknown): StoryChatRouteError {
     };
   }
 
-  if (isMissingOpenRouterApiKeyError(error)) {
+  if (isVeniceConfigurationError(error)) {
     return {
       code: "AI_NOT_CONFIGURED",
       message:
-        "AI generation is not configured. Add the OpenRouter API key and try again.",
-      status: 503,
-    };
-  }
-
-  if (isOpenRouterZdrUnavailableError(error)) {
-    return {
-      code: "AI_ZDR_UNAVAILABLE",
-      message:
-        "AI generation is unavailable because no zero-data-retention provider is currently serving the writing model.",
+        "AI generation is not configured. Add the Venice API key and try again.",
       status: 503,
     };
   }
@@ -183,10 +170,6 @@ function toRouteError(error: unknown): StoryChatRouteError {
     message: "The chat reply could not be generated.",
     status: 500,
   };
-}
-
-function isMissingOpenRouterApiKeyError(error: unknown) {
-  return error instanceof Error && error.message.includes("OPENROUTER_API_KEY");
 }
 
 function getErrorName(error: unknown) {

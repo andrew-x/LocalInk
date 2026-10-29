@@ -144,7 +144,7 @@ export const chapters = sqliteTable(
     content: text("content").notNull(),
     contentRevision: integer("content_revision").notNull().default(0),
     // A compact, factual account of what this chapter establishes, generated
-    // in the background by the fast model. Prose generation reads it so the
+    // in the background by the default Flash model. Prose generation reads it so the
     // model does not have to re-derive story state from raw text on every
     // request, and so distant chapters can be carried by summary alone.
     synopsis: text("synopsis").notNull().default(""),

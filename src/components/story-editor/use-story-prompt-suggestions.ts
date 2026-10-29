@@ -305,8 +305,6 @@ function getResponseError(body: unknown): string {
   switch (code) {
     case "AI_NOT_CONFIGURED":
       return "Configure the AI connection before requesting ideas.";
-    case "AI_ZDR_UNAVAILABLE":
-      return "No zero-data-retention provider is available for this model.";
     case "MANUSCRIPT_CONTEXT_TOO_LARGE":
       return "The story context is too large for this model. Shorten the focused passage or reference instructions and try again.";
     case "MAINTENANCE":

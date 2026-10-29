@@ -13,12 +13,12 @@
     "format": "biome format --write"
   },
   "dependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.87",
     "@hookform/resolvers": "^5.4.0",
     "@lexical/markdown": "^0.48.0",
     "@lexical/react": "^0.48.0",
     "@next-safe-action/adapter-react-hook-form": "^2.1.0",
     "@next/env": "^16.2.11",
-    "@openrouter/ai-sdk-provider": "^2.9.0",
     "@paralleldrive/cuid2": "^3.3.0",
     "@radix-ui/react-dialog": "^1.1.22",
     "@radix-ui/react-label": "^2.1.14",
