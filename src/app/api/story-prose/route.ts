@@ -1,5 +1,5 @@
 import {
-  isVeniceConfigurationError,
+  isAiConfigurationError,
   LOCALINK_AI_MODEL_PROFILES,
   type LocalinkAiModelProfile,
   streamLocalinkText,
@@ -202,11 +202,11 @@ function toRouteError(error: unknown): StoryProseRouteError {
   if (error instanceof LocalinkTextStreamFinishError) {
     return { code: error.code, message: error.message, status: 500 };
   }
-  if (isVeniceConfigurationError(error)) {
+  if (isAiConfigurationError(error)) {
     return {
       code: "AI_NOT_CONFIGURED",
       message:
-        "AI generation is not configured. Add the Venice API key and try again.",
+        "AI generation is not configured. Check the API key for the selected model’s provider and try again.",
       status: 503,
     };
   }

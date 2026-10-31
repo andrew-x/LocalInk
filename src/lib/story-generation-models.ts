@@ -6,6 +6,10 @@ export const STORY_GENERATION_MODELS = [
     label: "DeepSeek V4.1 Flash 1017 Uncensored",
   },
   { value: "deepseek-v4-pro-0813", label: "DeepSeek V4 Pro 0813" },
+  {
+    value: "mistralai/mistral-large-4-0",
+    label: "Mistral Large 4 (OpenRouter)",
+  },
   { value: "kimi-k3-1-pro", label: "Kimi K3.1 Pro (Anonymized)" },
   { value: "grok-4-7", label: "Grok 4.7" },
   { value: "z-ai-glm-5-3", label: "GLM 5.3" },

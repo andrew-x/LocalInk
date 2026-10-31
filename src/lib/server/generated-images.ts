@@ -12,7 +12,7 @@ import type {
   GeneratedImageListItem,
 } from "@/actions/generated-images/_types";
 import { ActionError } from "@/lib/action-error";
-import { generateLocalinkText, isVeniceConfigurationError } from "@/lib/ai";
+import { generateLocalinkText, isAiConfigurationError } from "@/lib/ai";
 import day from "@/lib/dayjs";
 import { getDb } from "@/lib/drizzle/db";
 import {
@@ -340,7 +340,7 @@ export async function enhanceGeneratedImagePrompt(
       throw error;
     }
 
-    if (isVeniceConfigurationError(error)) {
+    if (isAiConfigurationError(error)) {
       throw new ActionError(
         "AI_NOT_CONFIGURED",
         "Prompt enhancement is not configured. Check the Venice API key and try again.",

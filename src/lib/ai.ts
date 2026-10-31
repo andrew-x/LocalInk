@@ -20,6 +20,7 @@ import {
 export type LocalinkAiModel = StoryGenerationModel;
 export type LocalinkAiModelProfile = {
   model: LocalinkAiModel;
+  provider: "venice" | "openrouter";
   contextWindowTokens: number;
   maxCompletionTokens: number;
   temperature: number;
@@ -27,11 +28,14 @@ export type LocalinkAiModelProfile = {
   reasoningOutputTokenAllowance: number;
 };
 
-// Venice /models checked 2026-10-28. Kimi is an explicitly accepted Anonymized
-// choice; the other profiles are Private. Never substitute another model.
+// Venice /models checked 2026-10-28 (DeepSeek rechecked 2026-10-31). Kimi is an
+// explicitly accepted Anonymized choice; other Venice profiles are Private.
+// OpenRouter Mistral's mistral/zdr endpoint checked 2026-10-31. Never substitute
+// another model or provider.
 export const LOCALINK_AI_MODEL_PROFILES = {
   "deepseek-v4-1-flash-1017-uncensored": {
     model: "deepseek-v4-1-flash-1017-uncensored",
+    provider: "venice",
     contextWindowTokens: 1_000_000,
     maxCompletionTokens: 131_072,
     temperature: 0.82,
@@ -40,14 +44,25 @@ export const LOCALINK_AI_MODEL_PROFILES = {
   },
   "deepseek-v4-pro-0813": {
     model: "deepseek-v4-pro-0813",
+    provider: "venice",
     contextWindowTokens: 1_000_000,
     maxCompletionTokens: 32_768,
     temperature: 0.82,
     reasoningEffort: "none",
     reasoningOutputTokenAllowance: 0,
   },
+  "mistralai/mistral-large-4-0": {
+    model: "mistralai/mistral-large-4-0",
+    provider: "openrouter",
+    contextWindowTokens: 1_048_576,
+    maxCompletionTokens: 262_144,
+    temperature: 0.82,
+    reasoningEffort: "none",
+    reasoningOutputTokenAllowance: 0,
+  },
   "kimi-k3-1-pro": {
     model: "kimi-k3-1-pro",
+    provider: "venice",
     contextWindowTokens: 1_000_000,
     maxCompletionTokens: 131_072,
     temperature: 0.82,
@@ -56,6 +71,7 @@ export const LOCALINK_AI_MODEL_PROFILES = {
   },
   "grok-4-7": {
     model: "grok-4-7",
+    provider: "venice",
     contextWindowTokens: 500_000,
     maxCompletionTokens: 200_000,
     temperature: 0.82,
@@ -64,6 +80,7 @@ export const LOCALINK_AI_MODEL_PROFILES = {
   },
   "z-ai-glm-5-3": {
     model: "z-ai-glm-5-3",
+    provider: "venice",
     contextWindowTokens: 1_000_000,
     maxCompletionTokens: 131_072,
     temperature: 0.82,
@@ -91,6 +108,7 @@ export type GenerateLocalinkTextOptions = Prompt &
   };
 
 let cachedVenice: ReturnType<typeof createOpenAICompatible> | null = null;
+let cachedOpenRouter: ReturnType<typeof createOpenAICompatible> | null = null;
 
 function getVeniceProvider() {
   if (cachedVenice) return cachedVenice;
@@ -125,9 +143,52 @@ function getVeniceProvider() {
   return cachedVenice;
 }
 
-export function isVeniceConfigurationError(error: unknown): boolean {
+function getOpenRouterProvider() {
+  if (cachedOpenRouter) return cachedOpenRouter;
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY must be set before calling OpenRouter.",
+    );
+  }
+  cachedOpenRouter = createOpenAICompatible({
+    name: "openrouter",
+    apiKey,
+    baseURL: "https://openrouter.ai/api/v1",
+    supportsStructuredOutputs: true,
+    includeUsage: true,
+    transformRequestBody: (body) => {
+      const profile: LocalinkAiModelProfile =
+        LOCALINK_AI_MODEL_PROFILES[body.model as LocalinkAiModel];
+      return {
+        ...body,
+        reasoning: { effort: profile.reasoningEffort, exclude: true },
+        provider: {
+          zdr: true,
+          // Other ZDR endpoints have smaller context windows than this profile.
+          only: ["mistral/zdr"],
+          allow_fallbacks: false,
+          require_parameters: true,
+        },
+      };
+    },
+  });
+  return cachedOpenRouter;
+}
+
+function getLocalinkModel(model: LocalinkAiModel) {
+  const provider =
+    LOCALINK_AI_MODEL_PROFILES[model].provider === "openrouter"
+      ? getOpenRouterProvider()
+      : getVeniceProvider();
+  return provider.chatModel(model);
+}
+
+export function isAiConfigurationError(error: unknown): boolean {
   return (
-    (error instanceof Error && error.message.includes("VENICE_API_KEY")) ||
+    (error instanceof Error &&
+      (error.message.includes("VENICE_API_KEY") ||
+        error.message.includes("OPENROUTER_API_KEY"))) ||
     (APICallError.isInstance(error) &&
       (error.statusCode === 401 || error.statusCode === 403))
   );
@@ -144,7 +205,7 @@ export function streamLocalinkText({
 }: StreamLocalinkTextOptions) {
   return streamText({
     ...options,
-    model: getVeniceProvider().chatModel(model),
+    model: getLocalinkModel(model),
     maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
@@ -161,7 +222,7 @@ export function streamLocalinkChat<TOOLS extends ToolSet>({
   }) {
   return streamText({
     ...options,
-    model: getVeniceProvider().chatModel(model),
+    model: getLocalinkModel(model),
     maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
@@ -172,7 +233,7 @@ export function generateLocalinkText({
 }: GenerateLocalinkTextOptions) {
   return generateText({
     ...options,
-    model: getVeniceProvider().chatModel(model),
+    model: getLocalinkModel(model),
     maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
   });
 }
@@ -184,7 +245,7 @@ export function generateLocalinkObject<OBJECT>({
 }: GenerateLocalinkTextOptions & { schema: FlexibleSchema<OBJECT> }) {
   return generateText({
     ...options,
-    model: getVeniceProvider().chatModel(model),
+    model: getLocalinkModel(model),
     maxOutputTokens: boundedOutput(model, options.maxOutputTokens),
     output: Output.object({ schema }),
   });

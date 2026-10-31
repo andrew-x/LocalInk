@@ -6,7 +6,7 @@ import {
   type GenerateLocalinkTextOptions,
   generateLocalinkObject,
   generateLocalinkText,
-  isVeniceConfigurationError,
+  isAiConfigurationError,
 } from "@/lib/ai";
 import { getAppSettings } from "@/lib/server/app-settings";
 import { prepareStoryProseContext } from "@/lib/server/story-prose-context";
@@ -157,7 +157,7 @@ export async function generateStoryPromptSuggestions(
     if (error instanceof StoryWritingContextTooLargeError) {
       throw new StoryPromptContextTooLargeError();
     }
-    if (isVeniceConfigurationError(error)) {
+    if (isAiConfigurationError(error)) {
       throw new ActionError(
         "AI_NOT_CONFIGURED",
         "AI generation is not configured. Check the Venice API key and try again.",

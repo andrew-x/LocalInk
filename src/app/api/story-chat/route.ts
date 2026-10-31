@@ -1,5 +1,5 @@
 import { ActionError } from "@/lib/action-error";
-import { isVeniceConfigurationError } from "@/lib/ai";
+import { isAiConfigurationError } from "@/lib/ai";
 import {
   LOCALINK_TEXT_STREAM_CONTENT_TYPE,
   LocalinkTextStreamFinishError,
@@ -156,11 +156,11 @@ function toRouteError(error: unknown): StoryChatRouteError {
     };
   }
 
-  if (isVeniceConfigurationError(error)) {
+  if (isAiConfigurationError(error)) {
     return {
       code: "AI_NOT_CONFIGURED",
       message:
-        "AI generation is not configured. Add the Venice API key and try again.",
+        "AI generation is not configured. Check the API key for the selected model’s provider and try again.",
       status: 503,
     };
   }
