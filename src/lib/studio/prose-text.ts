@@ -40,8 +40,9 @@ export function sentenceHashes(md: string): string[] {
 
 /**
  * Whether the text moved enough from the hashes of its last read-back to be
- * worth another one: at least two sentences differ, or at least a quarter of
- * the larger side does.
+ * worth another one. Changed sentences count as the larger of distinct
+ * sentences added and removed, so editing one sentence in place counts once.
+ * Meaningful at two or more, or at a quarter of the longer version.
  */
 export function isMeaningfulChange(
   previousHashes: string[],
@@ -52,12 +53,15 @@ export function isMeaningfulChange(
 
   const previousSet = new Set(previousHashes);
   const currentSet = new Set(current);
-  const added = current.filter((hash) => !previousSet.has(hash)).length;
-  const removed = previousHashes.filter((hash) => !currentSet.has(hash)).length;
-  const diff = added + removed;
-  if (diff === 0) return false;
+  let added = 0;
+  for (const hash of currentSet) if (!previousSet.has(hash)) added++;
+  let removed = 0;
+  for (const hash of previousSet) if (!currentSet.has(hash)) removed++;
+  const changed = Math.max(added, removed);
+  if (changed === 0) return false;
   return (
-    diff >= 2 || diff >= 0.25 * Math.max(previousHashes.length, current.length)
+    changed >= 2 ||
+    changed >= 0.25 * Math.max(previousHashes.length, current.length)
   );
 }
 

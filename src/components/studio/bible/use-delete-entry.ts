@@ -11,8 +11,9 @@ import type { StudioEntryDto } from "@/lib/studio/contracts";
 
 /**
  * Deletes an entry and mirrors the server's cleanup in the store: its changes
- * go, "about" references clear, and the id leaves every list that held it
- * (each touched record's revision moves up by one, as on the server).
+ * go, "about" references clear, the id leaves every list that held it (each
+ * touched record's revision moves up by one, as on the server), and the open
+ * flags the server dismissed with it are merged in.
  */
 export function useDeleteEntry() {
   const { state, dispatch } = useStudioStore();
@@ -36,6 +37,7 @@ export function useDeleteEntry() {
       });
       dispatch({
         type: "merge",
+        flags: removed.flags,
         changes: changes
           .filter((c) => c.entryId !== id && c.aboutEntryId === id)
           .map((c) => ({ ...c, aboutEntryId: null })),

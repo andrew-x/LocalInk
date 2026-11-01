@@ -10,6 +10,7 @@ import type { LocalinkTx } from "@/lib/drizzle/db";
 import {
   studioChanges,
   studioEntries,
+  studioFlags,
   studioPlanItems,
   studioStories,
 } from "@/lib/drizzle/schema";
@@ -24,6 +25,7 @@ import {
   type StudioEntryDto,
   type StudioEntryType,
   type StudioFieldValue,
+  type StudioFlagDto,
   type StudioStoryDto,
   type StudioStructureTemplateId,
   type StudioStyle,
@@ -38,6 +40,7 @@ import {
   requireStudioStory,
   toChangeDto,
   toEntryDto,
+  toFlagDto,
   toStoryDto,
   touchStudioStory,
 } from "./repository";
@@ -217,12 +220,30 @@ export function patchStudioEntry(
   return toEntryDto(row);
 }
 
+/**
+ * Deletes an entry and strips it from every list that referenced it. Open
+ * flags about the entry, or about a change record that goes with it, can no
+ * longer be acted on, so they are dismissed; those flags are returned.
+ */
 export function removeStudioEntry(
   tx: LocalinkTx,
   storyId: string,
   entryId: string,
-): void {
+): { flags: StudioFlagDto[] } {
   requireEntry(tx, storyId, entryId);
+  const cascadedChangeIds = new Set(
+    tx
+      .select({ id: studioChanges.id })
+      .from(studioChanges)
+      .where(
+        and(
+          eq(studioChanges.storyId, storyId),
+          eq(studioChanges.entryId, entryId),
+        ),
+      )
+      .all()
+      .map((row) => row.id),
+  );
   // Foreign keys cascade the entry's change records.
   tx.delete(studioEntries)
     .where(
@@ -231,6 +252,32 @@ export function removeStudioEntry(
     .run();
   const now = day().toISOString();
   const without = (ids: string[]) => ids.filter((id) => id !== entryId);
+
+  const flags: StudioFlagDto[] = [];
+  for (const flag of tx
+    .select()
+    .from(studioFlags)
+    .where(
+      and(eq(studioFlags.storyId, storyId), eq(studioFlags.status, "open")),
+    )
+    .all()) {
+    const { payload } = flag;
+    const moot =
+      payload.kind === "unplanned-change"
+        ? payload.entryId === entryId || payload.aboutEntryId === entryId
+        : cascadedChangeIds.has(payload.changeId);
+    if (!moot) continue;
+    flags.push(
+      toFlagDto(
+        tx
+          .update(studioFlags)
+          .set({ status: "dismissed", updatedAt: now })
+          .where(eq(studioFlags.id, flag.id))
+          .returning()
+          .get(),
+      ),
+    );
+  }
 
   // Strip the id from every list that referenced it.
   for (const row of tx
@@ -271,6 +318,7 @@ export function removeStudioEntry(
       .run();
   }
   touchStudioStory(tx, storyId, now);
+  return { flags };
 }
 
 export function insertStudioChange(

@@ -20,7 +20,13 @@ import type {
   StudioProseDto,
 } from "@/lib/studio/contracts";
 import { hashText } from "@/lib/studio/prose-text";
-import type { StagedStudioReadBack } from "@/lib/studio/read-back-contract";
+import {
+  exactFindingKey,
+  findingKey,
+  momentNeedsTitle,
+  type StagedStudioReadBack,
+  settledUnplannedFindings,
+} from "@/lib/studio/read-back-contract";
 import { generateId } from "@/lib/util";
 
 import {
@@ -52,8 +58,6 @@ export type StudioFlagResolveResult = {
   changes: StudioChangeDto[];
   deletedChangeIds: string[];
 };
-
-const norm = (value: string) => value.trim().toLowerCase();
 
 function emptyPatch(): StudioReadBackApplyResult["workspacePatch"] {
   return { planItems: [], changes: [], flags: [], prose: [] };
@@ -149,21 +153,36 @@ export function applyStagedReadBack(
     return rows;
   };
 
-  // 2. Matched records: confirm those on this moment, and pull the parent
-  // scene's unedited ones down to this moment.
+  // 2. Matched records: confirm those on this moment, and pull the enclosing
+  // scene's and chapter's unedited ones down to this moment.
+  const sceneId = moment.parentId;
+  const chapterId = sceneId
+    ? (tx
+        .select({ parentId: studioPlanItems.parentId })
+        .from(studioPlanItems)
+        .where(
+          and(
+            eq(studioPlanItems.id, sceneId),
+            eq(studioPlanItems.storyId, storyId),
+          ),
+        )
+        .get()?.parentId ?? null)
+    : null;
+  const ancestorIds = [sceneId, chapterId].filter(
+    (value): value is string => value !== null,
+  );
   const matchedRows = loadChanges(output.matchedChangeIds);
   for (const row of matchedRows) {
     if (row.authorEdited) continue;
     const onMoment = row.planItemId === momentId;
-    const onScene =
-      moment.parentId !== null && row.planItemId === moment.parentId;
-    if (!onMoment && !onScene) continue;
-    if (onMoment && row.status === "confirmed") continue;
+    const onAncestor = ancestorIds.includes(row.planItemId);
+    if (!onMoment && !onAncestor) continue;
+    if (row.status === "confirmed") continue;
     const updated = tx
       .update(studioChanges)
       .set({
         status: "confirmed",
-        ...(onScene
+        ...(onAncestor
           ? { planItemId: momentId, position: nextChangePosition(tx, momentId) }
           : {}),
         updatedAt: now,
@@ -238,7 +257,11 @@ export function applyStagedReadBack(
     touchedFlags.set(created.id, markFlag(created));
   }
 
-  // 4. Unplanned changes, skipping ones already recorded or already flagged.
+  // 4. Unplanned changes. Skip one already recorded on this moment, its scene
+  // or chapter (same text), or already settled by the author (dismissed, or
+  // resolved by recording it). An open flag reported again with the same
+  // text stays; every other open unplanned flag on this moment was not
+  // reported by this read of the current prose, so it is superseded below.
   const entryIds = existingEntryIds(
     tx,
     storyId,
@@ -247,51 +270,55 @@ export function applyStagedReadBack(
       ...(change.aboutEntryId ? [change.aboutEntryId] : []),
     ]),
   );
-  const keyOf = (
-    entryId: string,
-    aspect: string,
-    aboutEntryId: string | null,
-    value: string,
-  ) => JSON.stringify([entryId, aspect, aboutEntryId, norm(value)]);
-  const known = new Set<string>();
-  for (const flag of stillOpen) {
-    if (
-      flag.planItemId === momentId &&
-      flag.payload.kind === "unplanned-change"
-    ) {
-      const p = flag.payload;
-      known.add(keyOf(p.entryId, p.aspect, p.aboutEntryId, p.value));
-    }
-  }
   const relevantChanges = tx
     .select()
     .from(studioChanges)
     .where(
       and(
         eq(studioChanges.storyId, storyId),
-        inArray(
-          studioChanges.planItemId,
-          moment.parentId ? [momentId, moment.parentId] : [momentId],
-        ),
+        inArray(studioChanges.planItemId, [momentId, ...ancestorIds]),
       ),
     )
     .all();
-  for (const change of relevantChanges) {
-    known.add(
-      keyOf(change.entryId, change.aspect, change.aboutEntryId, change.value),
-    );
+  const recorded = new Set(relevantChanges.map(exactFindingKey));
+  const momentUnplannedFlags = tx
+    .select()
+    .from(studioFlags)
+    .where(
+      and(
+        eq(studioFlags.storyId, storyId),
+        eq(studioFlags.planItemId, momentId),
+        eq(studioFlags.kind, "unplanned-change"),
+      ),
+    )
+    .all();
+  const settled = new Set(
+    settledUnplannedFindings(
+      momentUnplannedFlags,
+      relevantChanges.filter((change) => change.planItemId === momentId),
+      momentId,
+    ).map(findingKey),
+  );
+  const openByText = new Map<string, StudioFlagRow>();
+  for (const flag of momentUnplannedFlags) {
+    if (flag.status === "open" && flag.payload.kind === "unplanned-change") {
+      openByText.set(exactFindingKey(flag.payload), flag);
+    }
   }
+  const stillReported = new Set<string>();
+  const raised = new Set<string>();
   for (const change of output.unplannedChanges) {
     if (!entryIds.has(change.entryId)) continue;
     if (change.aboutEntryId && !entryIds.has(change.aboutEntryId)) continue;
-    const key = keyOf(
-      change.entryId,
-      change.aspect,
-      change.aboutEntryId,
-      change.value,
-    );
-    if (known.has(key)) continue;
-    known.add(key);
+    const exact = exactFindingKey(change);
+    if (recorded.has(exact) || settled.has(findingKey(change))) continue;
+    const open = openByText.get(exact);
+    if (open) {
+      stillReported.add(open.id);
+      continue;
+    }
+    if (raised.has(exact)) continue;
+    raised.add(exact);
     const payload: StudioFlagPayload = {
       kind: "unplanned-change",
       entryId: change.entryId,
@@ -315,12 +342,26 @@ export function applyStagedReadBack(
       .get();
     touchedFlags.set(created.id, markFlag(created));
   }
+  for (const flag of momentUnplannedFlags) {
+    if (flag.status !== "open" || stillReported.has(flag.id)) continue;
+    const superseded = tx
+      .update(studioFlags)
+      .set({ status: "resolved", updatedAt: now })
+      .where(eq(studioFlags.id, flag.id))
+      .returning()
+      .get();
+    touchedFlags.set(superseded.id, markFlag(superseded));
+  }
 
   // 5. Plan fields: summary always; the rest only when the author has not
   // touched them.
   const set: Partial<typeof studioPlanItems.$inferInsert> = {};
   const summary = output.summary.trim();
   if (summary && summary !== moment.summary) set.summary = summary;
+  const title = output.title.trim();
+  if (title && momentNeedsTitle(moment) && title !== moment.title) {
+    set.title = title;
+  }
   const whatHappens = output.whatHappens.trim();
   if (
     whatHappens &&
