@@ -17,6 +17,7 @@ import {
   type StudioChatContextParts,
 } from "./chat-context";
 import type { StudioChatToolBudget } from "./chat-read-tools";
+import { createStudioChatToolRepair } from "./chat-tool-repair";
 import { createStudioChatTools } from "./chat-tools";
 import { StudioContextTooLargeError } from "./prompt-kit";
 
@@ -122,6 +123,8 @@ export function createStudioChatGeneration({
   };
 
   const initialMessages = fit(history);
+  // Calls whose omitted nullable keys were filled with null (route log).
+  const repairs = { count: 0 };
   const stream = streamLocalinkChat({
     model: profile.model,
     system: system(),
@@ -131,6 +134,9 @@ export function createStudioChatGeneration({
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     temperature: Math.min(profile.temperature, MAX_TEMPERATURE),
     abortSignal,
+    experimental_repairToolCall: createStudioChatToolRepair(() => {
+      repairs.count += 1;
+    }),
     prepareStep: ({ messages, stepNumber }) => {
       const stepMessages = fit(messages);
       budget.remaining = inputBudget - count(stepMessages);
@@ -142,5 +148,5 @@ export function createStudioChatGeneration({
         : step;
     },
   });
-  return { stream, builder, model: profile.model };
+  return { stream, builder, model: profile.model, repairs };
 }

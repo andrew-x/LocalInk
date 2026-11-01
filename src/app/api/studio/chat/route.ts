@@ -189,6 +189,7 @@ function toStudioChatResponse({
     modelSteps,
     toolCalls,
     invalidToolCalls: invalidCalls.size,
+    repairedToolCalls: generation.repairs.count,
     opCount: generation.builder.opCount,
     finalized: generation.builder.isFinalized,
   });

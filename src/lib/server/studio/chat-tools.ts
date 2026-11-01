@@ -296,7 +296,7 @@ export function createStudioChatTools({
     return charge({
       results,
       notAttempted: plan.momentRefs.filter((ref) => !done.has(ref)),
-      note: "Written prose is in this turn's proposal for the author to review; it is not shown to you. Later moments in this scene already continue from it. Do not repeat the prose in your reply.",
+      note: "Written prose is in this turn's proposal for the author to review. You can read it back with get_prose if you need to; later moments in this scene already continue from it. Do not repeat the prose in your reply.",
     });
   };
 
@@ -327,6 +327,7 @@ export function createStudioChatTools({
         "move: itemId (saved), parentId, newIndex (0 = first among the new parent's children, counting items this proposal adds).",
         "delete: itemId (saved); removes everything inside it.",
         `Craft keys: ${CRAFT_KEYS_TEXT}.`,
+        "Your output per step is limited: for a large plan, send the items in parts of about 25 across several propose_plan calls, waiting for each result before the next; every part joins this turn's proposal.",
       ].join(" "),
       inputSchema: proposePlanSchema,
       execute: async ({ items }) => charge(builder.proposePlan(items)),
@@ -344,7 +345,7 @@ export function createStudioChatTools({
     }),
     write_moments: tool({
       description:
-        'Write prose for moments (saved ids, or new: moments proposed this turn), all in one scene; prose is limited to one scene per turn. Moments are written in story order, each continuing from the one before, using the story\'s prose model, instructions, and style. guidance is an optional note for this pass ("" for none). Returns only word counts; the prose goes into the proposal.',
+        'Write prose for moments (saved ids, or new: moments proposed this turn), all in one scene; prose is limited to one scene per turn. Moments are written in story order, each continuing from the one before, using the story\'s prose model, instructions, and style. guidance is an optional note for this pass ("" for none). Returns word counts; the prose goes into the proposal, and get_prose can read it back.',
       inputSchema: writeMomentsSchema,
       execute: writeMoments,
     }),
