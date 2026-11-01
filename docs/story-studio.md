@@ -17,6 +17,8 @@ The replay rule is easy to get wrong:
 - `knows` and `note` accumulate. Every other aspect is latest-wins per entry and about-entry.
 - Planned and confirmed changes both count, so state is useful before anything is written.
 
+Planned changes move down the tree as the plan gets finer. Because an ancestor's changes are excluded going into its descendants, a change left on a chapter is invisible to every moment inside it. So flesh-out shows the parent's planned changes with ids and each child returns `carriesChangeIds`; apply re-pins a carried change to that child (first claimant wins, `authorEdited` changes stay put) instead of creating a duplicate. Changes still on the scene or chapter reach the moment prompt only as "heading toward" context, never as the moment's required end state.
+
 ## AI boundary: routes generate, Actions persist
 
 AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in server memory (`src/lib/server/studio/staging.ts`). The author's click then calls a Server Action that persists the staged output by `generationId`.
@@ -24,12 +26,16 @@ AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in 
 - Server Actions dispatch sequentially per client. A long generation as an action would block autosave and every other save behind it. This is the carve-out described in `backend-actions.md`.
 - The Action reads the staged result and never accepts AI text from the browser. Otherwise browser-supplied text could be stored as "AI output" and take the AI-owned code paths.
 - Moment prose is staged only when the stream finishes with `stop` (`stageOnStop` in `route-kit.ts`). Truncated, filtered, or aborted drafts have nothing staged, so a partial draft cannot be kept.
-- Staged results are volatile: 15 minute TTL, bounded count and bytes, and gone after a server restart. The user-facing recovery is to generate again.
-- Undo-delete snapshots use a separate small pool (also 15 minutes, oldest evicted) so a delete never fails because generations fill the main pool. Undo does not survive a restart.
+- Staged results are volatile: they live 6 hours, each read pushes expiry back, and they are gone after a server restart. A draft or plan preview can sit on screen for a long time, which a short TTL broke. The pool is still bounded (50 entries, 64 MB); when it is full, the least recently touched finished result is evicted rather than refusing new work (abandoned drafts and unpicked alternatives would otherwise fill it). Running generations are never evicted. The user-facing recovery is to generate again.
+- Undo-delete snapshots use a separate small pool (15 minutes, oldest evicted) so a delete never fails because generations fill the main pool. Undo does not survive a restart.
 
 ## Strict structured output
 
 `@ai-sdk/openai-compatible` defaults `strictJsonSchema` to true. Strict mode rejects or mishandles schemas with optional fields, records, and length or count bounds. So the model-output schemas (`planning-contract.ts`, `read-back-contract.ts`, `rewrite-contract.ts`) make everything required or nullable and use no records or bounds. Limits such as "three options" or "80 word summary" go in the prompt, and are enforced after parsing by the normalize/clip steps. Do not add `.optional()`, `.max()`, or `z.record()` to a model-output schema. It will fail only at runtime, per provider.
+
+## Moment prompt context
+
+Nothing writes chapter or scene summaries in Phase 1; read-back writes a summary per moment. So the "story so far" is every earlier written moment's summary (its brief until read-back has run), one unprotected section each, plus any chapter or scene summary. Under budget pressure the oldest summary is dropped first, then the next-moment set-up, then voice samples. The Bible, the brief, and the previous text are never dropped (the context-too-large error fires instead).
 
 ## Manuscript: one Lexical editor per moment
 
@@ -43,9 +49,11 @@ Each moment has its own editor and its own compare-and-swap autosave. This gives
 Read-back summarizes a moment and reconciles it against planned changes.
 
 - Stale guard: applying a staged read-back compares its `sourceHash` with the hash of the current prose. If the author edited in between, nothing is applied.
-- Skip rule: a new read-back runs only when the prose changed meaningfully since the last one (`isMeaningfulChange`: two or more sentences differ, or a quarter of the larger side). `force` bypasses it.
-- It only auto-confirms changes that were planned. Anything the model finds that was not planned, or any planned change it cannot find, becomes a flag for the author to resolve. Read-back never invents records.
-- Dismissed flags stay dismissed and block re-raising the same finding, so the author is not nagged.
+- Skip rule: a new read-back runs only when the prose changed meaningfully since the last one (`isMeaningfulChange`). Changed sentences count as the larger of distinct sentences added and removed, so a one-sentence typo fix counts once; two or more, or a quarter of the longer version, is meaningful. `force` bypasses it (Keep, restore, merge, and Re-read use it).
+- It only auto-confirms changes that were planned: those on the moment, and unconfirmed ones on its scene or chapter, which are moved down to the moment. Anything the model finds that was not planned, or any moment-pinned change it cannot find, becomes a flag for the author to resolve. Read-back never invents records.
+- Findings stay settled. The prompt lists each entry's state going in and the findings the author already settled, so restatements are not reported. After parsing, a finding is skipped when it matches a recorded change or a settled flag on the moment. For latest-wins aspects the match ignores wording (one end state per entry and about-entry per moment); for accumulating aspects (`knows`, `note`) it must be the same fact.
+- "Settled" means dismissed, or resolved by recording it (the recorded change is still on the moment). An open unplanned flag that a new read-back does not report again with the same text is marked resolved as superseded, since it described prose that no longer exists. Superseded flags have no recorded change, so the finding can be raised again if the prose brings it back.
+- Read-back fills a moment's title only when it is blank or the default and the author does not own it.
 - A summary-only update does not bump the plan item's revision. The author cannot edit the summary, so bumping would cause pointless CAS conflicts for concurrent field saves.
 
 ## Ownership of author text
