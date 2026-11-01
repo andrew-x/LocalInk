@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/common/button";
+import { useStoryFleshOut } from "@/components/studio/workspace/use-story-flesh-out";
 import {
   useProseByMomentId,
   useStudioStore,
@@ -84,8 +86,10 @@ export function Manuscript() {
   const { state, dispatch } = useStudioStore();
   const proseById = useProseByMomentId();
   const loop = useWritingLoop();
+  const storyPlan = useStoryFleshOut();
   const storyId = state.story.id;
   const selectedItemId = state.selectedItemId;
+  const selectNonce = state.selectNonce;
   const draft = loop.draft;
   const [activeMomentId, setActiveMomentId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -122,7 +126,9 @@ export function Manuscript() {
     setActiveMomentId((current) => (current === momentId ? null : current));
   }, []);
 
-  // A tree (or arc strip) selection scrolls its first moment into view.
+  // A tree (or arc strip, or Bible pin) selection scrolls its first moment
+  // into view, even when the item was already selected (the nonce moves).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectNonce re-runs the scroll for a repeated selection.
   useEffect(() => {
     selectedRef.current = selectedItemId;
     if (selectedHereRef.current) {
@@ -137,7 +143,7 @@ export function Manuscript() {
         `[data-studio-moment="${escaped}"], [data-studio-scene="${escaped}"]`,
       );
     element?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedItemId]);
+  }, [selectedItemId, selectNonce]);
 
   const isHighlighted = (block: ManuscriptBlock) =>
     selectedItemId !== null &&
@@ -199,6 +205,11 @@ export function Manuscript() {
           case "continue": {
             const { target } = block;
             const momentId = target.kind === "moment" ? target.moment.id : null;
+            // While this scene's moments are planned, the editor's key and
+            // target are about to change; typing now could be lost.
+            const isPlanningTarget =
+              target.kind === "scene" &&
+              loop.preparingSceneId === target.scene.id;
             return (
               <div
                 className="scroll-mt-24"
@@ -213,8 +224,11 @@ export function Manuscript() {
                   momentId={momentId}
                   onBlurMoment={handleBlurMoment}
                   onFocusMoment={handleFocusMoment}
-                  placeholder={continuePlaceholder(target)}
+                  placeholder={
+                    isPlanningTarget ? "Planning…" : continuePlaceholder(target)
+                  }
                   prose={momentId ? proseById.get(momentId) : undefined}
+                  readOnly={isPlanningTarget}
                   storyId={storyId}
                   title={continueTargetTitle(target)}
                 />
@@ -225,11 +239,46 @@ export function Manuscript() {
         return null;
       })}
       {layout.sceneCount === 0 ? (
-        <p className="mt-10 text-center font-sans text-caption text-muted-foreground">
-          {layout.chapterCount === 0
-            ? "Add a chapter in the plan to start writing."
-            : "Add a scene to a chapter, or flesh one out, to start writing."}
-        </p>
+        <div className="mt-10 flex flex-col items-center gap-3 font-sans">
+          <p className="text-center text-caption text-muted-foreground">
+            {layout.chapterCount === 0
+              ? "Add a chapter in the plan to start writing."
+              : "Add a scene to a chapter, or flesh one out, to start writing."}
+          </p>
+          {layout.chapterCount > 0 ? (
+            storyPlan.phase === "idle" ? (
+              <Button
+                disabled={!storyPlan.canPlan}
+                onClick={storyPlan.start}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <span aria-hidden="true" className="text-accent">
+                  ✦
+                </span>
+                Plan scenes for every chapter
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2 text-caption text-muted-foreground">
+                <span aria-live="polite">
+                  {storyPlan.phase === "planning"
+                    ? "Planning scenes for every chapter…"
+                    : "Saving the planned scenes…"}
+                </span>
+                {storyPlan.phase === "planning" ? (
+                  <button
+                    className="rounded-sm px-1.5 py-0.5 underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+                    onClick={storyPlan.cancel}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                ) : null}
+              </div>
+            )
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

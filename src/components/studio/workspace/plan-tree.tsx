@@ -32,6 +32,7 @@ import {
   resolvePlanDrop,
   usePlanTreeActions,
 } from "./use-plan-tree-actions";
+import { useStoryFleshOut } from "./use-story-flesh-out";
 import { usePlanStatuses, useStudioStore } from "./use-studio-store";
 import { scrollToStudioItem, studioPlanRowId } from "./workspace-anchors";
 
@@ -63,6 +64,7 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
   const { state, dispatch } = useStudioStore();
   const statuses = usePlanStatuses();
   const ai = usePlanAi();
+  const storyPlan = useStoryFleshOut();
   const actions = usePlanTreeActions();
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [dragged, setDragged] = useState<StudioPlanItemDto | null>(null);
@@ -187,16 +189,50 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
         <h2 className="text-caption text-muted-foreground uppercase tracking-wider">
           Plan
         </h2>
-        <Button
-          aria-label="Add chapter"
-          onClick={() => void actions.addChapter()}
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          <Plus aria-hidden="true" className="size-3.5" />
-          Chapter
-        </Button>
+        <div className="flex items-center gap-1">
+          {storyPlan.phase !== "idle" ? (
+            <Button
+              aria-label={
+                storyPlan.phase === "planning"
+                  ? "Cancel planning scenes for every chapter"
+                  : "Saving planned scenes"
+              }
+              disabled={storyPlan.phase !== "planning"}
+              loading
+              onClick={storyPlan.cancel}
+              size="sm"
+              tooltip={
+                storyPlan.phase === "planning"
+                  ? "Planning scenes… click to cancel"
+                  : "Saving planned scenes…"
+              }
+              type="button"
+              variant="ghost"
+            />
+          ) : storyPlan.canPlan ? (
+            <Button
+              aria-label="Plan scenes for every chapter"
+              className="text-muted-foreground"
+              onClick={storyPlan.start}
+              size="sm"
+              tooltip="Plan scenes for every chapter that has none"
+              type="button"
+              variant="ghost"
+            >
+              <span aria-hidden="true">✦</span>
+            </Button>
+          ) : null}
+          <Button
+            aria-label="Add chapter"
+            onClick={() => void actions.addChapter()}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Plus aria-hidden="true" className="size-3.5" />
+            Chapter
+          </Button>
+        </div>
       </div>
       <div
         aria-label="Story plan"

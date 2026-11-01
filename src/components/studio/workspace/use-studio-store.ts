@@ -30,6 +30,11 @@ export type StudioStoreState = StudioWorkspace & {
   /** Read-only global instructions, kept for the Inspect panel. */
   globalInstructions: string;
   selectedItemId: string | null;
+  /**
+   * Bumped by every "select", so selecting the item that is already selected
+   * still asks the manuscript to scroll to it.
+   */
+  selectNonce: number;
   readMode: boolean;
   bibleOpen: StudioBibleTarget | null;
 };
@@ -136,7 +141,11 @@ function studioReducer(
           : null,
       };
     case "select":
-      return { ...state, selectedItemId: action.itemId };
+      return {
+        ...state,
+        selectedItemId: action.itemId,
+        selectNonce: state.selectNonce + 1,
+      };
     case "setReadMode":
       return { ...state, readMode: action.value };
     case "openBible":
@@ -170,6 +179,7 @@ export function StudioStoreProvider({
       ...workspace,
       globalInstructions: workspace.globalInstructions ?? "",
       selectedItemId: null,
+      selectNonce: 0,
       readMode: false,
       bibleOpen: null,
     }),

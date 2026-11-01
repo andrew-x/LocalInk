@@ -54,6 +54,8 @@ const SAVE_STATE_LABEL = {
 
 const FLUSH_FAILED =
   "Your edits to this moment could not be saved first, so nothing was changed.";
+const REREAD_AFTER_FAILED =
+  "The prose was updated, but the moment could not be re-read. Try Re-read this moment.";
 
 export function ProseSection({ item }: { item: StudioPlanItemDto }) {
   const { state, dispatch } = useStudioStore();
@@ -105,6 +107,23 @@ export function ProseSection({ item }: { item: StudioPlanItemDto }) {
     return index > 0 ? siblings[index - 1] : null;
   }, [item.id, item.parentId, state.planItems]);
 
+  /**
+   * Restore and merge replace a moment's prose wholesale, so its read-back
+   * state is re-derived right away rather than waiting for the next edit.
+   */
+  async function rereadAfterReplace(momentId: string) {
+    try {
+      const patch = await readBackStudioMoment({
+        storyId,
+        momentId,
+        force: true,
+      });
+      if (patch) dispatch({ type: "merge", ...patch });
+    } catch (error) {
+      toast.error(studioErrorMessage(error, REREAD_AFTER_FAILED));
+    }
+  }
+
   async function showPreview(versionId: string) {
     if (preview?.id === versionId) {
       setPreview(null);
@@ -137,6 +156,7 @@ export function ProseSection({ item }: { item: StudioPlanItemDto }) {
       if (restored) {
         dispatch({ type: "merge", prose: [restored] });
         setPreview(null);
+        void rereadAfterReplace(restored.momentId);
       }
     } finally {
       setBusy(null);
@@ -202,6 +222,7 @@ export function ProseSection({ item }: { item: StudioPlanItemDto }) {
       });
       dispatch({ type: "remove", planItemIds: merged.deletedIds });
       dispatch({ type: "select", itemId: previous.id });
+      void rereadAfterReplace(previous.id);
     } finally {
       setBusy(null);
     }

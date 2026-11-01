@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { applyStudioPlan } from "@/actions/studio/apply-studio-plan";
-import { postStudioJson } from "@/components/studio/studio-fetch";
+import {
+  postStudioJson,
+  studioErrorMessage,
+} from "@/components/studio/studio-fetch";
 import type { StudioPlanPreview } from "@/lib/studio/planning-contract";
 
 import { useRunStudioAction, useStudioStore } from "./use-studio-store";
@@ -116,15 +119,8 @@ export function usePlanAi(): PlanAiController {
           await apply(itemId, preview, undefined);
         } catch (error) {
           if (controller.signal.aborted) return;
-          // fetch network failures are TypeErrors with raw browser text; only
-          // the route's own sanitized messages are shown verbatim.
-          toast.error(
-            error instanceof Error &&
-              !(error instanceof TypeError) &&
-              error.message
-              ? error.message
-              : AI_REQUEST_FAILED_MESSAGE,
-          );
+          // Only the route's own sanitized messages are shown verbatim.
+          toast.error(studioErrorMessage(error, AI_REQUEST_FAILED_MESSAGE));
         } finally {
           // A cancelled run was already cleared; never clear a newer run.
           if (controllers.current.get(itemId) === controller) {

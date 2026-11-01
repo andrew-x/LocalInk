@@ -25,6 +25,7 @@ import {
   customSectionId,
   customGroups as deriveCustomGroups,
   entriesInSection,
+  isCustomSection,
 } from "./bible-sections";
 import { BibleSidebar } from "./bible-sidebar";
 import { EntryEditor } from "./entry-editor";
@@ -40,7 +41,13 @@ function BibleBody({ target }: { target: StudioBibleTarget }) {
   const createdIdRef = useRef<string | null>(null);
 
   const groups = useMemo(() => deriveCustomGroups(entries), [entries]);
-  const { section } = target;
+  // A custom type exists only while it has entries; once its last entry is
+  // deleted there is nothing to show or add to, so fall back to Overview.
+  const section =
+    isCustomSection(target.section) &&
+    !groups.some((group) => group.id === target.section)
+      ? BIBLE_OVERVIEW_SECTION
+      : target.section;
   const sectionEntries = useMemo(
     () => entriesInSection(entries, section),
     [entries, section],

@@ -8,7 +8,10 @@ import { z } from "zod";
 import { Button } from "@/components/common/button";
 import { Label } from "@/components/common/label";
 import { Textarea } from "@/components/common/textarea";
-import { postStudioJson } from "@/components/studio/studio-fetch";
+import {
+  postStudioJson,
+  studioErrorMessage,
+} from "@/components/studio/studio-fetch";
 import { formResolver } from "@/lib/schemas/resolve";
 import type { StudioQuestionsResponse } from "@/lib/studio/planning-contract";
 
@@ -75,9 +78,7 @@ export function QuestionsStep({
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         toast.error(
-          error instanceof Error
-            ? error.message
-            : "The questions could not be loaded.",
+          studioErrorMessage(error, "The questions could not be loaded."),
         );
         onFailed();
       });

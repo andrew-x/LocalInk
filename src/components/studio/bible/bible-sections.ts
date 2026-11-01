@@ -31,6 +31,10 @@ export function customSectionId(label: string): string {
   return `${CUSTOM_PREFIX}${label.trim().toLowerCase()}`;
 }
 
+export function isCustomSection(section: string): boolean {
+  return section.startsWith(CUSTOM_PREFIX);
+}
+
 export function isStorySection(section: string): boolean {
   return BIBLE_STORY_SECTIONS.some((item) => item.id === section);
 }

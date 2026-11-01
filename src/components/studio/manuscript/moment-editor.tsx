@@ -23,6 +23,7 @@ import { cn } from "@/lib/util";
 
 import { STUDIO_UNBOUND_EDITOR_ID } from "./editor-registry";
 import {
+  EditablePlugin,
   ExternalProsePlugin,
   FocusTrackingPlugin,
   MomentHandlePlugin,
@@ -60,6 +61,8 @@ type MomentEditorProps = {
   continueLine?: ReactNode;
   placeholder?: string;
   createMoment?: () => Promise<string | null>;
+  /** Blocks typing, e.g. while the continue target's moments are planned. */
+  readOnly?: boolean;
 };
 
 /**
@@ -76,6 +79,7 @@ export const MomentEditor = memo(function MomentEditor({
   onFocusMoment,
   placeholder,
   prose,
+  readOnly = false,
   storyId,
   title,
 }: MomentEditorProps) {
@@ -182,6 +186,7 @@ export const MomentEditor = memo(function MomentEditor({
             }
             ErrorBoundary={LexicalErrorBoundary}
           />
+          <EditablePlugin editable={!readOnly} />
           <HistoryPlugin />
           <MarkdownShortcutPlugin transformers={STUDIO_MARKDOWN_TRANSFORMERS} />
           <OnChangePlugin ignoreSelectionChange onChange={handleChange} />

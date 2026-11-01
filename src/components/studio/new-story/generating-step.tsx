@@ -7,7 +7,10 @@ import { toast } from "sonner";
 
 import { applyStudioPlan } from "@/actions/studio/apply-studio-plan";
 import { Button } from "@/components/common/button";
-import { postStudioJson } from "@/components/studio/studio-fetch";
+import {
+  postStudioJson,
+  studioErrorMessage,
+} from "@/components/studio/studio-fetch";
 import type { StudioPlanPreview } from "@/lib/studio/planning-contract";
 
 import type { QuestionAnswer } from "./questions-step";
@@ -22,6 +25,7 @@ type GeneratingStepProps = {
 type Phase = "planning" | "applying" | "failed";
 
 const APPLY_FAILED_MESSAGE = "The plan could not be saved. Please try again.";
+const GENERATE_FAILED_MESSAGE = "The plan could not be generated.";
 
 export function GeneratingStep({
   answers,
@@ -66,10 +70,7 @@ export function GeneratingStep({
           APPLY_FAILED_MESSAGE;
       } catch (error) {
         if (controller.signal.aborted) return;
-        message =
-          error instanceof Error && error.message
-            ? error.message
-            : "The plan could not be generated.";
+        message = studioErrorMessage(error, GENERATE_FAILED_MESSAGE);
       }
 
       toast.error(message);

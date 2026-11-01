@@ -21,6 +21,7 @@ import { cn } from "@/lib/util";
 
 import { PlanTree } from "./plan-tree";
 import { StudioTopBar } from "./studio-top-bar";
+import { StoryFleshOutProvider } from "./use-story-flesh-out";
 import { StudioStoreProvider, useStudioStore } from "./use-studio-store";
 
 type StudioWorkspaceProps = {
@@ -167,7 +168,9 @@ export function StudioWorkspace({
     <StudioStoreProvider initial={{ ...initial, globalInstructions }}>
       {/* One writing loop shared by the manuscript, the tree and Inspect. */}
       <WritingLoopProvider>
-        <WorkspaceLayout inspect={inspect} />
+        <StoryFleshOutProvider>
+          <WorkspaceLayout inspect={inspect} />
+        </StoryFleshOutProvider>
       </WritingLoopProvider>
     </StudioStoreProvider>
   );
