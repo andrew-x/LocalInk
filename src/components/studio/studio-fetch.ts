@@ -29,7 +29,10 @@ export function studioErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-async function readRouteErrorMessage(response: Response): Promise<string> {
+/** A refused Studio route's sanitized `{ message }`, or a generic message. */
+export async function readRouteErrorMessage(
+  response: Response,
+): Promise<string> {
   try {
     const body: unknown = await response.json();
     if (

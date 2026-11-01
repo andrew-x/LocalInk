@@ -40,7 +40,11 @@ export type StudioStoreState = StudioWorkspace & {
   selectNonce: number;
   readMode: boolean;
   bibleOpen: StudioBibleTarget | null;
-  /** The right column's tab. The chat panel (Task 7) builds its tablist on this. */
+  /**
+   * The right column's tab. Chat state itself (threads, messages, the turn)
+   * lives in the chat panel, not here: streamed tokens would otherwise
+   * re-render the whole workspace.
+   */
   rightTab: StudioRightTab;
   /** The bundle op the chat review card should scroll to and highlight. */
   focusedBundleOpId: string | null;
@@ -97,6 +101,19 @@ function freshProse(
   if (incoming.length === 0) return incoming;
   const revisions = new Map(current.map((p) => [p.momentId, p.revision]));
   return incoming.filter((p) => p.revision >= (revisions.get(p.momentId) ?? 0));
+}
+
+/**
+ * Drops incoming bundles older than the stored copy. A chat thread read that
+ * started before an accept must not put the bundle back to pending.
+ */
+function freshBundles(
+  current: StudioBundleDto[],
+  incoming: StudioBundleDto[],
+): StudioBundleDto[] {
+  if (incoming.length === 0) return incoming;
+  const updatedAt = new Map(current.map((b) => [b.id, b.updatedAt]));
+  return incoming.filter((b) => b.updatedAt >= (updatedAt.get(b.id) ?? ""));
 }
 
 function removeIds(
@@ -156,7 +173,11 @@ function studioReducer(
           (p) => p.momentId,
         ),
         flags: upsert(state.flags, action.flags ?? [], (f) => f.id),
-        bundles: upsert(state.bundles, action.bundles ?? [], (b) => b.id),
+        bundles: upsert(
+          state.bundles,
+          freshBundles(state.bundles, action.bundles ?? []),
+          (b) => b.id,
+        ),
       };
       return action.removed ? removeIds(merged, action.removed) : merged;
     }
@@ -185,6 +206,8 @@ function studioReducer(
     case "focusBundleOp":
       return {
         ...state,
+        // The review card lives in the chat column, which Read mode hides.
+        readMode: false,
         rightTab: "chat",
         focusedBundleOpId: action.opId,
         bundleFocusNonce: state.bundleFocusNonce + 1,

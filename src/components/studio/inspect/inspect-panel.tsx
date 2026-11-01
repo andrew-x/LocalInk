@@ -14,7 +14,10 @@ import { ProseSection } from "./prose-section";
 import { StateSection } from "./state-section";
 import { WhoIsInIt } from "./who-is-in-it";
 
-/** The right column. Everything here works without the AI. */
+/**
+ * The right column's Inspect tab (the workspace's tablist labels it).
+ * Everything here works without the AI.
+ */
 export function InspectPanel() {
   const item = useSelectedItem();
   const ai = usePlanAi();
@@ -22,11 +25,6 @@ export function InspectPanel() {
 
   return (
     <div className="flex flex-col">
-      <div className="border-border/60 border-b px-4">
-        <h2 className="-mb-px w-fit border-primary border-b-2 py-2 font-semibold text-label-sm">
-          Inspect
-        </h2>
-      </div>
       {item ? (
         // Keyed so local drafts never carry over to another item.
         <div className="flex flex-col gap-3 p-4" key={item.id}>
