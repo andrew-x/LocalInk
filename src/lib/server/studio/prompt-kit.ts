@@ -85,12 +85,16 @@ const NEVER_SAYS_USE = "steer-only-never-narrate";
  * One Bible entry with its fields and its state at the point the prompt is
  * about. Fields marked "AI uses, never says" are labeled so the model steers
  * by them without narrating them. Backstory-only fields stay out unless the
- * caller explicitly opts in (planning does; moment prose does not).
+ * caller explicitly opts in (planning does; moment prose does not). State
+ * lines name the entry they are about; `names` maps entry ids to names.
  */
 export function xmlEntryBlock(
   state: StudioEntryState,
   templates: StudioEntryTemplates,
-  options: { includeBackstoryOnly?: boolean } = {},
+  options: {
+    includeBackstoryOnly?: boolean;
+    names?: ReadonlyMap<string, string>;
+  } = {},
 ): string {
   const { entry } = state;
   const template = templates[entry.type];
@@ -121,7 +125,9 @@ export function xmlEntryBlock(
     .map((aspect) =>
       xmlField("state", aspect.values.map((item) => item.value).join("\n"), {
         aspect: aspect.aspect,
-        about: aspect.aboutEntryId ?? undefined,
+        about: aspect.aboutEntryId
+          ? (options.names?.get(aspect.aboutEntryId) ?? aspect.aboutEntryId)
+          : undefined,
       }),
     )
     .filter(Boolean);

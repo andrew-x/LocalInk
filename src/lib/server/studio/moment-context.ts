@@ -7,6 +7,7 @@ import {
   STUDIO_ENTRY_TEMPLATES,
 } from "@/lib/studio/bible-templates";
 import type {
+  StudioChangeDto,
   StudioPlanItemDto,
   StudioStyle,
   StudioWorkspace,
@@ -62,13 +63,21 @@ const SYSTEM_PROMPT = [
   "- Write only this moment, in the story's point of view and tense. Do not write the next moment; material marked do-not-write is there only so you can set it up.",
   "- Start exactly where the previous text ends, as a direct continuation. If there is no previous text, begin the moment cleanly.",
   "- Stop when the moment reaches its `endsWith` state (the craft field of that key). If none is given, stop as soon as what happens has happened. Do not close the scene or chapter, fade out, or add a summarizing or reflective kicker.",
-  "- Do not name emotions you have already dramatized through action, speech, or perception.",
+  "- `by_the_end_of_this_moment` lists changes this moment must bring about. `scene_heading_toward` and `chapter_heading_toward` show where the larger arc is going; they may land in later moments, so do not force them here unless this moment's brief calls for them.",
   '- Fields marked use="steer-only-never-narrate" are background that shapes your choices. Never state them, hint at them as exposition, or narrate them.',
   "- Do not narrate character-sheet traits or backstory as description. Let them show only through what the character does and notices in this moment.",
   "- Match intensity to the stakes of the moment. Small moments stay small.",
   "- Follow the writer's instructions and style. Where they conflict, the more specific instruction wins. They shape voice, not canon: established facts and what each character knows outrank them.",
   "- Aim for roughly 150 to 450 words.",
   "- Output the prose only. No title, heading, notes, preamble, options, or commentary.",
+  "",
+  "Avoid:",
+  "- Naming an emotion the prose already shows through action, speech, or perception.",
+  '- Stock phrasing such as "something shifted" or "a breath I didn\'t know I was holding".',
+  '- "Not X, but Y" contrasts.',
+  "- Summarizing or restating what just happened.",
+  "- Tidy epiphanies or lessons learned.",
+  "- Runs of one-line paragraphs.",
 ].join("\n");
 
 export function buildStudioMomentSystemPrompt(): string {
@@ -199,35 +208,47 @@ export function buildStudioMomentPrompt(
             xmlEntryBlock(
               states.get(entry.id) ?? { entry, aspects: [] },
               STUDIO_ENTRY_TEMPLATES,
+              { names: entryNames },
             ),
           ),
       ),
     ),
   );
 
-  // 4. Story so far: finished chapters and scenes only. Oldest drop first.
-  const earlier = flattenPlan(workspace.planItems).filter((item) => {
-    if (item.kind === "moment" || !item.summary.trim()) return false;
-    const entry = index.get(item.id);
-    return entry !== undefined && entry.endOrder < point.order;
-  });
-  earlier.forEach((item, position) => {
-    sections.push(
-      section(
-        `story-so-far-${item.id}`,
-        xmlField("earlier", item.summary, {
-          kind: item.kind,
-          title: item.title.trim() || undefined,
-        }),
-        { protected: false, dropOrder: 10 + position },
-      ),
-    );
-  });
-
-  // 5. Previous written moment's tail.
+  // 4. Story so far, in story order: every earlier written moment's
+  // read-back summary (or its brief until read-back has run), plus any
+  // chapter or scene summary. Under budget pressure the oldest go first,
+  // and all of them go before the next-moment set-up below.
   const proseByMoment = new Map(
     workspace.prose.map((prose) => [prose.momentId, prose]),
   );
+  const earlier = flattenPlan(workspace.planItems).flatMap((item) => {
+    const entry = index.get(item.id);
+    if (entry === undefined || entry.endOrder >= point.order) return [];
+    if (item.kind !== "moment") {
+      return item.summary.trim() ? [{ item, text: item.summary }] : [];
+    }
+    // A moment with no prose has not happened, whatever its plan says.
+    if (!proseByMoment.get(item.id)?.markdown.trim()) return [];
+    const text = item.summary.trim() || item.whatHappens.trim();
+    return text ? [{ item, text }] : [];
+  });
+  earlier.forEach(({ item, text }, position) => {
+    sections.push(
+      section(
+        `story-so-far-${item.id}`,
+        xmlField("earlier", text, {
+          kind: item.kind,
+          title: item.title.trim() || undefined,
+        }),
+        { protected: false, dropOrder: position },
+      ),
+    );
+  });
+  const nextMomentDropOrder = earlier.length;
+  const voiceSamplesDropOrder = earlier.length + 1;
+
+  // 5. Previous written moment's tail.
   const moments = getOrderedMoments(workspace.planItems);
   const momentPosition = moments.findIndex((item) => item.id === momentId);
   let previousTail = "";
@@ -248,17 +269,36 @@ export function buildStudioMomentPrompt(
   const craft = STUDIO_CRAFT_FIELDS.moment.map(({ key, label }) =>
     xmlField("craft", moment.craft[key] ?? "", { key, label }),
   );
+  const changeBlock = (change: StudioChangeDto) =>
+    xmlField("change", change.value, {
+      entry: entryNames.get(change.entryId),
+      aspect: aspectLabel(change.aspect),
+      about: change.aboutEntryId
+        ? entryNames.get(change.aboutEntryId)
+        : undefined,
+    });
   const planned = changesComingOut(stateInput, momentId)
     .filter((change) => entryNames.has(change.entryId))
-    .map((change) =>
-      xmlField("change", change.value, {
-        entry: entryNames.get(change.entryId),
-        aspect: aspectLabel(change.aspect),
-        about: change.aboutEntryId
-          ? entryNames.get(change.aboutEntryId)
-          : undefined,
-      }),
+    .map(changeBlock);
+  // Changes still planned on the enclosing scene and chapter. Read-back
+  // moves them down to the moment that realizes them; until then they are
+  // where the arc is heading, not this moment's required end state.
+  const itemsById = new Map(workspace.planItems.map((item) => [item.id, item]));
+  const headingToward = (kind: "scene" | "chapter") => {
+    const ancestorId = point.ancestors.find(
+      (id) => itemsById.get(id)?.kind === kind,
     );
+    if (!ancestorId) return [];
+    return workspace.changes
+      .filter(
+        (change) =>
+          change.planItemId === ancestorId &&
+          change.status === "planned" &&
+          entryNames.has(change.entryId),
+      )
+      .sort((a, b) => a.position - b.position)
+      .map(changeBlock);
+  };
   sections.push(
     section(
       "this-moment",
@@ -273,6 +313,8 @@ export function buildStudioMomentPrompt(
           }),
           ...craft,
           xmlGroup("by_the_end_of_this_moment", planned),
+          xmlGroup("scene_heading_toward", headingToward("scene")),
+          xmlGroup("chapter_heading_toward", headingToward("chapter")),
         ],
         { title: moment.title.trim() || undefined },
       ),
@@ -290,7 +332,7 @@ export function buildStudioMomentPrompt(
       section(
         "next-moment",
         xmlField("set-up-only", next.whatHappens, { "do-not-write": "true" }),
-        { protected: false, dropOrder: 2 },
+        { protected: false, dropOrder: nextMomentDropOrder },
       ),
     );
   }
@@ -308,7 +350,7 @@ export function buildStudioMomentPrompt(
           }),
         ),
       ),
-      { protected: false, dropOrder: 3 },
+      { protected: false, dropOrder: voiceSamplesDropOrder },
     ),
   );
 

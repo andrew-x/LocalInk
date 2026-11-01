@@ -12,6 +12,7 @@ import {
   STUDIO_STRUCTURE_TEMPLATES,
 } from "@/lib/studio/bible-templates";
 import type {
+  StudioChangeDto,
   StudioPlanItemDto,
   StudioPlanKind,
   StudioWorkspace,
@@ -176,42 +177,80 @@ function storyBlock(workspace: StudioWorkspace): string {
   // as the author's.
   return xmlGroup("story", [
     xmlField("overview", story.overview, { author: "true" }),
-    xmlField("theme", story.theme, { author: "true" }),
+    xmlField("theme", story.theme, {
+      author: "true",
+      use: "steer-only-never-narrate",
+    }),
     xmlField("structure_template", story.structureTemplate),
     xmlField("structure_notes", story.structureNotes, { author: "true" }),
   ]);
+}
+
+function entryNameMap(workspace: StudioWorkspace): Map<string, string> {
+  return new Map(workspace.entries.map((entry) => [entry.id, entry.name]));
 }
 
 function bibleBlock(
   workspace: StudioWorkspace,
   states?: Map<string, StudioEntryState>,
 ): string {
+  const names = entryNameMap(workspace);
   return xmlGroup(
     "bible",
     workspace.entries.map((entry) =>
       xmlEntryBlock(
         states?.get(entry.id) ?? { entry, aspects: [] },
         STUDIO_ENTRY_TEMPLATES,
-        { includeBackstoryOnly: true },
+        { includeBackstoryOnly: true, names },
       ),
     ),
   );
+}
+
+/** Changes still planned on an item, the ones its children may carry. */
+function plannedChangesOf(
+  workspace: StudioWorkspace,
+  itemId: string,
+): StudioChangeDto[] {
+  return workspace.changes
+    .filter(
+      (change) => change.planItemId === itemId && change.status === "planned",
+    )
+    .sort((a, b) => a.position - b.position);
 }
 
 function itemBlock(
   item: StudioPlanItemDto,
   workspace: StudioWorkspace,
   tag: string,
-  extra: Record<string, string | undefined> = {},
+  options: {
+    extra?: Record<string, string | undefined>;
+    /** Lists these changes with their ids, for children to carry. */
+    plannedChanges?: StudioChangeDto[];
+  } = {},
 ): string {
+  const extra = options.extra ?? {};
   const author = (field: StudioPlanItemDto["authorFields"][number]) =>
     item.authorFields.includes(field) ? "true" : undefined;
-  const entryNames = new Map(
-    workspace.entries.map((entry) => [entry.id, entry.name]),
-  );
+  const entryNames = entryNameMap(workspace);
   const present = item.presentEntryIds
     .map((entryId) => entryNames.get(entryId))
     .filter((name): name is string => Boolean(name));
+  const changes = (options.plannedChanges ?? []).map((change) => {
+    const attributes = {
+      id: change.id,
+      entry_id: change.entryId,
+      entry: entryNames.get(change.entryId),
+      aspect: change.aspect,
+      about: change.aboutEntryId
+        ? (entryNames.get(change.aboutEntryId) ?? change.aboutEntryId)
+        : undefined,
+    };
+    return (
+      xmlField("planned_change", change.value, attributes) ||
+      xmlEmpty("planned_change", attributes)
+    );
+  });
   const block = xmlGroup(
     tag,
     [
@@ -226,6 +265,7 @@ function itemBlock(
         xmlField("craft", value, { key, author: author("craft") }),
       ),
       xmlField("present", present.join(", ")),
+      xmlGroup("planned_changes", changes),
     ],
     { id: item.id, kind: item.kind, ...extra },
   );
@@ -492,6 +532,7 @@ async function generateChildren(
 ): Promise<{ parentId: string; items: StagedFleshOutItems }> {
   const childKind = childKindOf(parent);
   const states = computeStateGoingIn(stateInputFor(workspace), parent.id);
+  const parentChanges = plannedChangesOf(workspace, parent.id);
 
   const task = [
     `Break the target ${parent.kind} into its ${childKind}s.`,
@@ -499,7 +540,9 @@ async function generateChildren(
     childKind === "scene"
       ? "Return 2-5 scenes. Each scene is one continuous stretch in one place and time where someone wants something and something goes wrong or turns. Craft keys: wants, goesWrong, differentAfter, entry, exit. What happens is 1-3 sentences."
       : "Return 2-6 moments. A moment is one small beat of a scene, short enough to write in a single sitting. The brief (whatHappens) is 1-4 sentences. Craft keys: turn, said, meant, endsWith. Every moment must set endsWith to the situation or feeling the moment ends in (for example unresolved, further apart, interrupted); do not end a moment by resolving what the scene has not yet resolved.",
-    "For each item return a title (short and particular), whatHappens, howToWrite (0-2 sentences, may be empty), craft, presentEntryIds (ids from the Bible of the people, place, and important things present), and plannedChanges: changes this item causes, using entryId and aboutEntryId from the Bible ids. Leave plannedChanges empty when the item changes nothing; do not repeat changes the parent already plans.",
+    "For each item return a title (short and particular), whatHappens, howToWrite (0-2 sentences, may be empty), craft, presentEntryIds (ids from the Bible of the people, place, and important things present), plannedChanges, and carriesChangeIds.",
+    `The target's planned_changes (with ids) must happen somewhere inside it. Place each one in the ${childKind} where it actually happens and put its id in that ${childKind}'s carriesChangeIds. Each id goes to at most one ${childKind}. Build the ${childKind}s so these changes land.`,
+    "plannedChanges are only new changes the item causes beyond the carried ones, using entryId and aboutEntryId from the Bible ids. Never restate a carried change in plannedChanges. Leave either list empty when it has nothing.",
     "Respect the state of each entry going in (shown in the Bible): characters do not know, believe, or have what they have not yet learned or gained at this point.",
   ].join("\n");
 
@@ -515,7 +558,12 @@ async function generateChildren(
       section("story", storyBlock(workspace)),
       section("bible", bibleBlock(workspace, states)),
       section("ancestors", ancestorsBlock(workspace, parent.id)),
-      section("target", itemBlock(parent, workspace, "target")),
+      section(
+        "target",
+        itemBlock(parent, workspace, "target", {
+          plannedChanges: parentChanges,
+        }),
+      ),
       section("outline", outlineBlock(workspace, parent.id), {
         protected: false,
         dropOrder: 1,
@@ -533,7 +581,19 @@ async function generateChildren(
       "The model returned nothing to add. Try again.",
     );
   }
-  return { parentId: parent.id, items: output.items };
+  // Only the target's offered changes can be carried, each by its first
+  // claimant.
+  const offered = new Set(parentChanges.map((change) => change.id));
+  const claimed = new Set<string>();
+  const items = output.items.map((item) => ({
+    ...item,
+    carriesChangeIds: item.carriesChangeIds.filter((changeId) => {
+      if (!offered.has(changeId) || claimed.has(changeId)) return false;
+      claimed.add(changeId);
+      return true;
+    }),
+  }));
+  return { parentId: parent.id, items };
 }
 
 type StagedFleshOutItems = Extract<

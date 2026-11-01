@@ -105,14 +105,15 @@ type NewPlanItem = {
 
 /**
  * AI scaffolding: origin "ai", no author-protected fields. Entry ids that no
- * longer exist are dropped rather than failing the whole plan.
+ * longer exist are dropped rather than failing the whole plan. Returns the
+ * new id and the next free change position on it.
  */
 function insertAiPlanItem(
   tx: LocalinkTx,
   validEntryIds: Set<string>,
   item: NewPlanItem,
   now: string,
-): string {
+): { id: string; nextChangePosition: number } {
   const id = generateId("studio-plan");
   tx.insert(studioPlanItems)
     .values({
@@ -164,8 +165,15 @@ function insertAiPlanItem(
       })
       .run();
   }
-  return id;
+  return { id, nextChangePosition: position };
 }
+
+const changeKey = (change: {
+  entryId: string;
+  aspect: string;
+  aboutEntryId?: string | null;
+}) =>
+  JSON.stringify([change.entryId, change.aspect, change.aboutEntryId ?? null]);
 
 function loadEntryRows(tx: LocalinkTx, storyId: string) {
   return tx
@@ -330,7 +338,7 @@ function applyInitial(
 
   const chapterBase = nextPosition(tx, storyId, null);
   plan.chapters.forEach((chapter, chapterIndex) => {
-    const chapterId = insertAiPlanItem(
+    const { id: chapterId } = insertAiPlanItem(
       tx,
       validEntryIds,
       {
@@ -412,8 +420,33 @@ function applyFleshOut(
     const base = nextPosition(tx, storyId, parent.id);
     // A story-wide run only fills chapters that are still empty.
     if (isStoryWide && base > 0) continue;
+
+    // The parent's planned changes a child realizes move down to that child
+    // (first claimant wins), so the arc stays visible below the parent.
+    const parentChanges = new Map(
+      tx
+        .select()
+        .from(studioChanges)
+        .where(
+          and(
+            eq(studioChanges.storyId, storyId),
+            eq(studioChanges.planItemId, parent.id),
+          ),
+        )
+        .all()
+        .map((row) => [row.id, row]),
+    );
+    const claimed = new Set<string>();
     group.items.forEach((item, index) => {
-      insertAiPlanItem(
+      const carried = item.carriesChangeIds.flatMap((changeId) => {
+        const row = parentChanges.get(changeId);
+        if (!row || claimed.has(changeId)) return [];
+        claimed.add(changeId);
+        return [row];
+      });
+      // A carried change is never inserted again as a new planned change.
+      const carriedKeys = new Set(carried.map(changeKey));
+      const { id, nextChangePosition } = insertAiPlanItem(
         tx,
         validEntryIds,
         {
@@ -427,10 +460,20 @@ function applyFleshOut(
           craft: item.craft,
           presentEntryIds: item.presentEntryIds,
           tension: null,
-          plannedChanges: item.plannedChanges,
+          plannedChanges: item.plannedChanges.filter(
+            (change) => !carriedKeys.has(changeKey(change)),
+          ),
         },
         now,
       );
+      let position = nextChangePosition;
+      for (const row of carried) {
+        if (row.authorEdited || row.status !== "planned") continue;
+        tx.update(studioChanges)
+          .set({ planItemId: id, position: position++, updatedAt: now })
+          .where(eq(studioChanges.id, row.id))
+          .run();
+      }
     });
   }
 }

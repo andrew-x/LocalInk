@@ -212,6 +212,8 @@ export const studioChildrenSchema = z.object({
           value: z.string(),
         }),
       ),
+      /** Ids of the parent's planned changes this child realizes. */
+      carriesChangeIds: z.array(z.string()),
     }),
   ),
 });
