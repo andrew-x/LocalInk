@@ -74,13 +74,13 @@ Entry fields are an ordered list inside the existing JSON column. Data written b
 - Legacy empty values are dropped only during conversion (the old UI hid them). New-shape lists keep empty fields because the author added them deliberately.
 - AI merges by normalized label and never overwrites author fields.
 - The 20,000-character value bound is not arbitrary: legacy values could be that long, and a tighter bound would leave them uneditable.
-- Bundle ops may not push an entry past the 40-field edit cap (an op that does not grow an already-over entry passes). Otherwise every later edit of that entry would fail validation.
+- Nothing may grow an entry past 40 fields: bundle ops, AI merges (`mergeAiFields` stops appending and reports what it skipped), and author edits. The edit check compares against the stored count instead of a flat schema bound, so an entry already over the cap stays editable and can shrink. With a flat bound, an entry an earlier AI merge had pushed over the cap could not be edited at all.
 
 ## Aspect modes
 
 Replay identity is entry + normalized label + about-entry. Two traps:
 
-- AI paths (planning apply, read-back, bundle builder) coerce `mode` to the label's existing mode. One inconsistent model output would otherwise turn an accumulated list into a single replaced value. Only the author's change form may switch a mode.
+- AI paths (planning apply, read-back, bundle builder) coerce `mode` to the label's existing mode. One inconsistent model output would otherwise turn an accumulated list into a single replaced value. Accept coerces too, so even an accepted `change.update` cannot switch a label's mode: mode is a property of the aspect, not of one record. Only the author's change form may switch it.
 - Stored data predating modes needs defaults in two places: the migration back-fills rows and stored flag payloads (`knows`/`note` become `add`), and the read-time flag parse applies the same default so an old flag cannot break workspace load. Legacy keys such as `where` and `feels` map to suggestion labels so they are not offered as new aspects.
 
 Migration gotcha: drizzle-kit's table rebuild for `0011` was wrong in two ways and the SQL was hand-fixed. It selected a column that does not exist in the old table, and it table-qualified CHECK expressions with the temporary `__new_` name, which SQLite rejects after the rename. For future rebuild migrations, apply all migrations to a scratch in-memory SQLite and check the result. Prefer designs that avoid rebuilds (plain `ADD COLUMN`, no CHECK on values likely to grow).
@@ -97,6 +97,8 @@ A bundle is one turn's proposed changes, reviewed by the author and accepted per
 - Undo data (including whole-subtree delete snapshots) lives in the persisted op result, so it survives restarts.
 - Decisions are idempotent: repeating one returns `replayed`.
 - Op labels may name entries, plan items, and aspects but never field values, summaries, or prose, since they appear in toasts and conflict lists. Never log them.
+- Op ids are unique only within a bundle (each turn numbers from `op-1`), so anything that points at an op (review focus from the tree, Inspect, or manuscript) must carry the bundle id too.
+- There is no field-reorder op, a deliberate deviation from the spec's op list: new fields append and the author reorders them.
 
 ## Agent chat
 
@@ -105,8 +107,10 @@ Flow: a prepare action stores the user message, a streaming route generates, the
 - One bundle per turn. If the model never calls `finalize_bundle` (step cap, forgetfulness), the route stages the accumulated ops with a fallback summary rather than silently losing proposed work. A non-`stop` finish stages nothing.
 - Aborted or failed turns persist nothing: discard deletes the prepared user message and the client puts the text back in the composer.
 - Prose overlay: later moments in a turn are drafted against earlier proposed prose, not stale saved prose. A turn proposes prose for one scene only. The scene is claimed synchronously, because AI SDK 6 runs tool `execute` calls concurrently and an async claim would race.
-- Write tool results carry metadata only (ids, word counts), never prose, to keep prose out of model history. The model can summarize its draft but not quote it.
+- Write tool results carry metadata only (ids, word counts), never prose, to keep prose out of stored chat history. Within the turn the model can read its proposed prose back with `get_prose`.
 - Tool input schemas are strict-safe for the same `strictJsonSchema` reason as structured output. The builder re-validates at propose time what accept enforces and returns `{ error }` so the model retries; accept stays the authority.
+- Tools are not sent with `strict`, so a provider may omit required-nullable keys. A repair hook (`chat-tool-repair.ts`) fills omitted keys whose schema allows null and lets the SDK re-parse; the wire schemas stay strict-safe. The route end log reports `repairedToolCalls` next to `invalidToolCalls`.
+- Output is capped per step (16k tokens) and tool inputs count toward it, so the prompt tells the model to split very large proposals across several propose calls. A truncated step ends as `length`, which discards the whole turn.
 - Budgeting trims whole oldest turns and fails loudly if the current message still does not fit. It never truncates the current message.
 - Deleting a thread rejects its pending bundles in the same transaction, because a pending bundle without its card leaves previews with no way to review.
 - Chat state lives in the panel, not the workspace store. Every store change re-renders the tree, Lexical editors, and Inspect, so per-token updates there would be costly.
