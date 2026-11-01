@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { storyGenerationModelSchema } from "@/lib/story-generation-models";
 import { STUDIO_BUNDLE_MAX_OPS } from "@/lib/studio/bundle-contract";
+import { STUDIO_CHAT_MAX_MESSAGE_CHARS } from "@/lib/studio/chat-contract";
 import {
   studioAspectSchema,
   studioChangeModeSchema,
@@ -71,6 +72,8 @@ export const updateStudioStoryActionSchema = z.object({
       structureNotes: z.string().max(8000),
       voiceSamples: studioVoiceSamplesSchema,
       proseModel: storyGenerationModelSchema,
+      // Only configured profiles, all of which support tool calling.
+      chatModel: storyGenerationModelSchema,
     })
     .partial(),
 });
@@ -280,4 +283,41 @@ export const checkStudioBundleSelectionSchema = z.object({
   bundleId: id,
   /** The ops the author has selected; null means all. */
   opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
+});
+
+/** The chat composer's own field; the turn continues past the action. */
+export const studioChatComposerFormSchema = z.object({
+  content: z
+    .string()
+    .trim()
+    .min(1, "Write a message first.")
+    .max(
+      STUDIO_CHAT_MAX_MESSAGE_CHARS,
+      `Messages must be ${STUDIO_CHAT_MAX_MESSAGE_CHARS.toLocaleString("en-US")} characters or fewer.`,
+    ),
+});
+
+export type StudioChatComposerFormValues = z.infer<
+  typeof studioChatComposerFormSchema
+>;
+
+export const prepareStudioChatTurnActionSchema =
+  studioChatComposerFormSchema.extend({
+    ...storyIdField,
+    /** null starts a new thread titled from the message. */
+    threadId: nullableId,
+  });
+
+/** Save and discard address a turn by ids only, never by text. */
+export const studioChatTurnActionSchema = z.object({
+  ...storyIdField,
+  threadId: id,
+  generationId: id,
+});
+
+export const getStudioChatThreadsSchema = z.object(storyIdField);
+
+export const studioChatThreadActionSchema = z.object({
+  ...storyIdField,
+  threadId: id,
 });

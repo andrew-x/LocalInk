@@ -24,6 +24,10 @@ import type {
   StudioBundleStatus,
 } from "@/lib/studio/bundle-contract";
 import type {
+  StudioChatRole,
+  StudioChatStep,
+} from "@/lib/studio/chat-contract";
+import type {
   StudioAspect,
   StudioChangeMode,
   StudioChangeSource,
@@ -355,6 +359,10 @@ export const studioStories = sqliteTable(
       .$type<StoryGenerationModel>()
       .notNull()
       .default(DEFAULT_STORY_GENERATION_MODEL),
+    chatModel: text("chat_model")
+      .$type<StoryGenerationModel>()
+      .notNull()
+      .default(DEFAULT_STORY_GENERATION_MODEL),
     setupStatus: text("setup_status")
       .$type<StudioSetupStatus>()
       .notNull()
@@ -647,6 +655,63 @@ export const studioBundles = sqliteTable(
     check(
       "studio_bundles_status_check",
       sql`${table.status} IN ('pending', 'accepted', 'partially-accepted', 'rejected', 'undone')`,
+    ),
+  ],
+);
+
+export const studioChatThreads = sqliteTable(
+  "studio_chat_threads",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_chat_threads_story_updated_idx").on(
+      table.storyId,
+      table.updatedAt,
+    ),
+  ],
+);
+
+export const studioChatMessages = sqliteTable(
+  "studio_chat_messages",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => studioChatThreads.id, { onDelete: "cascade" }),
+    role: text("role").$type<StudioChatRole>().notNull(),
+    content: text("content").notNull(),
+    steps: text("steps", { mode: "json" })
+      .$type<StudioChatStep[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    // Informational link, like the bundle's own thread/message ids. Bundles
+    // are only deleted with their story, which also deletes the thread.
+    bundleId: text("bundle_id"),
+    // Shared by a turn's user and assistant message. One of each per
+    // generation, so a duplicate save or replayed turn cannot add a second.
+    generationId: text("generation_id").notNull(),
+    position: integer("position").notNull(),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    uniqueIndex("studio_chat_messages_thread_position_unique").on(
+      table.threadId,
+      table.position,
+    ),
+    uniqueIndex("studio_chat_messages_generation_role_unique").on(
+      table.generationId,
+      table.role,
+    ),
+    check(
+      "studio_chat_messages_role_check",
+      sql`${table.role} IN ('user', 'assistant')`,
     ),
   ],
 );

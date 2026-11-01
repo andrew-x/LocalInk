@@ -73,6 +73,7 @@ export function insertStudioStory(
       brainDump: input.brainDump,
       voiceSamples: input.voiceSamples ?? [],
       proseModel: DEFAULT_STORY_GENERATION_MODEL,
+      chatModel: DEFAULT_STORY_GENERATION_MODEL,
       style: { ...EMPTY_STUDIO_STYLE },
       createdAt: now,
       updatedAt: now,
@@ -92,6 +93,7 @@ export type StudioStoryPatch = Partial<{
   structureNotes: string;
   voiceSamples: StudioVoiceSample[];
   proseModel: StoryGenerationModel;
+  chatModel: StoryGenerationModel;
 }>;
 
 /** Settings fields have a single writer, so the last write wins. */

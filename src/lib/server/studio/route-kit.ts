@@ -108,10 +108,15 @@ export function createStudioRouteLog(
     start(details?: Record<string, unknown>) {
       studioRouteLogger.info("start", { action, ...ids, ...details });
     },
-    end(status: "complete" | "aborted" | "error", errorCode?: string) {
+    end(
+      status: "complete" | "aborted" | "error",
+      errorCode?: string,
+      details?: Record<string, number | boolean | string | undefined>,
+    ) {
       studioRouteLogger.info("end", {
         action,
         ...ids,
+        ...details,
         status,
         errorCode,
         success: status === "complete",

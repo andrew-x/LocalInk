@@ -6,7 +6,8 @@ import { generateId } from "@/lib/util";
 
 export type StudioStageBinding = {
   storyId: string;
-  kind: "plan" | "moment-prose" | "read-back" | "undo-delete";
+  /** "chat": targetId is the thread id. */
+  kind: "plan" | "moment-prose" | "read-back" | "undo-delete" | "chat";
   targetId: string;
   generationId: string;
 };

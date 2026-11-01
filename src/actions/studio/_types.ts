@@ -39,3 +39,13 @@ export type {
   StudioBundleSelectionIssue,
   StudioBundleWorkspacePatch,
 } from "@/lib/studio/bundle-contract";
+
+export type {
+  StudioChatDiscardResult,
+  StudioChatMessageDto,
+  StudioChatPreparedTurn,
+  StudioChatSavedTurn,
+  StudioChatStep,
+  StudioChatThreadDetail,
+  StudioChatThreadDto,
+} from "@/lib/studio/chat-contract";

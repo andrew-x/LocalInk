@@ -55,6 +55,12 @@ export type StudioBundleInsertInput = {
   summary: string;
   /** Validated here; status and result are set by the bundle itself. */
   operations: StudioBundleOpInput[];
+  /**
+   * When the ops' baselines were captured (a chat turn's start), stored as
+   * createdAt. Delete pre-checks treat later writes as conflicts, so this
+   * must not be later than the earliest baseline. Defaults to now.
+   */
+  proposedAt?: string;
 };
 
 /**
@@ -109,7 +115,8 @@ export function insertStudioBundle(
       summary: input.summary.trim().slice(0, MAX_SUMMARY_CHARS),
       operations,
       status: "pending",
-      createdAt: now,
+      createdAt:
+        input.proposedAt && input.proposedAt < now ? input.proposedAt : now,
       updatedAt: now,
     })
     .returning()

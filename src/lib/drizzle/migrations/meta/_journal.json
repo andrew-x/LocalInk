@@ -92,6 +92,13 @@
       "when": 1793555603012,
       "tag": "0012_studio-bundles",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793558505059,
+      "tag": "0013_studio-chat",
+      "breakpoints": true
     }
   ]
 }

@@ -122,12 +122,19 @@ function pickVoiceSamples(
   );
 }
 
+/**
+ * `proseOverlay` maps moment ids to prose proposed but not saved (the agent
+ * chat writing several moments in one turn). It stands in for the saved
+ * prose when assembling the previous text and the story so far, so a later
+ * moment continues from the earlier proposed one.
+ */
 export function buildStudioMomentPrompt(
   workspace: StudioWorkspace,
   momentId: string,
   globalInstructions: string,
   profile: LocalinkAiModelProfile,
   attempt: StudioMomentAttempt = "first",
+  proseOverlay?: ReadonlyMap<string, string>,
 ): { system: string; prompt: string; maxOutputTokens: number } {
   const moment = workspace.planItems.find((item) => item.id === momentId);
   if (moment?.kind !== "moment") throw new StudioNotFoundError();
@@ -210,8 +217,10 @@ export function buildStudioMomentPrompt(
   // chapter or scene summary. Under budget pressure the oldest go first,
   // and all of them go before the next-moment set-up below.
   const proseByMoment = new Map(
-    workspace.prose.map((prose) => [prose.momentId, prose]),
+    workspace.prose.map((prose) => [prose.momentId, prose.markdown]),
   );
+  const proseOf = (id: string) =>
+    proseOverlay?.get(id) ?? proseByMoment.get(id) ?? "";
   const earlier = flattenPlan(workspace.planItems).flatMap((item) => {
     const entry = index.get(item.id);
     if (entry === undefined || entry.endOrder >= point.order) return [];
@@ -219,8 +228,12 @@ export function buildStudioMomentPrompt(
       return item.summary.trim() ? [{ item, text: item.summary }] : [];
     }
     // A moment with no prose has not happened, whatever its plan says.
-    if (!proseByMoment.get(item.id)?.markdown.trim()) return [];
-    const text = item.summary.trim() || item.whatHappens.trim();
+    if (!proseOf(item.id).trim()) return [];
+    // A read-back summary describes the saved prose, not proposed prose
+    // that replaces it, so proposed moments are told by their brief.
+    const text = proseOverlay?.has(item.id)
+      ? item.whatHappens.trim() || item.summary.trim()
+      : item.summary.trim() || item.whatHappens.trim();
     return text ? [{ item, text }] : [];
   });
   earlier.forEach(({ item, text }, position) => {
@@ -243,7 +256,7 @@ export function buildStudioMomentPrompt(
   const momentPosition = moments.findIndex((item) => item.id === momentId);
   let previousTail = "";
   for (let i = momentPosition - 1; i >= 0; i--) {
-    const markdown = proseByMoment.get(moments[i].id)?.markdown ?? "";
+    const markdown = proseOf(moments[i].id);
     if (markdown.trim()) {
       previousTail = tailParagraphs(markdown, PREVIOUS_TEXT_PARAGRAPHS);
       break;

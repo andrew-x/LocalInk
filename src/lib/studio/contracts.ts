@@ -103,6 +103,8 @@ export type StudioStoryDto = {
   brainDump: string;
   voiceSamples: StudioVoiceSample[];
   proseModel: StoryGenerationModel;
+  /** The agent chat's model; one of the existing generation profiles. */
+  chatModel: StoryGenerationModel;
   setupStatus: StudioSetupStatus;
   createdAt: string;
   updatedAt: string;
