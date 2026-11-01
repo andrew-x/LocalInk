@@ -272,16 +272,48 @@ export const STUDIO_ASPECT_SUGGESTIONS: {
   label: string;
   mode: StudioChangeMode;
   hint: string;
+  /** The stored key older stories used for this idea; never renamed. */
+  legacyKey?: string;
 }[] = [
-  { label: "Believes", mode: "set", hint: "what they hold to be true" },
-  { label: "Wants", mode: "set", hint: "what they are after right now" },
-  { label: "Knows", mode: "add", hint: "facts and secrets they have learned" },
-  { label: "Feels about", mode: "set", hint: "feelings toward another entry" },
-  { label: "Is at", mode: "set", hint: "where they are" },
-  { label: "Status", mode: "set", hint: "their standing or condition" },
-  { label: "Looks", mode: "set", hint: "how they appear" },
+  {
+    label: "Believes",
+    mode: "set",
+    hint: "what they hold to be true",
+    legacyKey: "believes",
+  },
+  {
+    label: "Wants",
+    mode: "set",
+    hint: "what they are after right now",
+    legacyKey: "wants",
+  },
+  {
+    label: "Knows",
+    mode: "add",
+    hint: "facts and secrets they have learned",
+    legacyKey: "knows",
+  },
+  {
+    label: "Feels about",
+    mode: "set",
+    hint: "feelings toward another entry",
+    legacyKey: "feels",
+  },
+  { label: "Is at", mode: "set", hint: "where they are", legacyKey: "where" },
+  {
+    label: "Status",
+    mode: "set",
+    hint: "their standing or condition",
+    legacyKey: "status",
+  },
+  { label: "Looks", mode: "set", hint: "how they appear", legacyKey: "looks" },
   { label: "Promises", mode: "add", hint: "promises made or owed" },
-  { label: "Note", mode: "add", hint: "anything else worth tracking" },
+  {
+    label: "Note",
+    mode: "add",
+    hint: "anything else worth tracking",
+    legacyKey: "note",
+  },
 ];
 
 export const STUDIO_STRUCTURE_TEMPLATES: {

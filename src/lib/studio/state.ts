@@ -5,7 +5,7 @@ import type {
   StudioEntryDto,
   StudioPlanItemDto,
 } from "@/lib/studio/contracts";
-import { getPlanIndex } from "@/lib/studio/plan-order";
+import { getPlanIndex, sortChangesForReplay } from "@/lib/studio/plan-order";
 
 export type StudioEntryState = {
   entry: StudioEntryDto;
@@ -24,24 +24,6 @@ export type StudioStateInput = {
   planItems: StudioPlanItemDto[];
 };
 
-/** Changes whose plan item exists, sorted into story replay order. */
-function sortForReplay(
-  changes: StudioChangeDto[],
-  order: Map<string, { order: number }>,
-): StudioChangeDto[] {
-  return changes
-    .filter((change) => order.has(change.planItemId))
-    .sort((a, b) => {
-      const orderA = order.get(a.planItemId)?.order ?? 0;
-      const orderB = order.get(b.planItemId)?.order ?? 0;
-      if (orderA !== orderB) return orderA - orderB;
-      if (a.position !== b.position) return a.position - b.position;
-      if (a.createdAt !== b.createdAt)
-        return a.createdAt < b.createdAt ? -1 : 1;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-}
-
 /**
  * A change counts going into P when its item has fully ended before P starts:
  * not P, not an ancestor of P, and its last descendant precedes P in order.
@@ -57,7 +39,7 @@ function changesGoingIn(
     const pinned = index.get(change.planItemId);
     return pinned !== undefined && pinned.endOrder < point.order;
   });
-  return sortForReplay(eligible, index);
+  return sortChangesForReplay(eligible, index);
 }
 
 export function changesComingOut(
@@ -75,7 +57,7 @@ export function changesComingOut(
       pinned.order <= point.endOrder
     );
   });
-  return sortForReplay(own, index);
+  return sortChangesForReplay(own, index);
 }
 
 function replay(

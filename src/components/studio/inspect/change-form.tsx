@@ -7,13 +7,14 @@ import { z } from "zod";
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Label } from "@/components/common/label";
+import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { formResolver } from "@/lib/schemas/resolve";
 import {
   entryAspectLabels,
   modeForLabel,
-  normalizeAspect,
+  suggestionForLabel,
+  unusedAspectSuggestions,
 } from "@/lib/studio/aspects";
-import { STUDIO_ASPECT_SUGGESTIONS } from "@/lib/studio/bible-templates";
 import {
   type StudioAspect,
   type StudioChangeDto,
@@ -85,18 +86,16 @@ export function ChangeForm({
   const [pickedMode, setPickedMode] = useState<StudioChangeMode | null>(
     initial?.mode ?? null,
   );
-  const existingLabels = entryAspectLabels(changes, entryId);
-  const existingKeys = new Set(existingLabels.map(normalizeAspect));
-  const suggestionLabels = STUDIO_ASPECT_SUGGESTIONS.map(
+  const { planItems } = useStudioStore().state;
+  const existingLabels = entryAspectLabels(changes, entryId, planItems);
+  const suggestionLabels = unusedAspectSuggestions(existingLabels).map(
     (item) => item.label,
-  ).filter((label) => !existingKeys.has(normalizeAspect(label)));
+  );
   // Until the author picks a mode, follow the label: an existing label keeps
   // its mode, a suggested one uses the suggestion's, anything else replaces.
   const matchedMode =
-    modeForLabel(changes, entryId, aspect) ??
-    STUDIO_ASPECT_SUGGESTIONS.find(
-      (item) => normalizeAspect(item.label) === normalizeAspect(aspect),
-    )?.mode ??
+    modeForLabel(changes, entryId, aspect, planItems) ??
+    suggestionForLabel(aspect)?.mode ??
     "set";
   const changeMode = pickedMode ?? matchedMode;
   const idPrefix = useId();
@@ -176,10 +175,11 @@ export function ChangeForm({
           </datalist>
         </div>
       </div>
-      <fieldset
-        aria-label="How this change applies"
-        className="m-0 flex min-w-0 gap-1 border-0 p-0"
-      >
+      <fieldset className="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
+        <legend className="sr-only">How this change applies</legend>
+        <span className="mr-1 text-caption text-muted-foreground">
+          This change
+        </span>
         {MODE_OPTIONS.map((option) => (
           <Button
             aria-pressed={changeMode === option.mode}

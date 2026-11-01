@@ -29,6 +29,7 @@ import {
 } from "@/lib/studio/read-back-contract";
 import { generateId } from "@/lib/util";
 
+import { createAspectModeResolver } from "./aspect-modes";
 import {
   chunk,
   requireEntry,
@@ -309,7 +310,14 @@ export function applyStagedReadBack(
   }
   const stillReported = new Set<string>();
   const raised = new Set<string>();
-  for (const change of output.unplannedChanges) {
+  // The model never changes a tracked label's mode, so findings are coerced
+  // before they are compared with settled flags or recorded.
+  const modes = createAspectModeResolver(tx, storyId);
+  const unplanned = output.unplannedChanges.map((change) => ({
+    ...change,
+    mode: modes.resolve(change.entryId, change.aspect, change.mode),
+  }));
+  for (const change of unplanned) {
     if (!entryIds.has(change.entryId)) continue;
     if (change.aboutEntryId && !entryIds.has(change.aboutEntryId)) continue;
     const exact = exactFindingKey(change);

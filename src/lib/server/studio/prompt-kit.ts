@@ -1,8 +1,15 @@
 import "server-only";
 
-import { entryAspectLabels, modeForLabel } from "@/lib/studio/aspects";
-import { STUDIO_ASPECT_SUGGESTIONS } from "@/lib/studio/bible-templates";
-import type { StudioChangeDto, StudioEntryDto } from "@/lib/studio/contracts";
+import {
+  entryAspectLabels,
+  modeForLabel,
+  unusedAspectSuggestions,
+} from "@/lib/studio/aspects";
+import type {
+  StudioChangeDto,
+  StudioEntryDto,
+  StudioPlanItemDto,
+} from "@/lib/studio/contracts";
 import type { StudioEntryState } from "@/lib/studio/state";
 
 export class StudioContextTooLargeError extends Error {
@@ -84,10 +91,11 @@ export const ASPECT_GUIDANCE =
   "An aspect is a short free-text label for what is changing (for example Trusts Mara, Believes the letter was burned). Reuse a label from tracked_aspects when the same thing changes; invent a short, specific label only for something new. mode is add for things that accumulate (knowledge, secrets, promises) and set for anything that replaces its previous value. Keep the same mode every time a label is used.";
 
 /** Examples of labels and modes. They are ideas, not a required set. */
-export function aspectExamplesBlock(): string {
+export function aspectExamplesBlock(changes: StudioChangeDto[]): string {
+  const used = changes.map((change) => change.aspect);
   return xmlGroup(
     "aspect_examples",
-    STUDIO_ASPECT_SUGGESTIONS.map((suggestion) =>
+    unusedAspectSuggestions(used).map((suggestion) =>
       xmlField("example", suggestion.hint, {
         label: suggestion.label,
         mode: suggestion.mode,
@@ -100,17 +108,19 @@ export function aspectExamplesBlock(): string {
 export function trackedAspectsBlock(
   entries: StudioEntryDto[],
   changes: StudioChangeDto[],
+  planItems: StudioPlanItemDto[],
 ): string {
   return xmlGroup(
     "tracked_aspects",
     entries.map((entry) => {
-      const labels = entryAspectLabels(changes, entry.id);
+      const labels = entryAspectLabels(changes, entry.id, planItems);
       return xmlGroup(
         "entry",
         labels.map((label) =>
           xmlEmpty("aspect", {
             label,
-            mode: modeForLabel(changes, entry.id, label) ?? undefined,
+            mode:
+              modeForLabel(changes, entry.id, label, planItems) ?? undefined,
           }),
         ),
         { id: entry.id, name: entry.name },

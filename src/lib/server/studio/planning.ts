@@ -476,9 +476,13 @@ async function generateInitialPlan(
     section("entry_field_examples", entrySuggestionsBlock()),
     section(
       "tracked_aspects",
-      trackedAspectsBlock(workspace.entries, workspace.changes),
+      trackedAspectsBlock(
+        workspace.entries,
+        workspace.changes,
+        workspace.planItems,
+      ),
     ),
-    section("aspect_examples", aspectExamplesBlock()),
+    section("aspect_examples", aspectExamplesBlock(workspace.changes)),
     section("craft_fields", craftFieldsBlock(["chapter", "scene"])),
   ];
 
@@ -496,6 +500,7 @@ async function generateInitialPlan(
     "Review the draft plan against this checklist of common planning failures, then return the revised plan in the same structure.",
     "Checklist:",
     ...CRITIQUE_CHECKLIST.map((item, index) => `${index + 1}. ${item}`),
+    `Planned changes follow the same rules as in the draft. ${ASPECT_GUIDANCE}`,
     "Fix only real problems. Keep everything that already works, including names, tempIds, and any text that came from the author. Do not pad chapters with filler to satisfy the checklist, and do not soften a setback you introduce. Return the complete plan, not a diff.",
   ].join("\n");
 
@@ -515,7 +520,15 @@ async function generateInitialPlan(
       }),
       section("structure", structureTemplatesBlock()),
       section("entry_field_examples", entrySuggestionsBlock()),
-      section("aspect_examples", aspectExamplesBlock()),
+      section(
+        "tracked_aspects",
+        trackedAspectsBlock(
+          workspace.entries,
+          workspace.changes,
+          workspace.planItems,
+        ),
+      ),
+      section("aspect_examples", aspectExamplesBlock(workspace.changes)),
       section("craft_fields", craftFieldsBlock(["chapter", "scene"])),
       section("draft", xmlField("draft_plan", JSON.stringify(draft))),
       section("task", critiqueTask),
@@ -573,9 +586,13 @@ async function generateChildren(
       section("bible", bibleBlock(workspace, states)),
       section(
         "tracked_aspects",
-        trackedAspectsBlock(workspace.entries, workspace.changes),
+        trackedAspectsBlock(
+          workspace.entries,
+          workspace.changes,
+          workspace.planItems,
+        ),
       ),
-      section("aspect_examples", aspectExamplesBlock()),
+      section("aspect_examples", aspectExamplesBlock(workspace.changes)),
       section("ancestors", ancestorsBlock(workspace, parent.id)),
       section(
         "target",

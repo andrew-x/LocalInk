@@ -29,6 +29,10 @@ import {
 import { generateId } from "@/lib/util";
 
 import {
+  type AspectModeResolver,
+  createAspectModeResolver,
+} from "./aspect-modes";
+import {
   loadStudioWorkspace,
   requirePlanItem,
   requireStudioStory,
@@ -114,6 +118,7 @@ function insertAiPlanItem(
   validEntryIds: Set<string>,
   item: NewPlanItem,
   now: string,
+  modes: AspectModeResolver,
 ): { id: string; nextChangePosition: number } {
   const id = generateId("studio-plan");
   tx.insert(studioPlanItems)
@@ -156,7 +161,7 @@ function insertAiPlanItem(
             ? change.aboutEntryId
             : null,
         aspect,
-        mode: change.mode,
+        mode: modes.resolve(change.entryId, aspect, change.mode),
         value,
         planItemId: id,
         position: position++,
@@ -316,6 +321,7 @@ function applyInitial(
       .run();
   }
 
+  const modes = createAspectModeResolver(tx, storyId);
   const validEntryIds = new Set(tempToId.values());
   for (const row of existing) validEntryIds.add(row.id);
   const resolve = (tempId: string | null | undefined) =>
@@ -361,6 +367,7 @@ function applyInitial(
         plannedChanges: resolveChanges(chapter.plannedChanges),
       },
       now,
+      modes,
     );
     (chapter.scenes ?? []).forEach((scene, sceneIndex) => {
       insertAiPlanItem(
@@ -380,6 +387,7 @@ function applyInitial(
           plannedChanges: resolveChanges(scene.plannedChanges),
         },
         now,
+        modes,
       );
     });
   });
@@ -391,6 +399,7 @@ function applyFleshOut(
   staged: Extract<StagedStudioPlan, { mode: "flesh-out" }>,
   now: string,
 ): void {
+  const modes = createAspectModeResolver(tx, storyId);
   const validEntryIds = new Set(
     loadEntryRows(tx, storyId).map((row) => row.id),
   );
@@ -466,11 +475,15 @@ function applyFleshOut(
           craft: item.craft,
           presentEntryIds: item.presentEntryIds,
           tension: null,
-          plannedChanges: item.plannedChanges.filter(
-            (change) => !carriedKeys.has(changeKey(change)),
-          ),
+          plannedChanges: item.plannedChanges
+            .map((change) => ({
+              ...change,
+              mode: modes.resolve(change.entryId, change.aspect, change.mode),
+            }))
+            .filter((change) => !carriedKeys.has(changeKey(change))),
         },
         now,
+        modes,
       );
       let position = nextChangePosition;
       for (const row of carried) {

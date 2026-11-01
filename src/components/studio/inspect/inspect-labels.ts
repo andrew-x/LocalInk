@@ -1,5 +1,6 @@
 import type {
   StudioAspect,
+  StudioChangeMode,
   StudioEntryDto,
   StudioPlanItemDto,
 } from "@/lib/studio/contracts";
@@ -38,6 +39,7 @@ export function entryNameMap(entries: StudioEntryDto[]): Map<string, string> {
 export function describeChange(
   change: {
     aspect: StudioAspect;
+    mode: StudioChangeMode;
     aboutEntryId: string | null;
     entryId: string;
     value: string;
@@ -48,5 +50,6 @@ export function describeChange(
   const about = change.aboutEntryId
     ? ` (about ${names.get(change.aboutEntryId) ?? "unknown entry"})`
     : "";
-  return `${who}, ${change.aspect}${about}: ${change.value}`;
+  const adds = change.mode === "add" ? " (adds)" : "";
+  return `${who}, ${change.aspect}${about}${adds}: ${change.value}`;
 }

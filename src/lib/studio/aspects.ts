@@ -1,4 +1,10 @@
-import type { StudioChangeDto, StudioChangeMode } from "@/lib/studio/contracts";
+import { STUDIO_ASPECT_SUGGESTIONS } from "@/lib/studio/bible-templates";
+import type {
+  StudioChangeDto,
+  StudioChangeMode,
+  StudioPlanItemDto,
+} from "@/lib/studio/contracts";
+import { getPlanIndex, sortChangesForReplay } from "@/lib/studio/plan-order";
 
 export const STUDIO_MAX_ASPECT_CHARS = 60;
 
@@ -65,34 +71,61 @@ export function exactAspectKey(change: AspectLike): string {
 }
 
 /**
- * Distinct display labels an entry's changes already use, in first-use
- * order. The first spelling seen for a normalized label wins.
+ * Distinct display labels an entry's changes already use, in first-use story
+ * order. The spelling shown is the latest one in story order, as state shows.
  */
 export function entryAspectLabels(
   changes: StudioChangeDto[],
   entryId: string,
+  planItems: StudioPlanItemDto[],
 ): string[] {
   const seen = new Map<string, string>();
-  for (const change of changes) {
-    if (change.entryId !== entryId) continue;
+  const mine = changes.filter((change) => change.entryId === entryId);
+  for (const change of sortChangesForReplay(mine, getPlanIndex(planItems))) {
     const key = normalizeAspect(change.aspect);
-    if (key && !seen.has(key)) seen.set(key, change.aspect.trim());
+    if (key) seen.set(key, change.aspect.trim());
   }
   return [...seen.values()];
 }
 
-/** Mode of the most recent change (in array order) using this label. */
+/** Mode of the latest change (in story order) using this label, if any. */
 export function modeForLabel(
   changes: StudioChangeDto[],
   entryId: string,
   label: string,
+  planItems: StudioPlanItemDto[],
 ): StudioChangeMode | null {
   const key = normalizeAspect(label);
-  for (let i = changes.length - 1; i >= 0; i--) {
-    const change = changes[i];
-    if (change.entryId === entryId && normalizeAspect(change.aspect) === key) {
-      return change.mode;
-    }
-  }
-  return null;
+  const mine = changes.filter(
+    (change) =>
+      change.entryId === entryId && normalizeAspect(change.aspect) === key,
+  );
+  const ordered = sortChangesForReplay(mine, getPlanIndex(planItems));
+  return ordered.length > 0 ? ordered[ordered.length - 1].mode : null;
+}
+
+/**
+ * Suggestions not already covered by a label in use. A suggestion counts as
+ * covered by its own label or by the legacy key it replaced ("Is at" by
+ * `where`), so a story tracking `where` is not offered "Is at" as new.
+ */
+export function unusedAspectSuggestions(
+  usedLabels: Iterable<string>,
+): typeof STUDIO_ASPECT_SUGGESTIONS {
+  const used = new Set([...usedLabels].map(normalizeAspect));
+  return STUDIO_ASPECT_SUGGESTIONS.filter(
+    (item) =>
+      !used.has(normalizeAspect(item.label)) &&
+      !(item.legacyKey && used.has(item.legacyKey)),
+  );
+}
+
+/** Suggestion matching a typed label by its own words or its legacy key. */
+export function suggestionForLabel(
+  label: string,
+): (typeof STUDIO_ASPECT_SUGGESTIONS)[number] | undefined {
+  const key = normalizeAspect(label);
+  return STUDIO_ASPECT_SUGGESTIONS.find(
+    (item) => normalizeAspect(item.label) === key || item.legacyKey === key,
+  );
 }

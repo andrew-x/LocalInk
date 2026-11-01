@@ -263,8 +263,11 @@ export async function runStudioReadBack(
         ),
       ),
     ),
-    section("tracked-aspects", trackedAspectsBlock(entries, workspace.changes)),
-    section("aspect-examples", aspectExamplesBlock()),
+    section(
+      "tracked-aspects",
+      trackedAspectsBlock(entries, workspace.changes, workspace.planItems),
+    ),
+    section("aspect-examples", aspectExamplesBlock(workspace.changes)),
     section("prose", xmlField("prose", markdown)),
   ];
 

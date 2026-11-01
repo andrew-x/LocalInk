@@ -1,4 +1,8 @@
-import type { StudioPlanItemDto, StudioProseDto } from "@/lib/studio/contracts";
+import type {
+  StudioChangeDto,
+  StudioPlanItemDto,
+  StudioProseDto,
+} from "@/lib/studio/contracts";
 
 export type StudioPlanNode = StudioPlanItemDto & { children: StudioPlanNode[] };
 
@@ -128,4 +132,22 @@ export function getAncestors(
     current = parent;
   }
   return result;
+}
+
+/** Changes whose plan item exists, sorted into story replay order. */
+export function sortChangesForReplay(
+  changes: StudioChangeDto[],
+  order: Map<string, { order: number }>,
+): StudioChangeDto[] {
+  return changes
+    .filter((change) => order.has(change.planItemId))
+    .sort((a, b) => {
+      const orderA = order.get(a.planItemId)?.order ?? 0;
+      const orderB = order.get(b.planItemId)?.order ?? 0;
+      if (orderA !== orderB) return orderA - orderB;
+      if (a.position !== b.position) return a.position - b.position;
+      if (a.createdAt !== b.createdAt)
+        return a.createdAt < b.createdAt ? -1 : 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
 }
