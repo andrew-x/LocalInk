@@ -19,6 +19,10 @@ import type {
 import { getInstructionStack } from "@/lib/studio/instructions";
 import { flattenPlan, getAncestors } from "@/lib/studio/plan-order";
 import {
+  normalizeStudioAlternatives,
+  normalizeStudioChildren,
+  normalizeStudioInitialPlan,
+  normalizeStudioQuestions,
   STUDIO_PLAN_STORY_TARGET,
   type StagedStudioPlan,
   type StudioPlanRequest,
@@ -74,8 +78,9 @@ function systemPrompt(extra?: string): string {
   return [...PLANNER_RULES, extra].filter(Boolean).join("\n\n");
 }
 
-type JsonCall<T> = {
-  schema: z.ZodType<T>;
+type JsonCall<TRaw, T> = {
+  schema: z.ZodType<TRaw>;
+  normalize: (raw: TRaw) => T;
   system: string;
   sections: StudioPromptSection[];
   maxOutputTokens: number;
@@ -89,14 +94,15 @@ function requireNormalCompletion(finishReason: string) {
   }
 }
 
-async function generateJson<T>({
+async function generateJson<TRaw, T>({
   schema,
+  normalize,
   system,
   sections,
   maxOutputTokens,
   temperature,
   abortSignal,
-}: JsonCall<T>): Promise<T> {
+}: JsonCall<TRaw, T>): Promise<T> {
   abortSignal?.throwIfAborted();
   const budgeted = budgetPrompt({
     system,
@@ -116,7 +122,7 @@ async function generateJson<T>({
   });
   abortSignal?.throwIfAborted();
   requireNormalCompletion(result.finishReason);
-  return schema.parse(result.output);
+  return normalize(schema.parse(result.output));
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +336,7 @@ export async function generateStudioQuestions(
 ): Promise<StudioQuestionsResponse> {
   const output = await generateJson({
     schema: studioQuestionsSchema,
+    normalize: normalizeStudioQuestions,
     system: systemPrompt(
       "The author has written a brain dump and is about to have a story planned from it. Ask between 3 and 7 short questions that close the biggest gaps. Do not ask what the brain dump already answers. Prefer questions about what the story is missing: what a lead wants and fears, how it should end or feel at the end, tone, what must not happen, the shape or length they have in mind. Each question is answerable in a sentence or two, specific to this brain dump rather than generic, and comes with a one-sentence reason it matters. Use any placeholder id.",
     ),
@@ -426,6 +433,7 @@ async function generateInitialPlan(
 
   const draft = await generateJson({
     schema: studioInitialPlanSchema,
+    normalize: normalizeStudioInitialPlan,
     system: systemPrompt(),
     sections: [...baseSections, section("task", draftTask)],
     maxOutputTokens: OUTPUT_TOKENS.initial,
@@ -442,6 +450,7 @@ async function generateInitialPlan(
 
   const revised = await generateJson({
     schema: studioInitialPlanSchema,
+    normalize: normalizeStudioInitialPlan,
     system: systemPrompt(),
     sections: [
       section("brain_dump", brainDump),
@@ -496,6 +505,7 @@ async function generateChildren(
 
   const output = await generateJson({
     schema: studioChildrenSchema,
+    normalize: normalizeStudioChildren,
     system: systemPrompt(),
     sections: [
       section(
@@ -538,12 +548,19 @@ async function runWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
+  let failed = false;
   const workers = Array.from(
     { length: Math.min(limit, items.length) },
     async () => {
-      while (next < items.length) {
+      while (!failed && next < items.length) {
         const index = next++;
-        results[index] = await work(items[index]);
+        try {
+          results[index] = await work(items[index]);
+        } catch (error) {
+          // Stop the other workers from starting more model calls.
+          failed = true;
+          throw error;
+        }
       }
     },
   );
@@ -636,6 +653,7 @@ async function generateAlternatives(
   const target = requireTarget(workspace, request.targetItemId);
   const output = await generateJson({
     schema: studioAlternativesSchema,
+    normalize: normalizeStudioAlternatives,
     system: systemPrompt(),
     sections: singleItemSections(
       workspace,
@@ -663,6 +681,7 @@ async function generateRewriteBrief(
   const target = requireTarget(workspace, request.targetItemId);
   const brief = await generateJson({
     schema: studioBriefSchema,
+    normalize: (brief) => brief,
     system: systemPrompt(),
     sections: singleItemSections(
       workspace,

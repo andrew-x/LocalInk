@@ -1,6 +1,9 @@
 import { getSystemInstructions } from "@/lib/server/app-settings";
 import { generateStudioPlan } from "@/lib/server/studio/planning";
-import { StudioNotFoundError } from "@/lib/server/studio/prompt-kit";
+import {
+  StudioBadRequestError,
+  StudioNotFoundError,
+} from "@/lib/server/studio/prompt-kit";
 import { loadStudioWorkspace } from "@/lib/server/studio/repository";
 import {
   createStudioRouteLog,
@@ -58,6 +61,9 @@ export async function POST(request: Request): Promise<Response> {
 
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
+    if (input.mode === "initial" && !workspace.story.brainDump.trim()) {
+      throw new StudioBadRequestError("Add a brain dump before planning.");
+    }
     const globalInstructions = await getSystemInstructions();
 
     const generationId = generateId("studio-plan");
