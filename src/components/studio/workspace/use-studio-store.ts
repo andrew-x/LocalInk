@@ -12,6 +12,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
   StudioEntryDto,
@@ -26,6 +27,8 @@ import { computePlanStatuses } from "./plan-status";
 
 export type StudioBibleTarget = { section: string; entryId?: string };
 
+export type StudioRightTab = "inspect" | "chat";
+
 export type StudioStoreState = StudioWorkspace & {
   /** Read-only global instructions, kept for the Inspect panel. */
   globalInstructions: string;
@@ -37,6 +40,19 @@ export type StudioStoreState = StudioWorkspace & {
   selectNonce: number;
   readMode: boolean;
   bibleOpen: StudioBibleTarget | null;
+  /** The right column's tab. The chat panel (Task 7) builds its tablist on this. */
+  rightTab: StudioRightTab;
+  /** The bundle op the chat review card should scroll to and highlight. */
+  focusedBundleOpId: string | null;
+  /** Bumped by every focusBundleOp, so refocusing the same op re-highlights. */
+  bundleFocusNonce: number;
+};
+
+export type StudioRemovedIds = {
+  planItemIds?: string[];
+  entryIds?: string[];
+  changeIds?: string[];
+  flagIds?: string[];
 };
 
 export type StudioStoreAction =
@@ -48,17 +64,16 @@ export type StudioStoreAction =
       prose?: StudioProseDto[];
       flags?: StudioFlagDto[];
       story?: StudioStoryDto;
+      bundles?: StudioBundleDto[];
+      /** Dropped after the upserts, like a "remove" (bundle patches). */
+      removed?: StudioRemovedIds;
     }
-  | {
-      type: "remove";
-      planItemIds?: string[];
-      entryIds?: string[];
-      changeIds?: string[];
-      flagIds?: string[];
-    }
+  | ({ type: "remove" } & StudioRemovedIds)
   | { type: "replace"; workspace: StudioWorkspace }
   | { type: "select"; itemId: string | null }
   | { type: "setReadMode"; value: boolean }
+  | { type: "setRightTab"; tab: StudioRightTab }
+  | { type: "focusBundleOp"; opId: string | null }
   | ({ type: "openBible" } & StudioBibleTarget)
   | { type: "closeBible" };
 
@@ -83,13 +98,48 @@ function freshProse(
   return incoming.filter((p) => p.revision >= (revisions.get(p.momentId) ?? 0));
 }
 
+function removeIds(
+  state: StudioStoreState,
+  action: StudioRemovedIds,
+): StudioStoreState {
+  const planIds = new Set(action.planItemIds);
+  const entryIds = new Set(action.entryIds);
+  const changeIds = new Set(action.changeIds);
+  const flagIds = new Set(action.flagIds);
+  if (
+    planIds.size === 0 &&
+    entryIds.size === 0 &&
+    changeIds.size === 0 &&
+    flagIds.size === 0
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    planItems: state.planItems.filter((i) => !planIds.has(i.id)),
+    entries: state.entries.filter((e) => !entryIds.has(e.id)),
+    // Records pinned to a removed plan item go with it.
+    changes: state.changes.filter(
+      (c) => !changeIds.has(c.id) && !planIds.has(c.planItemId),
+    ),
+    prose: state.prose.filter((p) => !planIds.has(p.momentId)),
+    flags: state.flags.filter(
+      (f) => !flagIds.has(f.id) && !planIds.has(f.planItemId),
+    ),
+    selectedItemId:
+      state.selectedItemId && planIds.has(state.selectedItemId)
+        ? null
+        : state.selectedItemId,
+  };
+}
+
 function studioReducer(
   state: StudioStoreState,
   action: StudioStoreAction,
 ): StudioStoreState {
   switch (action.type) {
-    case "merge":
-      return {
+    case "merge": {
+      const merged: StudioStoreState = {
         ...state,
         story: action.story ?? state.story,
         planItems: upsert(
@@ -105,31 +155,12 @@ function studioReducer(
           (p) => p.momentId,
         ),
         flags: upsert(state.flags, action.flags ?? [], (f) => f.id),
+        bundles: upsert(state.bundles, action.bundles ?? [], (b) => b.id),
       };
-    case "remove": {
-      const planIds = new Set(action.planItemIds);
-      const entryIds = new Set(action.entryIds);
-      const changeIds = new Set(action.changeIds);
-      const flagIds = new Set(action.flagIds);
-      const planItems = state.planItems.filter((i) => !planIds.has(i.id));
-      return {
-        ...state,
-        planItems,
-        entries: state.entries.filter((e) => !entryIds.has(e.id)),
-        // Records pinned to a removed plan item go with it.
-        changes: state.changes.filter(
-          (c) => !changeIds.has(c.id) && !planIds.has(c.planItemId),
-        ),
-        prose: state.prose.filter((p) => !planIds.has(p.momentId)),
-        flags: state.flags.filter(
-          (f) => !flagIds.has(f.id) && !planIds.has(f.planItemId),
-        ),
-        selectedItemId:
-          state.selectedItemId && planIds.has(state.selectedItemId)
-            ? null
-            : state.selectedItemId,
-      };
+      return action.removed ? removeIds(merged, action.removed) : merged;
     }
+    case "remove":
+      return removeIds(state, action);
     case "replace":
       return {
         ...state,
@@ -148,6 +179,15 @@ function studioReducer(
       };
     case "setReadMode":
       return { ...state, readMode: action.value };
+    case "setRightTab":
+      return { ...state, rightTab: action.tab };
+    case "focusBundleOp":
+      return {
+        ...state,
+        rightTab: action.opId ? "chat" : state.rightTab,
+        focusedBundleOpId: action.opId,
+        bundleFocusNonce: state.bundleFocusNonce + 1,
+      };
     case "openBible":
       return {
         ...state,
@@ -182,6 +222,9 @@ export function StudioStoreProvider({
       selectNonce: 0,
       readMode: false,
       bibleOpen: null,
+      rightTab: "inspect",
+      focusedBundleOpId: null,
+      bundleFocusNonce: 0,
     }),
   );
   const value = useMemo(() => ({ state, dispatch }), [state]);
@@ -194,6 +237,18 @@ export function useStudioStore(): StudioStoreValue {
     throw new Error("useStudioStore must be used inside StudioStoreProvider.");
   }
   return value;
+}
+
+/**
+ * Opens the chat tab on the review-card op with this id. The Inspect "Review
+ * in chat" link, proposed plan rows, and manuscript markers call it.
+ */
+export function useFocusBundleOp(): (opId: string) => void {
+  const { dispatch } = useStudioStore();
+  return useCallback(
+    (opId: string) => dispatch({ type: "focusBundleOp", opId }),
+    [dispatch],
+  );
 }
 
 export function useSelectedItem(): StudioPlanItemDto | null {

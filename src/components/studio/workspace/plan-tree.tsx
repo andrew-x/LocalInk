@@ -10,6 +10,11 @@ import {
 } from "react";
 
 import { Button } from "@/components/common/button";
+import { ProposedPlanRow } from "@/components/studio/bundles/proposed-plan-row";
+import {
+  type ProposedPlanItem,
+  useBundlePreview,
+} from "@/components/studio/bundles/use-bundle-preview";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 import {
@@ -36,18 +41,101 @@ type PlanTreeProps = {
   onWriteRestOfScene?: (itemId: string, autoKeep: boolean) => void;
 };
 
-type VisibleRow = { node: StudioPlanNode; depth: number };
+type VisibleRow = {
+  /** The tree key: a plan item id, or a proposed item's temp id. */
+  id: string;
+  /** Null for a proposed row, which is not a plan item yet. */
+  node: StudioPlanNode | null;
+  proposed: ProposedPlanItem | null;
+  depth: number;
+  hasChildren: boolean;
+};
+
+type TreeEntry =
+  | { real: StudioPlanNode; proposed?: undefined }
+  | { proposed: ProposedPlanItem; real?: undefined };
+
+/**
+ * The siblings under one parent: saved children in order, with proposed
+ * creates slotted in after the sibling they name (or appended).
+ */
+function siblingEntries(
+  parentRef: string | null,
+  saved: StudioPlanNode[],
+  proposed: ProposedPlanItem[],
+): TreeEntry[] {
+  const list: TreeEntry[] = saved.map((real) => ({ real }));
+  let waiting = proposed.filter((item) => item.parentRef === parentRef);
+  while (waiting.length > 0) {
+    const rest: ProposedPlanItem[] = [];
+    let progressed = false;
+    for (const item of waiting) {
+      if (item.afterRef === null) {
+        list.push({ proposed: item });
+        progressed = true;
+        continue;
+      }
+      const at = list.findIndex(
+        (entry) =>
+          (entry.real ? entry.real.id : entry.proposed.tempId) ===
+          item.afterRef,
+      );
+      if (at === -1) {
+        rest.push(item);
+        continue;
+      }
+      list.splice(at + 1, 0, { proposed: item });
+      progressed = true;
+    }
+    if (!progressed) {
+      for (const item of rest) list.push({ proposed: item });
+      break;
+    }
+    waiting = rest;
+  }
+  return list;
+}
 
 function collectVisible(
+  parentRef: string | null,
   nodes: StudioPlanNode[],
   collapsed: Set<string>,
+  proposed: ProposedPlanItem[],
   depth = 0,
   rows: VisibleRow[] = [],
 ): VisibleRow[] {
-  for (const node of nodes) {
-    rows.push({ node, depth });
-    if (!collapsed.has(node.id)) {
-      collectVisible(node.children, collapsed, depth + 1, rows);
+  for (const entry of siblingEntries(parentRef, nodes, proposed)) {
+    if (entry.real) {
+      const node = entry.real;
+      rows.push({
+        id: node.id,
+        node,
+        proposed: null,
+        depth,
+        hasChildren:
+          node.children.length > 0 ||
+          proposed.some((item) => item.parentRef === node.id),
+      });
+      if (!collapsed.has(node.id)) {
+        collectVisible(
+          node.id,
+          node.children,
+          collapsed,
+          proposed,
+          depth + 1,
+          rows,
+        );
+      }
+    } else {
+      const item = entry.proposed;
+      rows.push({
+        id: item.tempId,
+        node: null,
+        proposed: item,
+        depth,
+        hasChildren: false,
+      });
+      collectVisible(item.tempId, [], collapsed, proposed, depth + 1, rows);
     }
   }
   return rows;
@@ -59,6 +147,8 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
   const ai = usePlanAi();
   const storyPlan = useStoryFleshOut();
   const actions = usePlanTreeActions();
+  const preview = useBundlePreview();
+  const { changedItemIds, proposedPlanItems } = preview;
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [dragged, setDragged] = useState<StudioPlanItemDto | null>(null);
   const [drop, setDrop] = useState<
@@ -72,14 +162,19 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
   const { planItems, selectedItemId } = state;
   const tree = useMemo(() => buildPlanTree(planItems), [planItems]);
   const rows = useMemo(
-    () => collectVisible(tree, collapsed),
-    [tree, collapsed],
+    () => collectVisible(null, tree, collapsed, proposedPlanItems),
+    [tree, collapsed, proposedPlanItems],
+  );
+  // Proposed rows are previews: keyboard navigation skips them.
+  const selectableRows = useMemo(
+    () => rows.filter((row) => row.node !== null),
+    [rows],
   );
 
   // Keep one row tabbable even when nothing visible is selected.
-  const tabStopId = rows.some((row) => row.node.id === selectedItemId)
+  const tabStopId = selectableRows.some((row) => row.id === selectedItemId)
     ? selectedItemId
-    : (rows[0]?.node.id ?? null);
+    : (selectableRows[0]?.id ?? null);
 
   // A selection made elsewhere (arc strip, manuscript) must be visible here.
   useEffect(() => {
@@ -117,17 +212,19 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
     ) {
       return;
     }
-    if (rows.length === 0) return;
+    if (selectableRows.length === 0) return;
     event.preventDefault();
-    const current = rows.findIndex((row) => row.node.id === selectedItemId);
+    const current = selectableRows.findIndex(
+      (row) => row.id === selectedItemId,
+    );
     const delta = event.key === "ArrowDown" ? 1 : -1;
     const next =
       current === -1
         ? delta > 0
           ? 0
-          : rows.length - 1
-        : Math.min(rows.length - 1, Math.max(0, current + delta));
-    const nextId = rows[next].node.id;
+          : selectableRows.length - 1
+        : Math.min(selectableRows.length - 1, Math.max(0, current + delta));
+    const nextId = selectableRows[next].id;
     dispatch({ type: "select", itemId: nextId });
     document.getElementById(studioPlanRowId(nextId))?.focus();
   }
@@ -238,35 +335,46 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
             No chapters yet. Add one to start planning.
           </p>
         ) : null}
-        {rows.map(({ node, depth }) => (
-          <PlanTreeItem
-            ai={ai}
-            depth={depth}
-            dropHint={drop?.targetId === node.id ? drop.hint : null}
-            expanded={!collapsed.has(node.id)}
-            hasChildren={node.children.length > 0}
-            isDragging={dragged?.id === node.id}
-            isSelected={selectedItemId === node.id}
-            isTabStop={node.id === tabStopId}
-            item={node}
-            key={node.id}
-            onAdd={(item) => void actions.add(item)}
-            onDelete={setPendingDelete}
-            onDragEnd={() => {
-              setDragged(null);
-              setDrop(null);
-            }}
-            onDragOverRow={handleDragOver}
-            onDragStartRow={setDragged}
-            onDropRow={handleDrop}
-            onRename={(item, title) => void actions.rename(item, title)}
-            onSelect={(itemId) => dispatch({ type: "select", itemId })}
-            onToggle={toggle}
-            onWrite={onWrite}
-            onWriteRestOfScene={onWriteRestOfScene}
-            status={statuses.get(node.id) ?? "planned"}
-          />
-        ))}
+        {rows.map(({ node, proposed, depth, hasChildren }) =>
+          node === null ? (
+            proposed ? (
+              <ProposedPlanRow
+                depth={depth}
+                item={proposed}
+                key={proposed.tempId}
+              />
+            ) : null
+          ) : (
+            <PlanTreeItem
+              ai={ai}
+              depth={depth}
+              dropHint={drop?.targetId === node.id ? drop.hint : null}
+              expanded={!collapsed.has(node.id)}
+              hasChanges={changedItemIds.has(node.id)}
+              hasChildren={hasChildren}
+              isDragging={dragged?.id === node.id}
+              isSelected={selectedItemId === node.id}
+              isTabStop={node.id === tabStopId}
+              item={node}
+              key={node.id}
+              onAdd={(item) => void actions.add(item)}
+              onDelete={setPendingDelete}
+              onDragEnd={() => {
+                setDragged(null);
+                setDrop(null);
+              }}
+              onDragOverRow={handleDragOver}
+              onDragStartRow={setDragged}
+              onDropRow={handleDrop}
+              onRename={(item, title) => void actions.rename(item, title)}
+              onSelect={(itemId) => dispatch({ type: "select", itemId })}
+              onToggle={toggle}
+              onWrite={onWrite}
+              onWriteRestOfScene={onWriteRestOfScene}
+              status={statuses.get(node.id) ?? "planned"}
+            />
+          ),
+        )}
       </div>
 
       <StudioConfirmDialog

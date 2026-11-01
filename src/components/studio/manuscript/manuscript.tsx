@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/common/button";
+import { useBundlePreview } from "@/components/studio/bundles/use-bundle-preview";
 import { useStoryFleshOut } from "@/components/studio/workspace/use-story-flesh-out";
 import {
+  useFocusBundleOp,
   useProseByMomentId,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
@@ -51,6 +53,24 @@ function ChapterHeading({
   );
 }
 
+/** Marks a moment that has a pending proposed rewrite. */
+function ProposedProseMarker({ onReview }: { onReview: () => void }) {
+  return (
+    <button
+      className="mb-1 flex items-center gap-1.5 rounded-full border border-studio-proposed/60 border-dashed px-2 py-0.5 font-sans text-caption text-studio-proposed outline-none hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/40"
+      contentEditable={false}
+      onClick={onReview}
+      type="button"
+    >
+      <span
+        aria-hidden="true"
+        className="size-1.5 rounded-full bg-studio-proposed"
+      />
+      Proposed rewrite — review in chat
+    </button>
+  );
+}
+
 function SceneBreak() {
   return (
     <div className="my-6 select-none text-center text-muted-foreground tracking-[0.6em]">
@@ -86,6 +106,8 @@ export function Manuscript() {
   const { state, dispatch } = useStudioStore();
   const proseById = useProseByMomentId();
   const loop = useWritingLoop();
+  const { proseOpByMomentId } = useBundlePreview();
+  const focusBundleOp = useFocusBundleOp();
   const storyPlan = useStoryFleshOut();
   const storyId = state.story.id;
   const selectedItemId = state.selectedItemId;
@@ -176,6 +198,15 @@ export function Manuscript() {
                 key={keyFor(block.moment.id)}
                 {...blockDataProps(block)}
               >
+                {proseOpByMomentId.has(block.moment.id) ? (
+                  <ProposedProseMarker
+                    onReview={() =>
+                      focusBundleOp(
+                        proseOpByMomentId.get(block.moment.id)?.id ?? "",
+                      )
+                    }
+                  />
+                ) : null}
                 <MomentEditor
                   isHighlighted={isHighlighted(block)}
                   isSceneStart={block.sceneStart}
@@ -216,6 +247,13 @@ export function Manuscript() {
                 key={continueKey}
                 {...blockDataProps(block)}
               >
+                {momentId && proseOpByMomentId.has(momentId) ? (
+                  <ProposedProseMarker
+                    onReview={() =>
+                      focusBundleOp(proseOpByMomentId.get(momentId)?.id ?? "")
+                    }
+                  />
+                ) : null}
                 <MomentEditor
                   continueLine={<ContinueLine target={target} />}
                   createMoment={momentId ? undefined : createMoment}

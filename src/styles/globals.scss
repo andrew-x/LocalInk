@@ -50,6 +50,8 @@
   --studio-status-written: oklch(0.747 0.116 167.4);
   --studio-status-planned: oklch(0.52 0.028 255.1);
   --studio-status-flagged: oklch(0.762 0.109 78.9);
+  /* Proposed (not yet accepted) AI changes: plan rows, markers, diffs. */
+  --studio-proposed: oklch(0.74 0.1 290);
 }
 
 @theme inline {
@@ -95,6 +97,7 @@
   --color-studio-status-written: var(--studio-status-written);
   --color-studio-status-planned: var(--studio-status-planned);
   --color-studio-status-flagged: var(--studio-status-flagged);
+  --color-studio-proposed: var(--studio-proposed);
 
   --radius-sm: calc(var(--radius) - 0.125rem);
   --radius-md: var(--radius);

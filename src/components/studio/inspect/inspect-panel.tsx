@@ -1,5 +1,6 @@
 "use client";
 
+import { ProposedChangesSection } from "@/components/studio/bundles/proposed-changes-section";
 import { usePlanAi } from "@/components/studio/workspace/use-plan-ai";
 import { usePlanTreeActions } from "@/components/studio/workspace/use-plan-tree-actions";
 import { useSelectedItem } from "@/components/studio/workspace/use-studio-store";
@@ -30,6 +31,7 @@ export function InspectPanel() {
         // Keyed so local drafts never carry over to another item.
         <div className="flex flex-col gap-3 p-4" key={item.id}>
           <FlagsSection item={item} />
+          <ProposedChangesSection item={item} />
           <PlanFields
             ai={ai}
             item={item}

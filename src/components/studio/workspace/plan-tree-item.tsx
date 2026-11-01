@@ -38,6 +38,8 @@ type PlanTreeItemProps = {
   depth: number;
   dropHint: PlanDropHint | null;
   expanded: boolean;
+  /** A pending proposed change touches this item. */
+  hasChanges?: boolean;
   hasChildren: boolean;
   isDragging: boolean;
   isSelected: boolean;
@@ -62,6 +64,7 @@ export function PlanTreeItem({
   depth,
   dropHint,
   expanded,
+  hasChanges = false,
   hasChildren,
   isDragging,
   isSelected,
@@ -224,6 +227,14 @@ export function PlanTreeItem({
             {displayTitle}
           </span>
         )}
+        {hasChanges ? (
+          <span
+            aria-label="Has proposed changes"
+            className="size-1.5 shrink-0 rounded-full bg-studio-proposed"
+            role="img"
+            title="Has proposed changes"
+          />
+        ) : null}
         {pending ? (
           <span className="flex shrink-0 items-center gap-0.5">
             <LoaderCircle
