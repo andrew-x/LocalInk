@@ -8,6 +8,8 @@ import { actionFailureMessage } from "@/components/studio/manuscript/read-back-c
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 
+import { createRevisionSlots, newestRevision } from "./revision-slots";
+
 export type PlanItemPatch = Partial<
   Pick<
     StudioPlanItemDto,
@@ -26,25 +28,10 @@ type PatchInput =
   | PlanItemPatch
   | ((latest: StudioPlanItemDto) => PlanItemPatch);
 
-type ItemSlot = {
-  queue: Promise<unknown>;
-  newest: StudioPlanItemDto | null;
-};
-
 // Saves for one plan item serialize across every caller (fields, chips,
 // craft, tree rename), each against the newest revision seen. Keyed by
 // story and item, so it outlives any single component.
-const slots = new Map<string, ItemSlot>();
-
-function getSlot(storyId: string, itemId: string): ItemSlot {
-  const key = `${storyId}:${itemId}`;
-  let slot = slots.get(key);
-  if (!slot) {
-    slot = { queue: Promise.resolve(), newest: null };
-    slots.set(key, slot);
-  }
-  return slot;
-}
+const getSlot = createRevisionSlots<StudioPlanItemDto>();
 
 const PATCH_FAILED_MESSAGE = "The change could not be saved.";
 // One toast id, so a run of conflicting autosaves shows a single message.
@@ -67,12 +54,10 @@ export function usePatchPlanItem() {
 
   return useCallback(
     (itemId: string, input: PatchInput): Promise<StudioPlanItemDto | null> => {
-      const slot = getSlot(storyId, itemId);
+      const slot = getSlot(`${storyId}:${itemId}`);
       const task = slot.queue.then(async () => {
         const stored = stateRef.current.planItems.find((i) => i.id === itemId);
-        const seen = slot.newest;
-        const latest =
-          stored && seen && seen.revision > stored.revision ? seen : stored;
+        const latest = newestRevision(stored, slot);
         if (!latest) return null;
         const patch = typeof input === "function" ? input(latest) : input;
         try {

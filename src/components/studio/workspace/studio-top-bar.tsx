@@ -97,7 +97,7 @@ export function StudioTopBar() {
 
       <Button
         leftSection={<BookOpen aria-hidden="true" className="size-3.5" />}
-        onClick={() => dispatch({ type: "openBible", section: "foundation" })}
+        onClick={() => dispatch({ type: "openBible", section: "overview" })}
         size="sm"
         type="button"
         variant="outline"

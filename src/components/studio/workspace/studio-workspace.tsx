@@ -9,6 +9,7 @@ import {
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { Button } from "@/components/common/button";
+import { BibleSheet } from "@/components/studio/bible/bible-sheet";
 import { InspectPanel } from "@/components/studio/inspect/inspect-panel";
 import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import {
@@ -152,6 +153,7 @@ function WorkspaceLayout({ inspect }: Pick<StudioWorkspaceProps, "inspect">) {
           </div>
         </aside>
       </div>
+      <BibleSheet />
     </div>
   );
 }
