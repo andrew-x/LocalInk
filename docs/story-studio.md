@@ -1,6 +1,6 @@
 # Story Studio
 
-Story Studio is a planning-first writing mode: Bible, chapter/scene/moment plan, and per-moment prose, with AI that drafts, plans, and reads prose back. This explains the constraints behind it, not its schema or UI. Phase 1 covers the Bible, plan, manuscript, inspect panel, and read-back. Later phases: out-of-date/fingerprint tracking, review bundles, agent chat, and AI-ism detection. None of those exist yet, so do not assume them.
+Story Studio is a planning-first writing mode: Bible, chapter/scene/moment plan, and per-moment prose, with AI that drafts, plans, and reads prose back. This explains the constraints behind it, not its schema or UI. Phase 1 covers the Bible, plan, manuscript, inspect panel, and read-back. Amendment A added dynamic entry fields, free-text aspects, review bundles, and agent chat. Still not built, so do not assume them: out-of-date/fingerprint tracking (bundles compute no downstream out-of-date items) and AI-ism detection.
 
 ## Separate from existing stories
 
@@ -27,7 +27,7 @@ AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in 
 - The Action reads the staged result and never accepts AI text from the browser. Otherwise browser-supplied text could be stored as "AI output" and take the AI-owned code paths.
 - Moment prose is staged only when the stream finishes with `stop` (`stageOnStop` in `route-kit.ts`). Truncated, filtered, or aborted drafts have nothing staged, so a partial draft cannot be kept.
 - Staged results are volatile: they live 6 hours, each read pushes expiry back, and they are gone after a server restart. A draft or plan preview can sit on screen for a long time, which a short TTL broke. The pool is still bounded (50 entries, 64 MB); when it is full, the least recently touched finished result is evicted rather than refusing new work (abandoned drafts and unpicked alternatives would otherwise fill it). Running generations are never evicted. The user-facing recovery is to generate again.
-- Undo-delete snapshots use a separate small pool (15 minutes, oldest evicted) so a delete never fails because generations fill the main pool. Undo does not survive a restart.
+- Undo-delete snapshots use a separate small pool (15 minutes, oldest evicted) so a delete never fails because generations fill the main pool. This undo does not survive a restart. Bundle undo is different: its data is stored in the persisted bundle op result and survives restarts (see Review bundles).
 
 ## Strict structured output
 
@@ -58,10 +58,55 @@ Read-back summarizes a moment and reconciles it against planned changes.
 
 ## Ownership of author text
 
-Plan items list `authorFields`, and Bible fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, and read-back never overwrites a protected plan field.
+Plan items list `authorFields`, and Bible fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, empty-value proposals are ignored, and read-back never overwrites a protected plan field.
 
 An explicit pick of an AI option (alternatives, rewrite-brief, or a selection rewrite) counts as the author's approval. It may overwrite what the author wrote, and for plan briefs it then marks those fields as author-owned. Change records with `authorEdited` are never modified by read-back, including when they are matched or moved from the parent scene.
 
 ## Concurrent field saves
 
 Inspect-panel saves go through per-record queues (`revision-slots.ts`). Each save waits for the previous save on the same record and uses the newest revision returned. Without this, two quick edits to different fields of one record would both send the same `expectedRevision`, and the second would fail as a conflict the author did not cause.
+
+## Dynamic entry fields
+
+Entry fields are an ordered list inside the existing JSON column. Data written before that is a record keyed by field name, and a read-time normalizer converts it without a migration.
+
+- Converted fields get deterministic ids derived from the legacy key. Random ids per read would make every legacy field look new, so the first author edit would stamp all of them (including AI text) as author-owned. Author stamping compares the client list with the normalized stored list by id and content.
+- Legacy empty values are dropped only during conversion (the old UI hid them). New-shape lists keep empty fields because the author added them deliberately.
+- AI merges by normalized label and never overwrites author fields.
+- The 20,000-character value bound is not arbitrary: legacy values could be that long, and a tighter bound would leave them uneditable.
+- Bundle ops may not push an entry past the 40-field edit cap (an op that does not grow an already-over entry passes). Otherwise every later edit of that entry would fail validation.
+
+## Aspect modes
+
+Replay identity is entry + normalized label + about-entry. Two traps:
+
+- AI paths (planning apply, read-back, bundle builder) coerce `mode` to the label's existing mode. One inconsistent model output would otherwise turn an accumulated list into a single replaced value. Only the author's change form may switch a mode.
+- Stored data predating modes needs defaults in two places: the migration back-fills rows and stored flag payloads (`knows`/`note` become `add`), and the read-time flag parse applies the same default so an old flag cannot break workspace load. Legacy keys such as `where` and `feels` map to suggestion labels so they are not offered as new aspects.
+
+Migration gotcha: drizzle-kit's table rebuild for `0011` was wrong in two ways and the SQL was hand-fixed. It selected a column that does not exist in the old table, and it table-qualified CHECK expressions with the temporary `__new_` name, which SQLite rejects after the rename. For future rebuild migrations, apply all migrations to a scratch in-memory SQLite and check the result. Prefer designs that avoid rebuilds (plain `ADD COLUMN`, no CHECK on values likely to grow).
+
+## Review bundles
+
+A bundle is one turn's proposed changes, reviewed by the author and accepted per op.
+
+- Accept is a single transaction with every pre-check run first, so a conflict never leaves half a bundle applied.
+- Dependencies: deselecting a create that a selected op references is rejected.
+- Baselines: each op records what it was proposed against. Plan revisions do not move for prose saves, child adds, or moves, so deletes also compare `updatedAt` of everything in the subtree against the proposal time. Plan moves carry parent and position baselines for the same reason. The window between a tool call and the save is accepted.
+- A read action (`checkStudioBundleSelection`) reports every conflict by op id so the UI can mark ops to deselect. Accept errors alone are not enough for that.
+- Undo is ownership-based for AI scaffolding, not value-based. Accepting prose forces a read-back, which legitimately rewrites AI-owned plan text, so a value check would make the main chat flow un-undoable. The cost is that undo can discard a read-back refresh of AI text; the next read-back regenerates it.
+- Undo data (including whole-subtree delete snapshots) lives in the persisted op result, so it survives restarts.
+- Decisions are idempotent: repeating one returns `replayed`.
+- Op labels may name entries, plan items, and aspects but never field values, summaries, or prose, since they appear in toasts and conflict lists. Never log them.
+
+## Agent chat
+
+Flow: a prepare action stores the user message, a streaming route generates, the staged result is saved by a save action. The route body and the save action take ids only, for the same reason as the AI boundary above: browser text is never accepted as AI output.
+
+- One bundle per turn. If the model never calls `finalize_bundle` (step cap, forgetfulness), the route stages the accumulated ops with a fallback summary rather than silently losing proposed work. A non-`stop` finish stages nothing.
+- Aborted or failed turns persist nothing: discard deletes the prepared user message and the client puts the text back in the composer.
+- Prose overlay: later moments in a turn are drafted against earlier proposed prose, not stale saved prose. A turn proposes prose for one scene only. The scene is claimed synchronously, because AI SDK 6 runs tool `execute` calls concurrently and an async claim would race.
+- Write tool results carry metadata only (ids, word counts), never prose, to keep prose out of model history. The model can summarize its draft but not quote it.
+- Tool input schemas are strict-safe for the same `strictJsonSchema` reason as structured output. The builder re-validates at propose time what accept enforces and returns `{ error }` so the model retries; accept stays the authority.
+- Budgeting trims whole oldest turns and fails loudly if the current message still does not fit. It never truncates the current message.
+- Deleting a thread rejects its pending bundles in the same transaction, because a pending bundle without its card leaves previews with no way to review.
+- Chat state lives in the panel, not the workspace store. Every store change re-renders the tree, Lexical editors, and Inspect, so per-token updates there would be costly.
