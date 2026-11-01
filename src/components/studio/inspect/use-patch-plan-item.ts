@@ -26,13 +26,33 @@ type PatchInput =
   | PlanItemPatch
   | ((latest: StudioPlanItemDto) => PlanItemPatch);
 
+type ItemSlot = {
+  queue: Promise<unknown>;
+  newest: StudioPlanItemDto | null;
+};
+
+// Saves for one plan item serialize across every caller (fields, chips,
+// craft, tree rename), each against the newest revision seen. Keyed by
+// story and item, so it outlives any single component.
+const slots = new Map<string, ItemSlot>();
+
+function getSlot(storyId: string, itemId: string): ItemSlot {
+  const key = `${storyId}:${itemId}`;
+  let slot = slots.get(key);
+  if (!slot) {
+    slot = { queue: Promise.resolve(), newest: null };
+    slots.set(key, slot);
+  }
+  return slot;
+}
+
 const PATCH_FAILED_MESSAGE = "The change could not be saved.";
 // One toast id, so a run of conflicting autosaves shows a single message.
 const PATCH_TOAST_ID = "studio-plan-item-patch";
 
 /**
- * Saves plan item fields through the revision compare-and-swap. Saves run one
- * at a time, each against the newest revision this hook has seen, so quick
+ * Saves plan item fields through the revision compare-and-swap. Saves for an
+ * item run one at a time across all callers, each against the newest revision seen, so quick
  * successive edits never conflict with each other. A real conflict (the item
  * changed elsewhere) toasts the server's message and resolves null, leaving
  * the caller's local value in place.
@@ -44,14 +64,13 @@ export function usePatchPlanItem() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
-  const newest = useRef(new Map<string, StudioPlanItemDto>());
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
 
   return useCallback(
     (itemId: string, input: PatchInput): Promise<StudioPlanItemDto | null> => {
-      const task = queue.current.then(async () => {
+      const slot = getSlot(storyId, itemId);
+      const task = slot.queue.then(async () => {
         const stored = stateRef.current.planItems.find((i) => i.id === itemId);
-        const seen = newest.current.get(itemId);
+        const seen = slot.newest;
         const latest =
           stored && seen && seen.revision > stored.revision ? seen : stored;
         if (!latest) return null;
@@ -64,7 +83,7 @@ export function usePatchPlanItem() {
             patch,
           });
           if (result?.data) {
-            newest.current.set(itemId, result.data);
+            slot.newest = result.data;
             dispatch({ type: "merge", planItems: [result.data] });
             return result.data;
           }
@@ -76,7 +95,7 @@ export function usePatchPlanItem() {
         }
         return null;
       });
-      queue.current = task.catch(() => null);
+      slot.queue = task.catch(() => null);
       return task;
     },
     [dispatch, storyId],

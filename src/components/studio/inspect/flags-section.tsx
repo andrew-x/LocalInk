@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { createStudioChange } from "@/actions/studio/create-studio-change";
 import { resolveStudioFlag } from "@/actions/studio/resolve-studio-flag";
@@ -25,6 +25,8 @@ export function FlagsSection({ item }: { item: StudioPlanItemDto }) {
   const loop = useWritingLoop();
   const storyId = state.story.id;
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Flags whose edited change already exists; a retry only dismisses.
+  const recorded = useRef(new Set<string>());
   const [busyId, setBusyId] = useState<string | null>(null);
   const names = useMemo(() => entryNameMap(state.entries), [state.entries]);
 
@@ -58,13 +60,17 @@ export function FlagsSection({ item }: { item: StudioPlanItemDto }) {
   // Edit: the author's own version is recorded as a change, then the flag
   // is dismissed because it no longer needs an answer.
   async function recordEdited(flag: StudioFlagDto, values: ChangeFormValues) {
-    const created = await run(
-      createStudioChange({ storyId, planItemId: flag.planItemId, ...values }),
-      "The change could not be saved.",
-    );
-    if (!created) return false;
-    dispatch({ type: "merge", changes: [created] });
-    await resolve(flag, "dismiss");
+    if (!recorded.current.has(flag.id)) {
+      const created = await run(
+        createStudioChange({ storyId, planItemId: flag.planItemId, ...values }),
+        "The change could not be saved.",
+      );
+      if (!created) return false;
+      recorded.current.add(flag.id);
+      dispatch({ type: "merge", changes: [created] });
+    }
+    // If this fails the form stays open and a retry only dismisses again.
+    if (!(await resolve(flag, "dismiss"))) return false;
     setEditingId(null);
     return true;
   }

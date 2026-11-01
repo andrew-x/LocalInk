@@ -54,7 +54,7 @@ export function CraftDetails({ item }: { item: StudioPlanItemDto }) {
               className="h-8"
               id={`craft-${item.id}-${key}`}
               maxLength={2000}
-              onBlur={() => void flush()}
+              onBlur={() => void flush(true)}
               onChange={(event) => setValue(key, event.target.value)}
               value={values[key] ?? ""}
             />

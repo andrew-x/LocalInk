@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -65,7 +66,7 @@ export function ChangeForm({
   const { errors, isSubmitting } = form.formState;
   const aspect = form.watch("aspect");
   const showAbout = aspect === "feels" || Boolean(initial?.aboutEntryId);
-  const idPrefix = `change-form-${mode}`;
+  const idPrefix = useId();
 
   const submit = form.handleSubmit(async (values) => {
     await onSubmit({

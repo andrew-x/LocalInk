@@ -8,7 +8,15 @@ type Options<K extends string> = {
   /** What the store holds now; clean fields follow it. */
   serverValues: Record<K, string>;
   /** Resolves true once the changed fields are saved. */
-  save: (changed: Partial<Record<K, string>>) => Promise<boolean>;
+  /**
+   * `final` is true for blur and unmount flushes, false while typing.
+   * Resolves true when saved, false when nothing was, or the keys to keep
+   * local and dirty (for example an invalid value).
+   */
+  save: (
+    changed: Partial<Record<K, string>>,
+    final: boolean,
+  ) => Promise<boolean | readonly K[]>;
 };
 
 /**
@@ -47,7 +55,7 @@ export function useAutosaveFields<K extends string>({
     setValues(next);
   }, [serverKey]);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (final = false) => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
@@ -55,9 +63,11 @@ export function useAutosaveFields<K extends string>({
     if (dirty.current.size === 0) return;
     const sent: Partial<Record<K, string>> = {};
     for (const key of dirty.current) sent[key] = valuesRef.current[key];
-    const saved = await saveRef.current(sent);
-    if (!saved) return;
+    const saved = await saveRef.current(sent, final);
+    if (saved === false) return;
+    const keep = new Set<K>(saved === true ? [] : saved);
     for (const key of Object.keys(sent) as K[]) {
+      if (keep.has(key)) continue;
       if (valuesRef.current[key] === sent[key]) dirty.current.delete(key);
     }
     // A save that landed may leave the store behind newer typing; nothing to do.
@@ -67,7 +77,7 @@ export function useAutosaveFields<K extends string>({
   useEffect(() => {
     flushRef.current = flush;
   }, [flush]);
-  useEffect(() => () => void flushRef.current(), []);
+  useEffect(() => () => void flushRef.current(true), []);
 
   const setValue = useCallback(
     (key: K, value: string) => {

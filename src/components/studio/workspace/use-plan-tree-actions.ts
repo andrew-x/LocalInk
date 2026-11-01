@@ -7,7 +7,7 @@ import { createStudioPlanItem } from "@/actions/studio/create-studio-plan-item";
 import { deleteStudioPlanItem } from "@/actions/studio/delete-studio-plan-item";
 import { moveStudioPlanItem } from "@/actions/studio/move-studio-plan-item";
 import { restoreStudioPlanItem } from "@/actions/studio/restore-studio-plan-item";
-import { updateStudioPlanItem } from "@/actions/studio/update-studio-plan-item";
+import { usePatchPlanItem } from "@/components/studio/inspect/use-patch-plan-item";
 import type { StudioPlanItemDto, StudioPlanKind } from "@/lib/studio/contracts";
 import { buildPlanTree } from "@/lib/studio/plan-order";
 
@@ -88,25 +88,18 @@ export function resolvePlanDrop(
 export function usePlanTreeActions() {
   const { state, dispatch } = useStudioStore();
   const run = useRunStudioAction();
+  const patchItem = usePatchPlanItem();
   const storyId = state.story.id;
 
   const rename = useCallback(
     async (item: StudioPlanItemDto, title: string) => {
       const next = title.trim();
       if (next === item.title) return;
-      const updated = await run(
-        updateStudioPlanItem({
-          storyId,
-          itemId: item.id,
-          expectedRevision: item.revision,
-          patch: { title: next },
-        }),
-        "The title could not be saved.",
-      );
-      // On a conflict the server message is toasted and the local title stays.
-      if (updated) dispatch({ type: "merge", planItems: [updated] });
+      // Shares the per-item save queue with Inspect's autosave; a conflict
+      // toasts the server message and the local title stays.
+      await patchItem(item.id, { title: next });
     },
-    [dispatch, run, storyId],
+    [patchItem],
   );
 
   const create = useCallback(

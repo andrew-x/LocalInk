@@ -42,9 +42,11 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const save = useCallback(
-    async (changed: Partial<Record<FieldKey, string>>) => {
+    async (changed: Partial<Record<FieldKey, string>>, final: boolean) => {
       const patch: PlanItemPatch = {};
-      if (changed.title !== undefined) patch.title = changed.title.trim();
+      const keep: FieldKey[] = [];
+      if (changed.title !== undefined)
+        patch.title = final ? changed.title.trim() : changed.title;
       if (changed.whatHappens !== undefined)
         patch.whatHappens = changed.whatHappens;
       if (changed.howToWrite !== undefined)
@@ -52,10 +54,13 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
       if (changed.tension !== undefined) {
         const tension = parseTension(changed.tension);
         // An out-of-range value stays local until it is a valid 1 to 10.
-        if (tension !== undefined) patch.tension = tension;
+        if (tension === undefined) keep.push("tension");
+        else patch.tension = tension;
       }
-      if (Object.keys(patch).length === 0) return true;
-      return (await patchItem(item.id, patch)) !== null;
+      if (Object.keys(patch).length > 0) {
+        if ((await patchItem(item.id, patch)) === null) return false;
+      }
+      return keep.length > 0 ? keep : true;
     },
     [item.id, patchItem],
   );
@@ -151,7 +156,7 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
           className="font-semibold"
           id={fieldId("title")}
           maxLength={200}
-          onBlur={() => void flush()}
+          onBlur={() => void flush(true)}
           onChange={(event) => setValue("title", event.target.value)}
           placeholder={`Untitled ${item.kind}`}
           value={values.title}
@@ -169,7 +174,7 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
           className="min-h-16"
           id={fieldId("what")}
           maxLength={20_000}
-          onBlur={() => void flush()}
+          onBlur={() => void flush(true)}
           onChange={(event) => setValue("whatHappens", event.target.value)}
           value={values.whatHappens}
         />
@@ -186,7 +191,7 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
           className="min-h-16"
           id={fieldId("how")}
           maxLength={20_000}
-          onBlur={() => void flush()}
+          onBlur={() => void flush(true)}
           onChange={(event) => setValue("howToWrite", event.target.value)}
           value={values.howToWrite}
         />
@@ -207,7 +212,7 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
             inputMode="numeric"
             max={10}
             min={1}
-            onBlur={() => void flush()}
+            onBlur={() => void flush(true)}
             onChange={(event) => setValue("tension", event.target.value)}
             type="number"
             value={values.tension}
