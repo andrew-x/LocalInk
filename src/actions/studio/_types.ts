@@ -32,7 +32,10 @@ export type {
 
 export type {
   StudioBundleDto,
+  StudioBundleIssueKind,
   StudioBundleOpDto,
   StudioBundleResolution,
+  StudioBundleSelectionCheck,
+  StudioBundleSelectionIssue,
   StudioBundleWorkspacePatch,
 } from "@/lib/studio/bundle-contract";

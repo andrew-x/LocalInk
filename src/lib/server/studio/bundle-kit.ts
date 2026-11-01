@@ -164,17 +164,38 @@ export function diffStoryRows(
   };
 }
 
-/** Op labels for a user-facing message: quoted, clipped, at most six. */
-export function quoteOpLabels(labels: string[]): string {
-  const unique = [...new Set(labels)];
-  const shown = unique
-    .slice(0, 6)
-    .map(
-      (label) => `“${label.length > 80 ? `${label.slice(0, 79)}…` : label}”`,
-    );
-  return unique.length > 6
-    ? `${shown.join(", ")} and ${unique.length - 6} more`
-    : shown.join(", ");
+/**
+ * How each op is named in a user-facing message: its label quoted and
+ * clipped. Distinct ops sharing a label are numbered in bundle order
+ * (“Add moment” (1), “Add moment” (2)) so none is silently merged away.
+ */
+export function opMentions(
+  ops: { id: string; label: string }[],
+): Map<string, string> {
+  const counts = new Map<string, number>();
+  for (const op of ops) counts.set(op.label, (counts.get(op.label) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return new Map(
+    ops.map((op) => {
+      const clipped =
+        op.label.length > 80 ? `${op.label.slice(0, 79)}…` : op.label;
+      if ((counts.get(op.label) ?? 0) < 2) return [op.id, `“${clipped}”`];
+      const number = (seen.get(op.label) ?? 0) + 1;
+      seen.set(op.label, number);
+      return [op.id, `“${clipped}” (${number})`];
+    }),
+  );
+}
+
+/**
+ * Joins op mentions for a message, at most six then "and N more" (the
+ * selection check lists every op by id for the UI).
+ */
+export function listMentions(mentions: string[]): string {
+  const shown = mentions.slice(0, 6).join(", ");
+  return mentions.length > 6
+    ? `${shown} and ${mentions.length - 6} more`
+    : shown;
 }
 
 export type StudioEntryContent = {
@@ -212,14 +233,7 @@ export type StudioBundleOpResults = {
     after: Partial<StudioEntryContent>;
   };
   "entry.delete": { snapshot: StudioDeletedEntry };
-  "plan.create": {
-    createdId: string;
-    after: {
-      whatHappens: string;
-      howToWrite: string;
-      craft: Record<string, string>;
-    };
-  };
+  "plan.create": { createdId: string };
   "plan.update": { before: StudioPlanItemPatch; after: StudioPlanItemPatch };
   "plan.move": {
     before: { parentId: string | null; index: number };

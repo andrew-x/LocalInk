@@ -212,6 +212,10 @@ export const studioBundleOpInputSchema = z.discriminatedUnion("kind", [
     kind: z.literal("plan.move"),
     itemId: savedIdSchema,
     baselineRevision: revisionSchema,
+    /** Where the item sat when proposed (moves do not bump revisions). */
+    baselineParentId: idSchema.nullable(),
+    /** The item's stored `position` when proposed. */
+    baselinePosition: z.number().int().min(0),
     newParentRef: refSchema.nullable(),
     /** Index among the new parent's other children when the move runs. */
     newIndex: z.number().int().min(0),
@@ -325,21 +329,50 @@ export type StudioBundleWorkspacePatch = {
   removed: { planItemIds: string[]; entryIds: string[]; changeIds: string[] };
 };
 
-/** Why a selection cannot be accepted, by op id (empty lists: it can). */
-export type StudioBundleSelectionIssues = {
-  /** Selected ops needing a temp id that only unselected ops create. */
-  missingDependencies: { opId: string; needsOpIds: string[] }[];
-  /** Baseline no longer matches the story, or a referenced record is gone. */
-  conflicts: string[];
-  /** Would leave an entry above `STUDIO_MAX_ENTRY_FIELDS`. */
-  tooManyFields: string[];
-  /** Cannot apply as proposed (wrong nesting, tension on a non-chapter). */
-  invalid: string[];
+/**
+ * Why a selected op cannot be accepted:
+ * - `missing-dependency`: it needs a temp id only unselected ops create.
+ * - `conflict`: its baseline no longer matches, a record it names is gone,
+ *   or (deletes) something inside what it deletes changed after proposal.
+ * - `too-many-fields`: it would leave an entry above the field cap.
+ * - `invalid`: it cannot apply as proposed (wrong nesting, tension on a
+ *   non-chapter).
+ */
+export type StudioBundleIssueKind =
+  | "missing-dependency"
+  | "conflict"
+  | "too-many-fields"
+  | "invalid";
+
+/** One problem with one op; an op can have more than one. */
+export type StudioBundleSelectionIssue =
+  | {
+      opId: string;
+      label: string;
+      kind: "missing-dependency";
+      /** The unselected ops it needs. */
+      needsOpIds: string[];
+    }
+  | {
+      opId: string;
+      label: string;
+      kind: Exclude<StudioBundleIssueKind, "missing-dependency">;
+    };
+
+/** Every problem with a selection at once; empty means it can be accepted. */
+export type StudioBundleSelectionCheck = {
+  issues: StudioBundleSelectionIssue[];
 };
 
 export type StudioBundleResolution = {
   bundle: StudioBundleDto;
   workspacePatch: StudioBundleWorkspacePatch;
+  /**
+   * True when the bundle was already in the target state (a retried
+   * decision): nothing was written and the patch is empty, so reload the
+   * workspace if the earlier response was lost.
+   */
+  replayed: boolean;
 };
 
 /** The temp id an op declares, and what kind of record it creates. */
@@ -353,8 +386,9 @@ export function studioBundleOpCreates(
 
 /**
  * The record a ref names after accept: a temp id maps to the real id its
- * accepted create was given (null while pending or if that create was not
- * accepted); a saved id is returned as is.
+ * accepted create was given (null while pending, if that create was not
+ * accepted, or once the bundle is undone, since DTOs of undone bundles carry
+ * no created ids); a saved id is returned as is.
  */
 export function resolveStudioBundleRef(
   operations: StudioBundleOpDto[],

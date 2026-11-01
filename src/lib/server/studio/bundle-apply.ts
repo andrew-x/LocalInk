@@ -183,14 +183,7 @@ function applyPlanCreate(
     },
   });
   ctx.refs.set(op.tempId, item.id);
-  return {
-    createdId: item.id,
-    after: {
-      whatHappens: item.whatHappens,
-      howToWrite: item.howToWrite,
-      craft: item.craft,
-    },
-  };
+  return { createdId: item.id };
 }
 
 /** Accepted edits keep each field's ownership (`authorFields` unchanged). */

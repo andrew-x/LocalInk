@@ -128,7 +128,8 @@ export type StudioPlanItemPatch = Partial<{
   tension: number | null;
 }>;
 
-const AUTHOR_FIELD_KEYS: StudioPlanField[] = [
+/** Every plan field the author can own; editing one adds it to `authorFields`. */
+export const AUTHOR_FIELD_KEYS: StudioPlanField[] = [
   "title",
   "whatHappens",
   "howToWrite",

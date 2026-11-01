@@ -19,6 +19,7 @@ import type {
   StudioBundleDto,
   StudioBundleOp,
   StudioBundleOpDto,
+  StudioBundleStatus,
 } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
@@ -186,11 +187,18 @@ function createdIdOf(result: unknown): string | null {
   return typeof createdId === "string" ? createdId : null;
 }
 
-/** Undo data stays on the server; the client gets the created id only. */
-export function toBundleOpDto(op: StudioBundleOp): StudioBundleOpDto {
+/**
+ * Undo data stays on the server; the client gets the created id only, and
+ * none once the bundle is undone (those records are gone). The stored
+ * results are kept as a record of what was applied.
+ */
+export function toBundleOpDto(
+  op: StudioBundleOp,
+  status: StudioBundleStatus,
+): StudioBundleOpDto {
   const dto: StudioBundleOp & { createdId: string | null } = {
     ...op,
-    createdId: createdIdOf(op.result),
+    createdId: status === "undone" ? null : createdIdOf(op.result),
   };
   delete dto.result;
   return dto;
@@ -205,7 +213,7 @@ export function toBundleDto(row: StudioBundleRow): StudioBundleDto {
     messageId: row.messageId,
     generationId: row.generationId,
     summary: row.summary,
-    operations: row.operations.map(toBundleOpDto),
+    operations: row.operations.map((op) => toBundleOpDto(op, row.status)),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

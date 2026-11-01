@@ -37,6 +37,7 @@ import {
   restoreStudioEntry,
 } from "./repository-bible";
 import {
+  AUTHOR_FIELD_KEYS,
   movePlanItem,
   patchPlanItem,
   removePlanSubtree,
@@ -181,11 +182,14 @@ function undoEntryDelete(
 }
 
 /**
- * Removes a created plan item while it is still AI scaffolding: no field the
- * author edited, no children, no prose left (this bundle's own prose is
- * undone by now). Read-back moves a scene's planned changes down into the
- * moment that writes them; those go back up to the parent as planned.
- * Records the author wrote there block undo.
+ * Removes a created plan item while it is still AI scaffolding. Ownership is
+ * the test, not values: read-back after accepted prose rewrites AI-owned
+ * fields (summary, brief, present entries), and that must not block undo,
+ * while any author edit adds the field to `authorFields`. It must also have
+ * no children and no prose left (this bundle's own prose is undone by now).
+ * Read-back moves a scene's planned changes down into the moment that
+ * writes them; those go back up to the parent as planned. Records the
+ * author wrote there block undo.
  */
 function undoPlanCreate(
   tx: LocalinkTx,
@@ -195,13 +199,7 @@ function undoPlanCreate(
   const result = readOpResult(op);
   if (!result) return false;
   const item = findPlanItem(tx, ctx.storyId, result.createdId);
-  if (
-    !item ||
-    item.authorFields.length > 0 ||
-    !stillMatches(item, result.after)
-  ) {
-    return false;
-  }
+  if (!item || item.authorFields.length > 0) return false;
   const child = tx
     .select({ id: studioPlanItems.id })
     .from(studioPlanItems)
@@ -241,6 +239,12 @@ function undoPlanCreate(
   return true;
 }
 
+/**
+ * Restores the previous values unless the author has since changed a field
+ * the op wrote (it is in `authorFields` and differs). An AI refresh of an
+ * AI-owned field (read-back) does not block. `tension` has no ownership
+ * record, so any change to it blocks.
+ */
 function undoPlanUpdate(
   tx: LocalinkTx,
   ctx: UndoContext,
@@ -249,7 +253,17 @@ function undoPlanUpdate(
   const result = readOpResult(op);
   if (!result) return false;
   const item = findPlanItem(tx, ctx.storyId, op.itemId);
-  if (!item || !stillMatches(item, result.after)) return false;
+  if (!item) return false;
+  const owned = new Set<string>(item.authorFields);
+  const ownable = new Set<string>(AUTHOR_FIELD_KEYS);
+  const blocked = (
+    Object.keys(result.after) as (keyof StudioPlanItemPatch)[]
+  ).some(
+    (key) =>
+      !isDeepStrictEqual(item[key], result.after[key]) &&
+      (owned.has(key) || !ownable.has(key)),
+  );
+  if (blocked) return false;
   const patch: StudioPlanItemPatch = { ...result.before };
   if (patch.presentEntryIds) {
     patch.presentEntryIds = patch.presentEntryIds.filter((id) =>

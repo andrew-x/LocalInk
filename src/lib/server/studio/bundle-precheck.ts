@@ -8,7 +8,7 @@ import {
   type StudioBundleChangeBaseline,
   type StudioBundleOp,
   type StudioBundleOpOf,
-  type StudioBundleSelectionIssues,
+  type StudioBundleSelectionIssue,
   type StudioBundleStoryPatch,
   studioBundleOpCreates,
   studioBundleOpRefs,
@@ -22,7 +22,7 @@ import {
 import { applyFieldOps, normalizeEntryFields } from "@/lib/studio/entry-fields";
 import { hashText } from "@/lib/studio/prose-text";
 
-import { quoteOpLabels, type StudioStoryRows } from "./bundle-kit";
+import { listMentions, opMentions, type StudioStoryRows } from "./bundle-kit";
 import type { StudioChangeRow } from "./repository";
 
 type Verdict = "ok" | "conflict" | "invalid" | "too-many-fields";
@@ -41,16 +41,49 @@ function matchesChangeBaseline(
 }
 
 /**
- * Checks a selection against the story without writing: which selected ops
- * need a temp id from an unselected op, whose baseline no longer matches,
- * which would push an entry past the field cap, and which cannot apply as
- * proposed (wrong nesting). Ids only, so a caller can mark the ops.
+ * True when the item, anything under it, or their prose or change records
+ * were written after `since`.
+ */
+function subtreeChangedSince(
+  rows: StudioStoryRows,
+  rootId: string,
+  since: string,
+): boolean {
+  const ids = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of rows.planItems.values()) {
+      if (item.parentId && ids.has(item.parentId) && !ids.has(item.id)) {
+        ids.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  for (const id of ids) {
+    if ((rows.planItems.get(id)?.updatedAt ?? "") > since) return true;
+    if ((rows.prose.get(id)?.updatedAt ?? "") > since) return true;
+  }
+  for (const change of rows.changes.values()) {
+    if (ids.has(change.planItemId) && change.updatedAt > since) return true;
+  }
+  return false;
+}
+
+/**
+ * Checks a selection against the story without writing and reports every
+ * problem by op id: missing temp-id dependencies, stale baselines, the field
+ * cap, and ops that cannot apply as proposed. `since` is the bundle's
+ * `createdAt`: a delete also conflicts when anything it would remove was
+ * written after the proposal, since prose saves, child adds, reorders and
+ * new records do not bump the revision its baseline holds.
  */
 export function findBundleSelectionIssues(
   ops: StudioBundleOp[],
   selected: Set<string>,
   rows: StudioStoryRows,
-): StudioBundleSelectionIssues {
+  since: string,
+): StudioBundleSelectionIssue[] {
   const creators = new Map<string, StudioBundleOp>();
   for (const op of ops) {
     const created = studioBundleOpCreates(op);
@@ -58,8 +91,7 @@ export function findBundleSelectionIssues(
   }
   const chosen = ops.filter((op) => selected.has(op.id));
 
-  const missingDependencies: StudioBundleSelectionIssues["missingDependencies"] =
-    [];
+  const issues: StudioBundleSelectionIssue[] = [];
   for (const op of chosen) {
     const { entryRefs, planRefs } = studioBundleOpRefs(op);
     const needs = [...entryRefs, ...planRefs]
@@ -70,8 +102,10 @@ export function findBundleSelectionIssues(
           creator !== undefined && !selected.has(creator.id),
       );
     if (needs.length > 0) {
-      missingDependencies.push({
+      issues.push({
         opId: op.id,
+        label: op.label,
+        kind: "missing-dependency",
         needsOpIds: [...new Set(needs.map((need) => need.id))],
       });
     }
@@ -125,7 +159,13 @@ export function findBundleSelectionIssues(
       }
       case "entry.delete": {
         const entry = rows.entries.get(op.entryId);
-        return entry?.revision === op.baselineRevision ? "ok" : "conflict";
+        if (entry?.revision !== op.baselineRevision) return "conflict";
+        for (const change of rows.changes.values()) {
+          if (change.entryId === op.entryId && change.updatedAt > since) {
+            return "conflict";
+          }
+        }
+        return "ok";
       }
       case "plan.create": {
         if (!op.item.presentEntryRefs.every(entryExists)) return "conflict";
@@ -148,7 +188,14 @@ export function findBundleSelectionIssues(
       }
       case "plan.move": {
         const item = rows.planItems.get(op.itemId);
-        if (!item || item.revision !== op.baselineRevision) return "conflict";
+        if (
+          !item ||
+          item.revision !== op.baselineRevision ||
+          item.parentId !== op.baselineParentId ||
+          item.position !== op.baselinePosition
+        ) {
+          return "conflict";
+        }
         const expected = studioPlanParentKind(item.kind);
         if (op.newParentRef === null)
           return expected === null ? "ok" : "invalid";
@@ -158,7 +205,10 @@ export function findBundleSelectionIssues(
       }
       case "plan.delete": {
         const item = rows.planItems.get(op.itemId);
-        return item?.revision === op.baselineRevision ? "ok" : "conflict";
+        return item?.revision === op.baselineRevision &&
+          !subtreeChangedSince(rows, op.itemId, since)
+          ? "ok"
+          : "conflict";
       }
       case "change.create": {
         if (!entryExists(op.entryRef)) return "conflict";
@@ -198,17 +248,11 @@ export function findBundleSelectionIssues(
     }
   };
 
-  const issues: StudioBundleSelectionIssues = {
-    missingDependencies,
-    conflicts: [],
-    tooManyFields: [],
-    invalid: [],
-  };
   for (const op of chosen) {
     const result = verdict(op);
-    if (result === "conflict") issues.conflicts.push(op.id);
-    if (result === "too-many-fields") issues.tooManyFields.push(op.id);
-    if (result === "invalid") issues.invalid.push(op.id);
+    if (result !== "ok") {
+      issues.push({ opId: op.id, label: op.label, kind: result });
+    }
   }
   return issues;
 }
@@ -218,42 +262,52 @@ export function findBundleSelectionIssues(
  * a user-facing message naming the ops by label: BAD_REQUEST for missing
  * dependencies, CONFLICT for stale baselines (every conflicting op named),
  * BAD_REQUEST for the field cap and for ops that cannot apply as proposed.
+ * The selection check returns the full list by op id.
  */
 export function precheckBundleAccept(
   ops: StudioBundleOp[],
   selected: Set<string>,
   rows: StudioStoryRows,
+  since: string,
 ): void {
-  const issues = findBundleSelectionIssues(ops, selected, rows);
-  const labelOf = new Map(ops.map((op) => [op.id, op.label]));
-  const labels = (ids: string[]) =>
-    quoteOpLabels(ids.map((id) => labelOf.get(id) ?? id));
-  if (issues.missingDependencies.length > 0) {
-    const pairs = issues.missingDependencies.map(
-      ({ opId, needsOpIds }) => `${labels([opId])} needs ${labels(needsOpIds)}`,
-    );
+  const issues = findBundleSelectionIssues(ops, selected, rows, since);
+  const mentions = opMentions(ops);
+  const named = (ids: string[]) =>
+    listMentions(ids.map((id) => mentions.get(id) ?? id));
+  const ofKind = (kind: StudioBundleSelectionIssue["kind"]) =>
+    issues.filter((issue) => issue.kind === kind).map((issue) => issue.opId);
+
+  const pairs = issues.flatMap((issue) =>
+    issue.kind === "missing-dependency"
+      ? [`${named([issue.opId])} needs ${named(issue.needsOpIds)}`]
+      : [],
+  );
+  if (pairs.length > 0) {
     const more = pairs.length > 4 ? ` and ${pairs.length - 4} more` : "";
     throw new ActionError(
       "BAD_REQUEST",
       `Some selected changes depend on changes that are not selected: ${pairs.slice(0, 4).join("; ")}${more}. Select those too, or deselect these.`,
     );
   }
-  if (issues.conflicts.length > 0) {
+  const conflicts = ofKind("conflict");
+  if (conflicts.length > 0) {
     throw new ActionError(
       "CONFLICT",
-      `The story changed after these were proposed: ${labels(issues.conflicts)}. Deselect them to accept the rest.`,
+      `The story changed after these were proposed: ${named(conflicts)}. Deselect them to accept the rest.`,
     );
   }
-  if (issues.tooManyFields.length > 0) {
+  const tooManyFields = ofKind("too-many-fields");
+  if (tooManyFields.length > 0) {
     throw new ActionError(
       "BAD_REQUEST",
-      `${labels(issues.tooManyFields)} would leave an entry with more than ${STUDIO_MAX_ENTRY_FIELDS} fields. Deselect them to accept the rest.`,
+      `${named(tooManyFields)} would leave an entry with more than ${STUDIO_MAX_ENTRY_FIELDS} fields. Deselect them to accept the rest.`,
     );
   }
-  if (issues.invalid.length > 0) {
+  const invalid = ofKind("invalid");
+  if (invalid.length > 0) {
     throw new ActionError(
       "BAD_REQUEST",
-      `These changes can't be applied as proposed: ${labels(issues.invalid)}. Deselect them to accept the rest.`,
+      `These changes can't be applied as proposed: ${named(invalid)}. Deselect them to accept the rest.`,
     );
   }
 }
@@ -287,7 +341,7 @@ function orderPlanCreates(
     if (path.has(op.tempId)) {
       throw new ActionError(
         "BAD_REQUEST",
-        `${quoteOpLabels([op.label])} is placed in a loop of new items.`,
+        `“${op.label}” is placed in a loop of new items.`,
       );
     }
     path.add(op.tempId);

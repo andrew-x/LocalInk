@@ -274,3 +274,10 @@ export const resolveStudioBundleActionSchema = z.object({
   /** Accept only: the ops to apply; null applies all. Ignored otherwise. */
   opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
 });
+
+export const checkStudioBundleSelectionSchema = z.object({
+  ...storyIdField,
+  bundleId: id,
+  /** The ops the author has selected; null means all. */
+  opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
+});

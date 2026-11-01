@@ -12,6 +12,7 @@ import {
   type StudioBundleOp,
   type StudioBundleOpInput,
   type StudioBundleResolution,
+  type StudioBundleSelectionCheck,
   type StudioBundleSource,
   type StudioBundleStatus,
   studioBundleOpsInputSchema,
@@ -26,10 +27,12 @@ import {
   captureStoryRows,
   diffStoryRows,
   emptyWorkspacePatch,
-  quoteOpLabels,
+  listMentions,
+  opMentions,
   readOpResult,
 } from "./bundle-kit";
 import {
+  findBundleSelectionIssues,
   orderBundleOpsForApply,
   precheckBundleAccept,
 } from "./bundle-precheck";
@@ -147,9 +150,54 @@ function alreadyResolved(status: StudioBundleStatus): ActionError {
   );
 }
 
-/** A retry of a decision that already went through changes nothing. */
-function unchanged(row: StudioBundleRow): StudioBundleResolution {
-  return { bundle: toBundleDto(row), workspacePatch: emptyWorkspacePatch() };
+/**
+ * A retry of a decision that already went through changes nothing. The
+ * client learns it is a replay so it can reload instead of trusting the
+ * empty patch (the first response, with the real patch, may have been lost).
+ */
+function replayed(row: StudioBundleRow): StudioBundleResolution {
+  return {
+    bundle: toBundleDto(row),
+    workspacePatch: emptyWorkspacePatch(),
+    replayed: true,
+  };
+}
+
+function requireBundle(
+  tx: LocalinkTx,
+  storyId: string,
+  bundleId: string,
+): StudioBundleRow {
+  const row = tx
+    .select()
+    .from(studioBundles)
+    .where(
+      and(eq(studioBundles.id, bundleId), eq(studioBundles.storyId, storyId)),
+    )
+    .get();
+  if (!row) {
+    throw new ActionError(
+      "BAD_REQUEST",
+      "These proposed changes could not be found.",
+    );
+  }
+  return row;
+}
+
+/** The selected op ids (all when null), each checked to be in the bundle. */
+function selectionOf(row: StudioBundleRow, opIds: string[] | null) {
+  const known = new Set(row.operations.map((op) => op.id));
+  const selected = new Set(opIds ?? known);
+  if (selected.size === 0) {
+    throw new ActionError("BAD_REQUEST", "Select at least one change.");
+  }
+  if ([...selected].some((id) => !known.has(id))) {
+    throw new ActionError(
+      "BAD_REQUEST",
+      "Some selected changes are not part of this proposal. Reload and try again.",
+    );
+  }
+  return selected;
 }
 
 function saveBundle(
@@ -173,6 +221,7 @@ function applyNamed(
   tx: LocalinkTx,
   ctx: BundleApplyContext,
   op: StudioBundleOp,
+  mention: string,
 ): object {
   try {
     return applyBundleOp(tx, ctx, op);
@@ -180,7 +229,7 @@ function applyNamed(
     if (!(error instanceof ActionError)) throw error;
     throw new ActionError(
       error.code,
-      `${quoteOpLabels([op.label])} could not be applied: ${error.publicMessage}`,
+      `${mention} could not be applied: ${error.publicMessage}`,
     );
   }
 }
@@ -191,24 +240,15 @@ function acceptBundle(
   opIds: string[] | null,
 ): StudioBundleResolution {
   if (row.status === "accepted" || row.status === "partially-accepted") {
-    return unchanged(row);
+    return replayed(row);
   }
   if (row.status !== "pending") throw alreadyResolved(row.status);
   const ops = row.operations;
-  const known = new Set(ops.map((op) => op.id));
-  const selected = new Set(opIds ?? known);
-  if (selected.size === 0) {
-    throw new ActionError("BAD_REQUEST", "Select at least one change.");
-  }
-  if ([...selected].some((id) => !known.has(id))) {
-    throw new ActionError(
-      "BAD_REQUEST",
-      "Some selected changes are not part of this proposal. Reload and try again.",
-    );
-  }
+  const selected = selectionOf(row, opIds);
 
   const before = captureStoryRows(tx, row.storyId);
-  precheckBundleAccept(ops, selected, before);
+  precheckBundleAccept(ops, selected, before, row.createdAt);
+  const mentions = opMentions(ops);
   const now = day().toISOString();
   const ctx: BundleApplyContext = {
     storyId: row.storyId,
@@ -222,7 +262,10 @@ function acceptBundle(
     ops.filter((op) => selected.has(op.id)),
     before,
   ).forEach((op, seq) => {
-    results.set(op.id, { ...applyNamed(tx, ctx, op), seq });
+    results.set(op.id, {
+      ...applyNamed(tx, ctx, op, mentions.get(op.id) ?? op.label),
+      seq,
+    });
   });
   flushDeferredRelations(tx, ctx);
   touchStudioStory(tx, row.storyId, now);
@@ -243,6 +286,7 @@ function acceptBundle(
   return {
     bundle,
     workspacePatch: diffStoryRows(before, captureStoryRows(tx, row.storyId)),
+    replayed: false,
   };
 }
 
@@ -250,7 +294,7 @@ function rejectBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
 ): StudioBundleResolution {
-  if (row.status === "rejected") return unchanged(row);
+  if (row.status === "rejected") return replayed(row);
   if (row.status !== "pending") throw alreadyResolved(row.status);
   const operations = row.operations.map(
     (op): StudioBundleOp => ({ ...op, status: "rejected" }),
@@ -258,6 +302,7 @@ function rejectBundle(
   return {
     bundle: saveBundle(tx, row, operations, "rejected", day().toISOString()),
     workspacePatch: emptyWorkspacePatch(),
+    replayed: false,
   };
 }
 
@@ -270,7 +315,7 @@ function undoBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
 ): StudioBundleResolution {
-  if (row.status === "undone") return unchanged(row);
+  if (row.status === "undone") return replayed(row);
   if (row.status !== "accepted" && row.status !== "partially-accepted") {
     throw alreadyResolved(row.status);
   }
@@ -281,6 +326,7 @@ function undoBundle(
     .filter((op) => op.status === "accepted")
     .map((op) => ({ op, seq: readOpResult(op)?.seq ?? -1 }))
     .sort((a, b) => b.seq - a.seq);
+  const mentions = opMentions(row.operations);
   const conflicts: string[] = [];
   for (const { op } of accepted) {
     let undone = false;
@@ -289,18 +335,19 @@ function undoBundle(
     } catch (error) {
       if (!(error instanceof ActionError)) throw error;
     }
-    if (!undone) conflicts.push(op.label);
+    if (!undone) conflicts.push(mentions.get(op.id) ?? op.label);
   }
   if (conflicts.length > 0) {
     throw new ActionError(
       "CONFLICT",
-      `These can't be undone because the story changed after they were accepted: ${quoteOpLabels(conflicts)}.`,
+      `These can't be undone because the story changed after they were accepted: ${listMentions(conflicts)}.`,
     );
   }
   touchStudioStory(tx, row.storyId, now);
   return {
     bundle: saveBundle(tx, row, row.operations, "undone", now),
     workspacePatch: diffStoryRows(before, captureStoryRows(tx, row.storyId)),
+    replayed: false,
   };
 }
 
@@ -308,7 +355,7 @@ function undoBundle(
  * Accepts (all, or `opIds`), rejects, or undoes a bundle. Run it inside one
  * transaction: accept checks every baseline before writing and applies the
  * selection atomically. Each decision is idempotent once its target state
- * is reached, returning the bundle and an empty patch.
+ * is reached, returning the bundle, an empty patch, and `replayed: true`.
  */
 export function resolveStudioBundle(
   tx: LocalinkTx,
@@ -320,22 +367,7 @@ export function resolveStudioBundle(
     opIds: string[] | null;
   },
 ): StudioBundleResolution {
-  const row = tx
-    .select()
-    .from(studioBundles)
-    .where(
-      and(
-        eq(studioBundles.id, input.bundleId),
-        eq(studioBundles.storyId, input.storyId),
-      ),
-    )
-    .get();
-  if (!row) {
-    throw new ActionError(
-      "BAD_REQUEST",
-      "These proposed changes could not be found.",
-    );
-  }
+  const row = requireBundle(tx, input.storyId, input.bundleId);
   switch (input.decision) {
     case "accept":
       return acceptBundle(tx, row, input.opIds);
@@ -344,4 +376,25 @@ export function resolveStudioBundle(
     case "undo":
       return undoBundle(tx, row);
   }
+}
+
+/**
+ * Every problem with accepting `opIds` (all when null) right now, by op id,
+ * without writing. A bundle that is no longer pending has nothing to check.
+ * The UI calls this after a failed accept to mark the ops to deselect.
+ */
+export function checkStudioBundleSelection(
+  tx: LocalinkTx,
+  input: { storyId: string; bundleId: string; opIds: string[] | null },
+): StudioBundleSelectionCheck {
+  const row = requireBundle(tx, input.storyId, input.bundleId);
+  if (row.status !== "pending") return { issues: [] };
+  return {
+    issues: findBundleSelectionIssues(
+      row.operations,
+      selectionOf(row, input.opIds),
+      captureStoryRows(tx, row.storyId),
+      row.createdAt,
+    ),
+  };
 }
