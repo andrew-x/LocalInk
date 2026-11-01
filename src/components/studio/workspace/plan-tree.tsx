@@ -79,6 +79,11 @@ export function PlanTree({ onWrite }: PlanTreeProps) {
     [tree, collapsed],
   );
 
+  // Keep one row tabbable even when nothing visible is selected.
+  const tabStopId = rows.some((row) => row.node.id === selectedItemId)
+    ? selectedItemId
+    : (rows[0]?.node.id ?? null);
+
   // A selection made elsewhere (arc strip, manuscript) must be visible here.
   useEffect(() => {
     if (!selectedItemId) return;
@@ -211,6 +216,7 @@ export function PlanTree({ onWrite }: PlanTreeProps) {
             hasChildren={node.children.length > 0}
             isDragging={dragged?.id === node.id}
             isSelected={selectedItemId === node.id}
+            isTabStop={node.id === tabStopId}
             item={node}
             key={node.id}
             onAdd={(item) => void actions.add(item)}

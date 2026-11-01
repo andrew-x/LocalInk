@@ -2,7 +2,7 @@
 
 import { BookOpen, ChevronLeft, Maximize2, Minimize2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { updateStudioStory } from "@/actions/studio/update-studio-story";
 import { Button } from "@/components/common/button";
@@ -19,6 +19,7 @@ export function StudioTopBar() {
   const run = useRunStudioAction();
   const { story } = state;
   const [titleDraft, setTitleDraft] = useState(story.title);
+  const skipCommit = useRef(false);
   const [isSavingModel, setIsSavingModel] = useState(false);
 
   useEffect(() => {
@@ -26,6 +27,10 @@ export function StudioTopBar() {
   }, [story.title]);
 
   async function commitTitle() {
+    if (skipCommit.current) {
+      skipCommit.current = false;
+      return;
+    }
     const next = titleDraft.trim();
     if (!next || next === story.title) {
       setTitleDraft(story.title);
@@ -82,6 +87,7 @@ export function StudioTopBar() {
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") {
+            skipCommit.current = true;
             setTitleDraft(story.title);
             event.currentTarget.blur();
           }

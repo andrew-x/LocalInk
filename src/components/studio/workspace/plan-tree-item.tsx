@@ -41,6 +41,7 @@ type PlanTreeItemProps = {
   hasChildren: boolean;
   isDragging: boolean;
   isSelected: boolean;
+  isTabStop: boolean;
   item: StudioPlanItemDto;
   onAdd: (item: StudioPlanItemDto) => void;
   onDelete: (item: StudioPlanItemDto) => void;
@@ -63,6 +64,7 @@ export function PlanTreeItem({
   hasChildren,
   isDragging,
   isSelected,
+  isTabStop,
   item,
   onAdd,
   onDelete,
@@ -158,7 +160,7 @@ export function PlanTreeItem({
         onDrop={(event) => onDropRow(event, item)}
         onKeyDown={handleRowKeyDown}
         role="treeitem"
-        tabIndex={isSelected ? 0 : -1}
+        tabIndex={isTabStop ? 0 : -1}
       >
         <button
           aria-label={expanded ? "Collapse" : "Expand"}

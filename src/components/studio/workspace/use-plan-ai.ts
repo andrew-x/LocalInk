@@ -31,8 +31,7 @@ export type PlanAiController = {
   cancel: (itemId: string) => void;
 };
 
-const PLAN_FAILED_MESSAGE =
-  "The plan could not be generated. Please try again.";
+const AI_REQUEST_FAILED_MESSAGE = "The AI request failed. Please try again.";
 const APPLY_FAILED_MESSAGE = "The plan could not be saved. Please try again.";
 
 export function usePlanAi(): PlanAiController {
@@ -117,10 +116,14 @@ export function usePlanAi(): PlanAiController {
           await apply(itemId, preview, undefined);
         } catch (error) {
           if (controller.signal.aborted) return;
+          // fetch network failures are TypeErrors with raw browser text; only
+          // the route's own sanitized messages are shown verbatim.
           toast.error(
-            error instanceof Error && error.message
+            error instanceof Error &&
+              !(error instanceof TypeError) &&
+              error.message
               ? error.message
-              : PLAN_FAILED_MESSAGE,
+              : AI_REQUEST_FAILED_MESSAGE,
           );
         } finally {
           // A cancelled run was already cleared; never clear a newer run.
