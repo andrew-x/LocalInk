@@ -1,0 +1,84 @@
+"use client";
+
+import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
+
+import { updateStudioPlanItem } from "@/actions/studio/update-studio-plan-item";
+import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
+import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import type { StudioPlanItemDto } from "@/lib/studio/contracts";
+
+export type PlanItemPatch = Partial<
+  Pick<
+    StudioPlanItemDto,
+    | "title"
+    | "whatHappens"
+    | "howToWrite"
+    | "craft"
+    | "presentEntryIds"
+    | "contextPinnedEntryIds"
+    | "contextExcludedEntryIds"
+    | "tension"
+  >
+>;
+
+type PatchInput =
+  | PlanItemPatch
+  | ((latest: StudioPlanItemDto) => PlanItemPatch);
+
+const PATCH_FAILED_MESSAGE = "The change could not be saved.";
+// One toast id, so a run of conflicting autosaves shows a single message.
+const PATCH_TOAST_ID = "studio-plan-item-patch";
+
+/**
+ * Saves plan item fields through the revision compare-and-swap. Saves run one
+ * at a time, each against the newest revision this hook has seen, so quick
+ * successive edits never conflict with each other. A real conflict (the item
+ * changed elsewhere) toasts the server's message and resolves null, leaving
+ * the caller's local value in place.
+ */
+export function usePatchPlanItem() {
+  const { state, dispatch } = useStudioStore();
+  const storyId = state.story.id;
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  const newest = useRef(new Map<string, StudioPlanItemDto>());
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+
+  return useCallback(
+    (itemId: string, input: PatchInput): Promise<StudioPlanItemDto | null> => {
+      const task = queue.current.then(async () => {
+        const stored = stateRef.current.planItems.find((i) => i.id === itemId);
+        const seen = newest.current.get(itemId);
+        const latest =
+          stored && seen && seen.revision > stored.revision ? seen : stored;
+        if (!latest) return null;
+        const patch = typeof input === "function" ? input(latest) : input;
+        try {
+          const result = await updateStudioPlanItem({
+            storyId,
+            itemId,
+            expectedRevision: latest.revision,
+            patch,
+          });
+          if (result?.data) {
+            newest.current.set(itemId, result.data);
+            dispatch({ type: "merge", planItems: [result.data] });
+            return result.data;
+          }
+          toast.error(actionFailureMessage(result, PATCH_FAILED_MESSAGE), {
+            id: PATCH_TOAST_ID,
+          });
+        } catch {
+          toast.error(PATCH_FAILED_MESSAGE, { id: PATCH_TOAST_ID });
+        }
+        return null;
+      });
+      queue.current = task.catch(() => null);
+      return task;
+    },
+    [dispatch, storyId],
+  );
+}

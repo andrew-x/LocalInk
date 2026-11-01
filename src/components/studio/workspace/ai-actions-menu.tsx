@@ -16,6 +16,8 @@ import type { PlanAiController } from "./use-plan-ai";
 
 type AiActionsMenuProps = {
   ai: PlanAiController;
+  /** Keeps the trigger visible outside a hover-revealed tree row. */
+  alwaysVisible?: boolean;
   item: StudioPlanItemDto;
   onDelete: (item: StudioPlanItemDto) => void;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +35,7 @@ const MENU_ITEM_CLASS =
 
 export function AiActionsMenu({
   ai,
+  alwaysVisible = false,
   item,
   onDelete,
   onOpenChange,
@@ -80,6 +83,7 @@ export function AiActionsMenu({
           className={cn(
             "size-6 text-muted-foreground",
             !isOpen &&
+              !alwaysVisible &&
               "opacity-0 focus-visible:opacity-100 group-focus-within/row:opacity-100 group-hover/row:opacity-100",
           )}
           onClick={(event) => event.stopPropagation()}

@@ -9,6 +9,7 @@ import {
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { Button } from "@/components/common/button";
+import { InspectPanel } from "@/components/studio/inspect/inspect-panel";
 import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import {
   useWritingLoop,
@@ -20,12 +21,11 @@ import { cn } from "@/lib/util";
 import { PlanTree } from "./plan-tree";
 import { StudioTopBar } from "./studio-top-bar";
 import { StudioStoreProvider, useStudioStore } from "./use-studio-store";
-import { InspectSlot } from "./workspace-slots";
 
 type StudioWorkspaceProps = {
   globalInstructions: string;
   initial: StudioWorkspaceData;
-  /** Task 12 fills the right column. */
+  /** Overrides the default Inspect panel. */
   inspect?: ReactNode;
 };
 
@@ -148,7 +148,7 @@ function WorkspaceLayout({ inspect }: Pick<StudioWorkspaceProps, "inspect">) {
               !isInspectOpen && "hidden",
             )}
           >
-            {inspect ?? <InspectSlot />}
+            {inspect ?? <InspectPanel />}
           </div>
         </aside>
       </div>
