@@ -11,6 +11,7 @@ type AppHeaderProps = {
 
 const navigationItems = [
   { href: "/", label: "Home" },
+  { href: "/studio", label: "Story Studio" },
   { href: "/images/generate", label: "Generate Images" },
   { href: "/images", label: "Image Gallery" },
   { href: "/prompts", label: "Prompts" },

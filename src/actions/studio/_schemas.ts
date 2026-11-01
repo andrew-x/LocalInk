@@ -33,11 +33,26 @@ const markdownSchema = z.string().max(MAX_MARKDOWN_CHARS);
 
 export const getStudioWorkspaceSchema = z.object(storyIdField);
 
-export const createStudioStoryActionSchema = z.object({
+export const createStudioStoryFormSchema = z.object({
   title: z.string().trim().min(1, "Title is required.").max(120),
-  brainDump: z.string().max(40_000),
+  brainDump: z
+    .string()
+    .trim()
+    .min(1, "Add a brain dump so the studio has something to plan from.")
+    .max(40_000, "The brain dump must be 40,000 characters or fewer."),
   voiceSamples: studioVoiceSamplesSchema.optional(),
 });
+
+export type CreateStudioStoryFormValues = z.infer<
+  typeof createStudioStoryFormSchema
+>;
+
+export const createStudioStoryActionSchema = createStudioStoryFormSchema.extend(
+  {
+    // The server accepts an empty dump; only the form requires one.
+    brainDump: z.string().max(40_000),
+  },
+);
 
 export const updateStudioStoryActionSchema = z.object({
   ...storyIdField,
