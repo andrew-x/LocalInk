@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { StoryGenerationModel } from "@/lib/story-generation-models";
+import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 
 export type StudioEntryType =
   | "character"
@@ -62,7 +63,12 @@ export const studioEntryFieldSchema = z.object({
   backstoryOnly: z.boolean(),
 });
 
-export const studioEntryFieldsSchema = z.array(studioEntryFieldSchema).max(40);
+/** The edit schema's cap. Nothing may leave an entry with more fields. */
+export const STUDIO_MAX_ENTRY_FIELDS = 40;
+
+export const studioEntryFieldsSchema = z
+  .array(studioEntryFieldSchema)
+  .max(STUDIO_MAX_ENTRY_FIELDS);
 
 export type StudioStyle = {
   povAndTense: string;
@@ -186,6 +192,8 @@ export type StudioWorkspace = {
   changes: StudioChangeDto[];
   prose: StudioProseDto[];
   flags: StudioFlagDto[];
+  /** Pending bundles plus the most recent accepted ones (for undo). */
+  bundles: StudioBundleDto[];
 };
 
 export const STUDIO_MAX_VOICE_SAMPLES = 3;

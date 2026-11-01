@@ -12,6 +12,7 @@ import type {
   StudioPlanField,
   StudioPlanItemDto,
   StudioPlanKind,
+  StudioPlanOrigin,
 } from "@/lib/studio/contracts";
 import { generateId } from "@/lib/util";
 
@@ -33,6 +34,8 @@ import {
 /**
  * Inserts a plan item after `afterItemId` (or last) and renumbers its
  * siblings. Returns the new row plus every sibling whose position shifted.
+ * An author-made item owns its title; an AI item (an accepted bundle's new
+ * item) owns nothing, so later AI passes may refine it.
  */
 export function insertPlanItem(
   tx: LocalinkTx,
@@ -43,6 +46,13 @@ export function insertPlanItem(
     afterItemId?: string | null;
     title?: string;
     now: string;
+    origin?: StudioPlanOrigin;
+    content?: {
+      whatHappens: string;
+      howToWrite: string;
+      craft: Record<string, string>;
+      presentEntryIds: string[];
+    };
   },
 ): { item: StudioPlanItemRow; shiftedIds: string[] } {
   const { storyId, kind, parentId, now } = input;
@@ -63,6 +73,7 @@ export function insertPlanItem(
     index = afterIndex + 1;
   }
   const title = input.title?.trim() ?? "";
+  const origin = input.origin ?? "author";
   const id = generateId("studio-plan");
   tx.insert(studioPlanItems)
     .values({
@@ -72,8 +83,9 @@ export function insertPlanItem(
       kind,
       position: siblingIds.length,
       title,
-      origin: "author",
-      authorFields: title ? ["title"] : [],
+      ...input.content,
+      origin,
+      authorFields: origin === "author" && title ? ["title"] : [],
       createdAt: now,
       updatedAt: now,
     })
@@ -131,6 +143,11 @@ export function patchPlanItem(
     itemId: string;
     expectedRevision: number;
     patch: StudioPlanItemPatch;
+    /**
+     * False for an accepted bundle: the edit is approved, not written by the
+     * author, so each field keeps the ownership it had.
+     */
+    markAuthorFields?: boolean;
   },
 ): StudioPlanItemDto {
   const { storyId, itemId, patch } = input;
@@ -159,12 +176,15 @@ export function patchPlanItem(
       "This plan item changed elsewhere. Your edits are still on screen; reload the saved plan before trying again.",
     );
   }
-  const authorFields = [
-    ...new Set([
-      ...current.authorFields,
-      ...AUTHOR_FIELD_KEYS.filter((key) => key in patch),
-    ]),
-  ];
+  const authorFields =
+    input.markAuthorFields === false
+      ? current.authorFields
+      : [
+          ...new Set([
+            ...current.authorFields,
+            ...AUTHOR_FIELD_KEYS.filter((key) => key in patch),
+          ]),
+        ];
   const now = day().toISOString();
   const row = tx
     .update(studioPlanItems)

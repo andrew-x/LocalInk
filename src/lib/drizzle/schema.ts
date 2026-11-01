@@ -19,6 +19,11 @@ import type {
   ManuscriptProposalStatus,
 } from "@/lib/story-manuscript-contract";
 import type {
+  StudioBundleOp,
+  StudioBundleSource,
+  StudioBundleStatus,
+} from "@/lib/studio/bundle-contract";
+import type {
   StudioAspect,
   StudioChangeMode,
   StudioChangeSource,
@@ -607,6 +612,41 @@ export const studioFlags = sqliteTable(
     check(
       "studio_flags_status_check",
       sql`${table.status} IN ('open', 'resolved', 'dismissed')`,
+    ),
+  ],
+);
+
+export const studioBundles = sqliteTable(
+  "studio_bundles",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    // No CHECK: Phase 2 cascade fixes add a source without a table rebuild.
+    source: text("source").$type<StudioBundleSource>().notNull(),
+    // Informational links only. A bundle outlives the thread it came from.
+    threadId: text("thread_id"),
+    messageId: text("message_id"),
+    generationId: text("generation_id").notNull(),
+    summary: text("summary").notNull().default(""),
+    operations: text("operations", { mode: "json" })
+      .$type<StudioBundleOp[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    status: text("status")
+      .$type<StudioBundleStatus>()
+      .notNull()
+      .default("pending"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    uniqueIndex("studio_bundles_generation_unique").on(table.generationId),
+    index("studio_bundles_story_status_idx").on(table.storyId, table.status),
+    check(
+      "studio_bundles_status_check",
+      sql`${table.status} IN ('pending', 'accepted', 'partially-accepted', 'rejected', 'undone')`,
     ),
   ],
 );

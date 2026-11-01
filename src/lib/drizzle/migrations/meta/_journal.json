@@ -85,6 +85,13 @@
       "when": 1793553993665,
       "tag": "0011_studio-dynamic-aspects",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793555603012,
+      "tag": "0012_studio-bundles",
+      "breakpoints": true
     }
   ]
 }

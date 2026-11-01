@@ -184,3 +184,59 @@ export function mergeAiFields(
   }
   return merged;
 }
+
+/** One edit to an entry's field list, addressed by label. */
+export type StudioFieldOp =
+  | {
+      op: "set";
+      label: string;
+      value: string;
+      steerOnly: boolean;
+      backstoryOnly: boolean;
+    }
+  | { op: "remove"; label: string };
+
+/**
+ * Applies label-addressed field edits (an accepted bundle). A `set` on a
+ * label the entry already has (first match by normalized label) replaces its
+ * value and flags but keeps its id, spelling, and author: accepting is the
+ * author's approval, so an author field stays author-written. A new label
+ * appends as an AI field. A `remove` drops the first match; a missing label
+ * is a no-op.
+ */
+export function applyFieldOps(
+  fields: StudioEntryField[],
+  ops: StudioFieldOp[],
+): StudioEntryField[] {
+  const next = fields.map((field) => ({ ...field }));
+  for (const item of ops) {
+    const label = cleanFieldLabel(item.label);
+    if (!label) continue;
+    const normalized = normalizeFieldLabel(label);
+    const index = next.findIndex(
+      (field) => normalizeFieldLabel(field.label) === normalized,
+    );
+    if (item.op === "remove") {
+      if (index !== -1) next.splice(index, 1);
+      continue;
+    }
+    if (index === -1) {
+      next.push({
+        id: generateId("studio-field"),
+        label,
+        value: item.value,
+        author: "ai",
+        steerOnly: item.steerOnly,
+        backstoryOnly: item.backstoryOnly,
+      });
+      continue;
+    }
+    next[index] = {
+      ...next[index],
+      value: item.value,
+      steerOnly: item.steerOnly,
+      backstoryOnly: item.backstoryOnly,
+    };
+  }
+  return next;
+}

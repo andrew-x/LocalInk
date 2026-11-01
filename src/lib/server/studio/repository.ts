@@ -5,6 +5,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { ActionError } from "@/lib/action-error";
 import { getDb, type LocalinkTx } from "@/lib/drizzle/db";
 import {
+  studioBundles,
   studioChanges,
   studioEntries,
   studioFlags,
@@ -14,6 +15,11 @@ import {
   studioStories,
 } from "@/lib/drizzle/schema";
 import { legacyAspectMode } from "@/lib/studio/aspects";
+import type {
+  StudioBundleDto,
+  StudioBundleOp,
+  StudioBundleOpDto,
+} from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
   StudioEntryDto,
@@ -34,6 +40,10 @@ export type StudioChangeRow = typeof studioChanges.$inferSelect;
 export type StudioProseRow = typeof studioProse.$inferSelect;
 export type StudioProseVersionRow = typeof studioProseVersions.$inferSelect;
 export type StudioFlagRow = typeof studioFlags.$inferSelect;
+export type StudioBundleRow = typeof studioBundles.$inferSelect;
+
+/** Accepted bundles kept loaded so their undo stays reachable. */
+const UNDOABLE_BUNDLES_LOADED = 10;
 
 export type StudioDeletedSubtree = {
   storyId: string;
@@ -169,6 +179,39 @@ export function toFlagDto(row: StudioFlagRow): StudioFlagDto {
   };
 }
 
+/** Create ops record the real id they were given as `result.createdId`. */
+function createdIdOf(result: unknown): string | null {
+  if (typeof result !== "object" || result === null) return null;
+  const createdId = (result as { createdId?: unknown }).createdId;
+  return typeof createdId === "string" ? createdId : null;
+}
+
+/** Undo data stays on the server; the client gets the created id only. */
+export function toBundleOpDto(op: StudioBundleOp): StudioBundleOpDto {
+  const dto: StudioBundleOp & { createdId: string | null } = {
+    ...op,
+    createdId: createdIdOf(op.result),
+  };
+  delete dto.result;
+  return dto;
+}
+
+export function toBundleDto(row: StudioBundleRow): StudioBundleDto {
+  return {
+    id: row.id,
+    storyId: row.storyId,
+    source: row.source,
+    threadId: row.threadId,
+    messageId: row.messageId,
+    generationId: row.generationId,
+    summary: row.summary,
+    operations: row.operations.map(toBundleOpDto),
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 export function loadStudioWorkspace(storyId: string): StudioWorkspace | null {
   const db = getDb();
   const story = db
@@ -212,6 +255,32 @@ export function loadStudioWorkspace(storyId: string): StudioWorkspace | null {
     .where(eq(studioFlags.storyId, storyId))
     .orderBy(asc(studioFlags.createdAt))
     .all();
+  const pendingBundles = db
+    .select()
+    .from(studioBundles)
+    .where(
+      and(
+        eq(studioBundles.storyId, storyId),
+        eq(studioBundles.status, "pending"),
+      ),
+    )
+    .all();
+  const undoableBundles = db
+    .select()
+    .from(studioBundles)
+    .where(
+      and(
+        eq(studioBundles.storyId, storyId),
+        inArray(studioBundles.status, ["accepted", "partially-accepted"]),
+      ),
+    )
+    .orderBy(desc(studioBundles.updatedAt), desc(studioBundles.id))
+    .limit(UNDOABLE_BUNDLES_LOADED)
+    .all();
+  const bundles = [...pendingBundles, ...undoableBundles].sort(
+    (a, b) =>
+      a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
 
   return {
     story: toStoryDto(story),
@@ -220,6 +289,7 @@ export function loadStudioWorkspace(storyId: string): StudioWorkspace | null {
     changes: changes.map(toChangeDto),
     prose: prose.map(toProseDto),
     flags: flags.map(toFlagDto),
+    bundles: bundles.map(toBundleDto),
   };
 }
 

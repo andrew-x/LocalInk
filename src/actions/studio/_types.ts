@@ -29,3 +29,10 @@ export type {
   StudioFlagResolveResult,
   StudioReadBackApplyResult,
 } from "@/lib/server/studio/read-back-apply";
+
+export type {
+  StudioBundleDto,
+  StudioBundleOpDto,
+  StudioBundleResolution,
+  StudioBundleWorkspacePatch,
+} from "@/lib/studio/bundle-contract";

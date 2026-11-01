@@ -38,7 +38,7 @@ const MOMENT_CONFLICT =
 const MOMENT_CONFLICT_RACE =
   "This moment changed elsewhere. Your writing has been preserved locally.";
 
-function getProseRow(
+export function getProseRow(
   tx: LocalinkTx,
   momentId: string,
 ): StudioProseRow | undefined {
@@ -164,6 +164,45 @@ export function saveMomentProse(
 }
 
 /**
+ * Replaces a moment's prose wholesale: snapshots the text it replaces as a
+ * version, writes through the revision compare-and-swap, optionally versions
+ * the new text too (kept or accepted AI prose), and clears the read-back
+ * hash so read-back runs next. The caller checks the revision first so a
+ * stale write leaves no trace, and touches the story.
+ */
+export function replaceMomentProse(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    momentId: string;
+    markdown: string;
+    expectedRevision: number;
+    origin: StudioProseOrigin;
+    versionNewText: boolean;
+    now: string;
+  },
+): StudioProseRow {
+  const { storyId, momentId, now } = input;
+  appendVersionIfChanged(tx, storyId, momentId, now);
+  writeProse(tx, {
+    storyId,
+    momentId,
+    markdown: input.markdown,
+    expectedRevision: input.expectedRevision,
+    origin: input.origin,
+    now,
+    strict: true,
+  });
+  if (input.versionNewText) appendVersionIfChanged(tx, storyId, momentId, now);
+  return tx
+    .update(studioProse)
+    .set({ readBackSourceHash: "" })
+    .where(eq(studioProse.momentId, momentId))
+    .returning()
+    .get();
+}
+
+/**
  * Persists a kept AI draft: snapshots the text it replaces, writes the draft
  * through the revision compare-and-swap, appends the draft as an "ai"
  * version, and clears the read-back hash so read-back runs next.
@@ -187,23 +226,15 @@ export function keepMomentDraft(
   if ((current?.revision ?? 0) !== input.expectedRevision) {
     throw new ActionError("CONFLICT", MOMENT_CONFLICT);
   }
-  appendVersionIfChanged(tx, storyId, momentId, now);
-  writeProse(tx, {
+  const row = replaceMomentProse(tx, {
     storyId,
     momentId,
     markdown,
     expectedRevision: input.expectedRevision,
     origin: "ai",
+    versionNewText: true,
     now,
-    strict: true,
   });
-  appendVersionIfChanged(tx, storyId, momentId, now);
-  const row = tx
-    .update(studioProse)
-    .set({ readBackSourceHash: "" })
-    .where(eq(studioProse.momentId, momentId))
-    .returning()
-    .get();
   touchStudioStory(tx, storyId, now);
   return toProseDto(row);
 }

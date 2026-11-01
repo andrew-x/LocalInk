@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { storyGenerationModelSchema } from "@/lib/story-generation-models";
+import { STUDIO_BUNDLE_MAX_OPS } from "@/lib/studio/bundle-contract";
 import {
   studioAspectSchema,
   studioChangeModeSchema,
@@ -264,4 +265,12 @@ export const resolveStudioFlagActionSchema = z.object({
   ...storyIdField,
   flagId: id,
   resolution: z.enum(["record", "dismiss", "drop"]),
+});
+
+export const resolveStudioBundleActionSchema = z.object({
+  ...storyIdField,
+  bundleId: id,
+  decision: z.enum(["accept", "reject", "undo"]),
+  /** Accept only: the ops to apply; null applies all. Ignored otherwise. */
+  opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
 });

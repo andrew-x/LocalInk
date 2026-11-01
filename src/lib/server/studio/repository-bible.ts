@@ -2,7 +2,7 @@ import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
 
-import { and, eq, max } from "drizzle-orm";
+import { and, eq, inArray, isNull, max } from "drizzle-orm";
 
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
@@ -42,9 +42,12 @@ import { generateId } from "@/lib/util";
 
 import {
   assertEntryIds,
+  chunk,
   requireEntry,
   requirePlanItem,
   requireStudioStory,
+  type StudioChangeRow,
+  type StudioEntryRow,
   toChangeDto,
   toEntryDto,
   toFlagDto,
@@ -118,9 +121,12 @@ export function insertStudioEntry(
     storyId: string;
     type: StudioEntryType;
     name: string;
+    summary?: string;
     customTypeLabel?: string;
     relatedEntryIds?: string[];
     fields?: NewStudioEntryField[];
+    /** "ai" for an accepted bundle's new entry: new fields are AI-written. */
+    fieldAuthor?: "ai" | "author";
   },
 ): StudioEntryDto {
   const now = day().toISOString();
@@ -143,6 +149,7 @@ export function insertStudioEntry(
       storyId: input.storyId,
       type: input.type,
       name: input.name,
+      summary: input.summary ?? "",
       customTypeLabel:
         input.type === "custom" ? (input.customTypeLabel ?? "") : "",
       fields: (input.fields ?? []).map(
@@ -150,7 +157,7 @@ export function insertStudioEntry(
           id: generateId("studio-field"),
           label: field.label,
           value: field.value,
-          author: "author",
+          author: input.fieldAuthor ?? "author",
           steerOnly: field.steerOnly,
           backstoryOnly: field.backstoryOnly,
         }),
@@ -210,6 +217,11 @@ export function patchStudioEntry(
     entryId: string;
     expectedRevision: number;
     patch: StudioEntryPatch;
+    /**
+     * False when the caller already set each field's author (an accepted
+     * bundle keeps ownership as it was); the list is stored as given.
+     */
+    stampAuthors?: boolean;
   },
 ): StudioEntryDto {
   const { storyId, entryId, patch } = input;
@@ -219,9 +231,11 @@ export function patchStudioEntry(
   // The client sends the full desired list. A field that is new or differs
   // from the stored field with the same id is author-written from here on.
   const currentFields = normalizeEntryFields(current.fields, current.type);
-  const fields = patch.fields
-    ? stampAuthorFields(currentFields, patch.fields)
-    : currentFields;
+  const fields = !patch.fields
+    ? currentFields
+    : input.stampAuthors === false
+      ? patch.fields
+      : stampAuthorFields(currentFields, patch.fields);
   const next = {
     name: patch.name ?? current.name,
     summary: patch.summary ?? current.summary,
@@ -374,6 +388,222 @@ export function removeStudioEntry(
   return { flags };
 }
 
+/** What restoring a deleted entry needs: the row, its records, its places. */
+export type StudioDeletedEntry = {
+  storyId: string;
+  entry: StudioEntryRow;
+  /** Records about the entry itself; foreign keys delete them with it. */
+  changes: StudioChangeRow[];
+  /** Records whose about-entry it was; the delete cleared that link. */
+  aboutChangeIds: string[];
+  /** Where its id sat in other entries' related lists. */
+  relatedIn: { entryId: string; index: number }[];
+  /** Where its id sat in plan items' entry lists (-1 when absent). */
+  listedIn: {
+    itemId: string;
+    present: number;
+    pinned: number;
+    excluded: number;
+  }[];
+  /** Open flags the delete dismissed. */
+  dismissedFlagIds: string[];
+};
+
+/**
+ * `removeStudioEntry` plus a snapshot that `restoreStudioEntry` can put
+ * back. Accepted bundles store it so their undo survives a restart.
+ */
+export function removeStudioEntryWithSnapshot(
+  tx: LocalinkTx,
+  storyId: string,
+  entryId: string,
+): StudioDeletedEntry {
+  const entry = requireEntry(tx, storyId, entryId);
+  const storyChanges = tx
+    .select()
+    .from(studioChanges)
+    .where(eq(studioChanges.storyId, storyId))
+    .all();
+  const relatedIn = tx
+    .select({ id: studioEntries.id, ids: studioEntries.relatedEntryIds })
+    .from(studioEntries)
+    .where(eq(studioEntries.storyId, storyId))
+    .all()
+    .filter((row) => row.ids.includes(entryId))
+    .map((row) => ({ entryId: row.id, index: row.ids.indexOf(entryId) }));
+  const listedIn = tx
+    .select()
+    .from(studioPlanItems)
+    .where(eq(studioPlanItems.storyId, storyId))
+    .all()
+    .map((row) => ({
+      itemId: row.id,
+      present: row.presentEntryIds.indexOf(entryId),
+      pinned: row.contextPinnedEntryIds.indexOf(entryId),
+      excluded: row.contextExcludedEntryIds.indexOf(entryId),
+    }))
+    .filter((row) => row.present >= 0 || row.pinned >= 0 || row.excluded >= 0);
+  const { flags } = removeStudioEntry(tx, storyId, entryId);
+  return {
+    storyId,
+    entry,
+    changes: storyChanges.filter((row) => row.entryId === entryId),
+    aboutChangeIds: storyChanges
+      .filter((row) => row.aboutEntryId === entryId)
+      .map((row) => row.id),
+    relatedIn,
+    listedIn,
+    dismissedFlagIds: flags.map((flag) => flag.id),
+  };
+}
+
+function insertAt(ids: string[], id: string, index: number): string[] {
+  if (index < 0 || ids.includes(id)) return ids;
+  const next = [...ids];
+  next.splice(Math.min(index, next.length), 0, id);
+  return next;
+}
+
+/**
+ * Puts a deleted entry back: the row, its records (those whose plan item
+ * still exists), its about-links, its places in related and plan lists, and
+ * the flags its delete dismissed. Anything since removed stays removed.
+ */
+export function restoreStudioEntry(
+  tx: LocalinkTx,
+  snapshot: StudioDeletedEntry,
+  now: string,
+): void {
+  const { storyId, entry } = snapshot;
+  requireStudioStory(tx, storyId);
+  const existing = tx
+    .select({ id: studioEntries.id })
+    .from(studioEntries)
+    .where(eq(studioEntries.id, entry.id))
+    .get();
+  if (existing) {
+    throw new ActionError(
+      "BAD_REQUEST",
+      "This entry has already been restored.",
+    );
+  }
+  const entryIds = new Set(
+    tx
+      .select({ id: studioEntries.id })
+      .from(studioEntries)
+      .where(eq(studioEntries.storyId, storyId))
+      .all()
+      .map((row) => row.id),
+  );
+  const planIds = new Set(
+    tx
+      .select({ id: studioPlanItems.id })
+      .from(studioPlanItems)
+      .where(eq(studioPlanItems.storyId, storyId))
+      .all()
+      .map((row) => row.id),
+  );
+  tx.insert(studioEntries)
+    .values({
+      ...entry,
+      relatedEntryIds: entry.relatedEntryIds.filter((id) => entryIds.has(id)),
+    })
+    .run();
+  entryIds.add(entry.id);
+
+  const changes = snapshot.changes
+    .filter((change) => planIds.has(change.planItemId))
+    .map((change) => ({
+      ...change,
+      aboutEntryId:
+        change.aboutEntryId && entryIds.has(change.aboutEntryId)
+          ? change.aboutEntryId
+          : null,
+    }));
+  for (const part of chunk(changes, 50))
+    tx.insert(studioChanges).values(part).run();
+  for (const part of chunk(snapshot.aboutChangeIds)) {
+    tx.update(studioChanges)
+      .set({ aboutEntryId: entry.id, updatedAt: now })
+      .where(
+        and(
+          inArray(studioChanges.id, part),
+          isNull(studioChanges.aboutEntryId),
+        ),
+      )
+      .run();
+  }
+
+  for (const place of snapshot.relatedIn) {
+    const row = tx
+      .select()
+      .from(studioEntries)
+      .where(
+        and(
+          eq(studioEntries.id, place.entryId),
+          eq(studioEntries.storyId, storyId),
+        ),
+      )
+      .get();
+    if (!row || row.relatedEntryIds.includes(entry.id)) continue;
+    tx.update(studioEntries)
+      .set({
+        relatedEntryIds: insertAt(row.relatedEntryIds, entry.id, place.index),
+        revision: row.revision + 1,
+        updatedAt: now,
+      })
+      .where(eq(studioEntries.id, row.id))
+      .run();
+  }
+  for (const place of snapshot.listedIn) {
+    const row = tx
+      .select()
+      .from(studioPlanItems)
+      .where(
+        and(
+          eq(studioPlanItems.id, place.itemId),
+          eq(studioPlanItems.storyId, storyId),
+        ),
+      )
+      .get();
+    if (!row) continue;
+    const next = {
+      presentEntryIds: insertAt(row.presentEntryIds, entry.id, place.present),
+      contextPinnedEntryIds: insertAt(
+        row.contextPinnedEntryIds,
+        entry.id,
+        place.pinned,
+      ),
+      contextExcludedEntryIds: insertAt(
+        row.contextExcludedEntryIds,
+        entry.id,
+        place.excluded,
+      ),
+    };
+    if (
+      isDeepStrictEqual(next, {
+        presentEntryIds: row.presentEntryIds,
+        contextPinnedEntryIds: row.contextPinnedEntryIds,
+        contextExcludedEntryIds: row.contextExcludedEntryIds,
+      })
+    )
+      continue;
+    tx.update(studioPlanItems)
+      .set({ ...next, revision: row.revision + 1, updatedAt: now })
+      .where(eq(studioPlanItems.id, row.id))
+      .run();
+  }
+  for (const part of chunk(snapshot.dismissedFlagIds)) {
+    tx.update(studioFlags)
+      .set({ status: "open", updatedAt: now })
+      .where(
+        and(inArray(studioFlags.id, part), eq(studioFlags.status, "dismissed")),
+      )
+      .run();
+  }
+  touchStudioStory(tx, storyId, now);
+}
+
 export function insertStudioChange(
   tx: LocalinkTx,
   input: {
@@ -384,6 +614,11 @@ export function insertStudioChange(
     aboutEntryId?: string | null;
     value: string;
     planItemId: string;
+    /**
+     * "ai" for an accepted bundle's new record: a planned, AI-written change
+     * that read-back may confirm or move, like one from planning.
+     */
+    provenance?: "ai" | "author";
   },
 ): StudioChangeDto {
   const now = day().toISOString();
@@ -409,9 +644,9 @@ export function insertStudioChange(
       value: input.value,
       planItemId: input.planItemId,
       position: (last?.value ?? -1) + 1,
-      source: "author",
-      status: "confirmed",
-      authorEdited: true,
+      ...(input.provenance === "ai"
+        ? { source: "planned", status: "planned", authorEdited: false }
+        : { source: "author", status: "confirmed", authorEdited: true }),
       createdAt: now,
       updatedAt: now,
     })
@@ -433,6 +668,8 @@ export function patchStudioChange(
       value: string;
       planItemId: string;
     }>;
+    /** False for an accepted bundle: the record keeps the ownership it had. */
+    markAuthorEdited?: boolean;
   },
 ): StudioChangeDto {
   const { storyId, changeId, patch } = input;
@@ -461,7 +698,12 @@ export function patchStudioChange(
   const now = day().toISOString();
   const row = tx
     .update(studioChanges)
-    .set({ ...patch, position, authorEdited: true, updatedAt: now })
+    .set({
+      ...patch,
+      position,
+      ...(input.markAuthorEdited === false ? {} : { authorEdited: true }),
+      updatedAt: now,
+    })
     .where(eq(studioChanges.id, changeId))
     .returning()
     .get();
