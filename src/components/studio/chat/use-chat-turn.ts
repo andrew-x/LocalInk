@@ -130,6 +130,10 @@ export function useChatTurn(options: UseChatTurnOptions) {
   const turnRef = useRef<Turn | null>(null);
   const frameRef = useRef<number | null>(null);
   const pendingTextRef = useRef("");
+  // Turns (by generationId) whose text is back in the composer, or never
+  // left it. A failed discard leaves the message as an orphan; its own
+  // Discard must not put the same text back a second time.
+  const restoredRef = useRef(new Set<string>());
   const optionsRef = useRef(options);
 
   useEffect(() => {
@@ -233,11 +237,16 @@ export function useChatTurn(options: UseChatTurnOptions) {
         prepared.generationId,
       );
       release(turn);
+      const restoreText =
+        restore && !restoredRef.current.has(prepared.generationId)
+          ? turn.content
+          : null;
+      restoredRef.current.add(prepared.generationId);
       optionsRef.current.onDiscarded({
         threadId: prepared.thread.id,
         userMessage: prepared.userMessage,
         result,
-        restoreText: restore ? turn.content : null,
+        restoreText,
       });
     };
 
@@ -428,11 +437,15 @@ export function useChatTurn(options: UseChatTurnOptions) {
         optionsRef.current.onReloadThread(prepared.thread.id);
         return;
       }
+      const restoreText = restoredRef.current.has(prepared.generationId)
+        ? null
+        : turn.content;
+      restoredRef.current.add(prepared.generationId);
       optionsRef.current.onDiscarded({
         threadId: prepared.thread.id,
         userMessage: prepared.userMessage,
         result,
-        restoreText: turn.content,
+        restoreText,
       });
     };
 
@@ -459,11 +472,15 @@ export function useChatTurn(options: UseChatTurnOptions) {
           optionsRef.current.onReloadThread(message.threadId);
           return;
         }
+        const restoreText = restoredRef.current.has(message.generationId)
+          ? null
+          : message.content;
+        restoredRef.current.add(message.generationId);
         optionsRef.current.onDiscarded({
           threadId: message.threadId,
           userMessage: message,
           result,
-          restoreText: message.content,
+          restoreText,
         });
       } finally {
         setOrphanBusy(null);

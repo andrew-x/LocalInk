@@ -17,12 +17,12 @@ import {
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
 import {
-  isStudioBundleTempRef,
   resolveStudioBundleRef,
   type StudioBundleDecision,
   type StudioBundleDto,
   type StudioBundleSelectionIssue,
 } from "@/lib/studio/bundle-contract";
+import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 
 const FLUSH_FAILED =
   "A moment has edits that could not be saved yet, so the changes were not applied. Try again once it saves.";
@@ -31,24 +31,59 @@ const RELOAD_FAILED =
 const READ_BACK_FAILED =
   "The changes were applied, but a rewritten moment could not be re-read. Try Re-read in Inspect.";
 
-/** Saved moments whose prose a decision would write or revert. */
+/** Saved moments at or under `rootId`. */
+function subtreeMomentIds(
+  planItems: StudioPlanItemDto[],
+  rootId: string,
+): string[] {
+  const inside = new Set([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of planItems) {
+      if (item.parentId && inside.has(item.parentId) && !inside.has(item.id)) {
+        inside.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  return planItems
+    .filter((item) => item.kind === "moment" && inside.has(item.id))
+    .map((item) => item.id);
+}
+
+/**
+ * Saved moments whose prose a decision would write, revert, or remove: prose
+ * ops, the subtree of an accepted plan.delete, and the items an undo would
+ * delete again (a plan.create's subtree). Their mounted editors are flushed
+ * first so unsaved typing is caught by the baseline checks, not lost.
+ */
 function affectedMomentIds(
   bundle: StudioBundleDto,
   decision: StudioBundleDecision,
   opIds: string[] | null,
+  planItems: StudioPlanItemDto[],
 ): string[] {
   if (decision === "reject") return [];
   const selected = opIds ? new Set(opIds) : null;
   const ids = new Set<string>();
   for (const op of bundle.operations) {
-    if (op.kind !== "prose.write" || isStudioBundleTempRef(op.momentRef)) {
-      continue;
-    }
     const applies =
       decision === "accept"
         ? op.status === "pending" && (!selected || selected.has(op.id))
         : op.status === "accepted";
-    if (applies) ids.add(op.momentRef);
+    if (!applies) continue;
+    if (op.kind === "prose.write") {
+      // A temp ref resolves only once its create was accepted (undo).
+      const momentId = resolveStudioBundleRef(bundle.operations, op.momentRef);
+      if (momentId) ids.add(momentId);
+    } else if (op.kind === "plan.delete" && decision === "accept") {
+      for (const id of subtreeMomentIds(planItems, op.itemId)) ids.add(id);
+    } else if (op.kind === "plan.create" && decision === "undo") {
+      const createdId = resolveStudioBundleRef(bundle.operations, op.tempId);
+      if (!createdId) continue;
+      for (const id of subtreeMomentIds(planItems, createdId)) ids.add(id);
+    }
   }
   return [...ids];
 }
@@ -166,7 +201,12 @@ export function useResolveBundle(): ResolveBundle {
       setBusy(true);
       setIssuesByOpId(new Map());
       try {
-        const momentIds = affectedMomentIds(bundle, decision, opIds);
+        const momentIds = affectedMomentIds(
+          bundle,
+          decision,
+          opIds,
+          stateRef.current.planItems,
+        );
         if (momentIds.length > 0 && !(await flushMomentEditors(momentIds))) {
           toast.error(FLUSH_FAILED);
           return false;
@@ -197,7 +237,9 @@ export function useResolveBundle(): ResolveBundle {
         }
 
         if (resolution.replayed) {
+          // The first response may have been lost before its read-back ran.
           await reloadWorkspace();
+          if (decision === "accept") await readBackAccepted(resolution.bundle);
           return true;
         }
         const { removed, ...patch } = resolution.workspacePatch;

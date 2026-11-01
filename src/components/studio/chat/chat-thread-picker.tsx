@@ -164,7 +164,7 @@ export function ChatThreadPicker({
       </Popover>
       <StudioConfirmDialog
         confirmLabel="Delete chat"
-        description="Its messages are deleted, and any proposed changes in this chat that are still waiting for review are discarded. Changes you already accepted stay."
+        description="Its messages are deleted, and any proposed changes in this chat that are still waiting for review are discarded. Changes you already accepted stay, but can no longer be undone from chat."
         destructive
         loading={deleting}
         onConfirm={() => void confirmDelete()}

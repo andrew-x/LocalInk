@@ -42,6 +42,9 @@ export function ChatComposer({
   const error = fieldError ?? serverError;
   const canStop = status === "preparing" || status === "streaming";
   const busy = status !== "idle";
+  // A save-failed reply waits on the author (Retry save / Discard), so Send
+  // is disabled but not spinning.
+  const working = status === "saving" || status === "stopping";
   const disabled = busy || blockedReason !== null;
   const errorId = "studio-chat-composer-error";
 
@@ -61,7 +64,10 @@ export function ChatComposer({
               !event.nativeEvent.isComposing
             ) {
               event.preventDefault();
-              if (!disabled) event.currentTarget.form?.requestSubmit();
+              // Same guard as the Send button: an empty message does nothing.
+              if (!disabled && event.currentTarget.value.trim()) {
+                event.currentTarget.form?.requestSubmit();
+              }
             }
           }}
           placeholder={
@@ -93,11 +99,11 @@ export function ChatComposer({
             aria-label="Send message"
             className="size-8 shrink-0"
             disabled={disabled || !content?.trim()}
-            loading={busy}
+            loading={working}
             size="icon"
             type="submit"
           >
-            {busy ? null : <ArrowUp aria-hidden="true" className="size-4" />}
+            {working ? null : <ArrowUp aria-hidden="true" className="size-4" />}
           </Button>
         )}
       </div>
