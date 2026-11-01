@@ -11,17 +11,14 @@ import {
   studioPlanItems,
   studioStories,
 } from "@/lib/drizzle/schema";
-import {
-  STUDIO_CRAFT_FIELDS,
-  STUDIO_ENTRY_TEMPLATES,
-} from "@/lib/studio/bible-templates";
+import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type {
   StudioAspect,
-  StudioFieldValue,
   StudioPlanField,
   StudioPlanKind,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
+import { mergeAiFields, normalizeEntryFields } from "@/lib/studio/entry-fields";
 import {
   STUDIO_PLAN_STORY_TARGET,
   type StagedStudioPlan,
@@ -46,6 +43,7 @@ const MAX_TITLE = 200;
 const MAX_TEXT = 20_000;
 const MAX_CHANGE_VALUE = 4_000;
 const MAX_NAME = 200;
+const MAX_FIELD_VALUE = 4_000;
 const MAX_CRAFT_VALUE = 2_000;
 
 function clip(text: string, max: number): string {
@@ -239,31 +237,27 @@ function applyInitial(
   for (const entry of plan.entries) {
     const name = clip(entry.name, MAX_NAME);
     if (!name || tempToId.has(entry.tempId)) continue;
-    const allowedKeys = new Set(
-      STUDIO_ENTRY_TEMPLATES[entry.type].fields.map((field) => field.key),
-    );
-    const aiFields: Record<string, StudioFieldValue> = {};
-    for (const [key, value] of Object.entries(entry.fields)) {
-      const text = clip(value, MAX_TEXT);
-      if (allowedKeys.has(key) && text)
-        aiFields[key] = { value: text, author: "ai" };
-    }
+    const proposed = entry.fields.map((field) => ({
+      ...field,
+      value: clip(field.value, MAX_FIELD_VALUE),
+    }));
 
     const match = byName.get(`${entry.type}:${name.toLowerCase()}`);
     if (match) {
       tempToId.set(entry.tempId, match.id);
-      const missing = Object.fromEntries(
-        Object.entries(aiFields).filter(
-          ([key]) => !(key in match.fields) || !match.fields[key].value.trim(),
-        ),
-      );
+      const current = normalizeEntryFields(match.fields, match.type);
+      // Author-written fields are never touched; AI fields may be refreshed.
+      const merged = mergeAiFields(current, proposed);
       const summary = match.summary.trim()
         ? match.summary
         : clip(entry.summary, MAX_TEXT);
-      if (Object.keys(missing).length > 0 || summary !== match.summary) {
+      if (
+        JSON.stringify(merged) !== JSON.stringify(current) ||
+        summary !== match.summary
+      ) {
         tx.update(studioEntries)
           .set({
-            fields: { ...match.fields, ...missing },
+            fields: merged,
             summary,
             revision: match.revision + 1,
             updatedAt: now,
@@ -282,9 +276,10 @@ function applyInitial(
         id,
         storyId,
         type: entry.type,
+        customTypeLabel: entry.customTypeLabel,
         name,
         summary: clip(entry.summary, MAX_TEXT),
-        fields: aiFields,
+        fields: mergeAiFields([], proposed),
         position,
         createdAt: now,
         updatedAt: now,

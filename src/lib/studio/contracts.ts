@@ -42,7 +42,30 @@ export type StudioProseOrigin = "ai" | "author" | "ai-edited";
 export type StudioFlagKind = "unplanned-change" | "missing-planned-change";
 export type StudioFlagStatus = "open" | "resolved" | "dismissed";
 
+/** The pre-Amendment-A stored shape: one value per fixed template key. */
 export type StudioFieldValue = { value: string; author: "ai" | "author" };
+
+export type StudioEntryField = {
+  id: string;
+  label: string;
+  value: string;
+  author: "ai" | "author";
+  /** The AI uses it to steer but never says it. */
+  steerOnly: boolean;
+  /** Never surfaces in present-day moment prompts. */
+  backstoryOnly: boolean;
+};
+
+export const studioEntryFieldSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().trim().min(1).max(80),
+  value: z.string().max(4000),
+  author: z.enum(["ai", "author"]),
+  steerOnly: z.boolean(),
+  backstoryOnly: z.boolean(),
+});
+
+export const studioEntryFieldsSchema = z.array(studioEntryFieldSchema).max(40);
 
 export type StudioStyle = {
   povAndTense: string;
@@ -88,7 +111,7 @@ export type StudioEntryDto = {
   customTypeLabel: string;
   name: string;
   summary: string;
-  fields: Record<string, StudioFieldValue>;
+  fields: StudioEntryField[];
   relatedEntryIds: string[];
   position: number;
   revision: number;

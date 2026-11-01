@@ -58,7 +58,7 @@ Read-back summarizes a moment and reconciles it against planned changes.
 
 ## Ownership of author text
 
-Plan items list `authorFields`, and Bible fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning fills only empty fields, and read-back never overwrites a protected plan field.
+Plan items list `authorFields`, and Bible fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, and read-back never overwrites a protected plan field.
 
 An explicit pick of an AI option (alternatives, rewrite-brief, or a selection rewrite) counts as the author's approval. It may overwrite what the author wrote, and for plan briefs it then marks those fields as author-owned. Change records with `authorEdited` are never modified by read-back, including when they are matched or moved from the parent scene.
 

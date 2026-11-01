@@ -23,14 +23,15 @@ import {
   type StudioAspect,
   type StudioChangeDto,
   type StudioEntryDto,
+  type StudioEntryField,
   type StudioEntryType,
-  type StudioFieldValue,
   type StudioFlagDto,
   type StudioStoryDto,
   type StudioStructureTemplateId,
   type StudioStyle,
   type StudioVoiceSample,
 } from "@/lib/studio/contracts";
+import { normalizeEntryFields } from "@/lib/studio/entry-fields";
 import { generateId } from "@/lib/util";
 
 import {
@@ -100,6 +101,11 @@ export function patchStudioStory(
   return toStoryDto(row);
 }
 
+export type NewStudioEntryField = Pick<
+  StudioEntryField,
+  "label" | "value" | "steerOnly" | "backstoryOnly"
+>;
+
 export function insertStudioEntry(
   tx: LocalinkTx,
   input: {
@@ -108,6 +114,7 @@ export function insertStudioEntry(
     name: string;
     customTypeLabel?: string;
     relatedEntryIds?: string[];
+    fields?: NewStudioEntryField[];
   },
 ): StudioEntryDto {
   const now = day().toISOString();
@@ -132,6 +139,16 @@ export function insertStudioEntry(
       name: input.name,
       customTypeLabel:
         input.type === "custom" ? (input.customTypeLabel ?? "") : "",
+      fields: (input.fields ?? []).map(
+        (field): StudioEntryField => ({
+          id: generateId("studio-field"),
+          label: field.label,
+          value: field.value,
+          author: "author",
+          steerOnly: field.steerOnly,
+          backstoryOnly: field.backstoryOnly,
+        }),
+      ),
       relatedEntryIds: [...new Set(input.relatedEntryIds ?? [])],
       position: (last?.value ?? -1) + 1,
       createdAt: now,
@@ -146,10 +163,39 @@ export function insertStudioEntry(
 export type StudioEntryPatch = Partial<{
   name: string;
   summary: string;
-  fields: Record<string, { value: string; author?: "ai" | "author" }>;
+  fields: StudioEntryField[];
   relatedEntryIds: string[];
   customTypeLabel: string;
 }>;
+
+function stampAuthorFields(
+  stored: StudioEntryField[],
+  desired: StudioEntryField[],
+): StudioEntryField[] {
+  const storedById = new Map(stored.map((field) => [field.id, field]));
+  const usedIds = new Set<string>();
+  return desired.map((field) => {
+    const label = field.label.trim();
+    const previous = storedById.get(field.id);
+    const id = usedIds.has(field.id) ? generateId("studio-field") : field.id;
+    usedIds.add(id);
+    const unchanged =
+      previous !== undefined &&
+      id === previous.id &&
+      previous.label === label &&
+      previous.value === field.value &&
+      previous.steerOnly === field.steerOnly &&
+      previous.backstoryOnly === field.backstoryOnly;
+    return {
+      id,
+      label,
+      value: field.value,
+      author: unchanged ? previous.author : "author",
+      steerOnly: field.steerOnly,
+      backstoryOnly: field.backstoryOnly,
+    };
+  });
+}
 
 export function patchStudioEntry(
   tx: LocalinkTx,
@@ -164,11 +210,12 @@ export function patchStudioEntry(
   const current = requireEntry(tx, storyId, entryId);
   if (patch.relatedEntryIds) assertEntryIds(tx, storyId, patch.relatedEntryIds);
 
-  // Any field the author submits is author-written from here on.
-  const fields: Record<string, StudioFieldValue> = { ...current.fields };
-  for (const [key, field] of Object.entries(patch.fields ?? {})) {
-    fields[key] = { value: field.value, author: "author" };
-  }
+  // The client sends the full desired list. A field that is new or differs
+  // from the stored field with the same id is author-written from here on.
+  const currentFields = normalizeEntryFields(current.fields, current.type);
+  const fields = patch.fields
+    ? stampAuthorFields(currentFields, patch.fields)
+    : currentFields;
   const next = {
     name: patch.name ?? current.name,
     summary: patch.summary ?? current.summary,
@@ -186,7 +233,7 @@ export function patchStudioEntry(
     next.name === current.name &&
     next.summary === current.summary &&
     next.customTypeLabel === current.customTypeLabel &&
-    isDeepStrictEqual(next.fields, current.fields) &&
+    isDeepStrictEqual(next.fields, currentFields) &&
     isDeepStrictEqual(next.relatedEntryIds, current.relatedEntryIds)
   ) {
     return toEntryDto(current);

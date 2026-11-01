@@ -2,7 +2,6 @@
 
 import { Label } from "@/components/common/label";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
-import type { StudioEntryFieldTemplate } from "@/lib/studio/bible-templates";
 import type { StudioEntryDto } from "@/lib/studio/contracts";
 
 import { BibleHeading } from "./bible-field";
@@ -23,20 +22,6 @@ export function relationshipPair(
     byId.get(entry.relatedEntryIds[0] ?? ""),
     byId.get(entry.relatedEntryIds[1] ?? ""),
   ];
-}
-
-/** Template labels that name the two people once both are picked. */
-export function relationshipFieldLabel(
-  field: StudioEntryFieldTemplate,
-  pair: ReturnType<typeof relationshipPair>,
-): string {
-  const [first, second] = pair;
-  if (!first || !second) return field.label;
-  if (field.key === "aSeesInB")
-    return `What ${first.name} sees in ${second.name}`;
-  if (field.key === "bSeesInA")
-    return `What ${second.name} sees in ${first.name}`;
-  return field.label;
 }
 
 /** Picks the two characters a relationship is between. No chart. */

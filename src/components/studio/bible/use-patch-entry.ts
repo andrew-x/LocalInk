@@ -10,13 +10,13 @@ import {
 } from "@/components/studio/inspect/revision-slots";
 import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
-import type { StudioEntryDto } from "@/lib/studio/contracts";
+import type { StudioEntryDto, StudioEntryField } from "@/lib/studio/contracts";
 
 export type EntryPatch = {
   name?: string;
   summary?: string;
-  /** Only the submitted keys change; the server stamps them as author-written. */
-  fields?: Record<string, { value: string }>;
+  /** The full desired list; the server stamps changed fields as author-written. */
+  fields?: StudioEntryField[];
   relatedEntryIds?: string[];
   customTypeLabel?: string;
 };

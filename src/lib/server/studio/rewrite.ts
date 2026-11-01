@@ -3,10 +3,7 @@ import "server-only";
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
-import {
-  STUDIO_CRAFT_FIELDS,
-  STUDIO_ENTRY_TEMPLATES,
-} from "@/lib/studio/bible-templates";
+import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type { StudioStyle, StudioWorkspace } from "@/lib/studio/contracts";
 import { getInstructionStack } from "@/lib/studio/instructions";
 import { markdownToPlainText } from "@/lib/studio/prose-text";
@@ -161,10 +158,7 @@ export async function generateStudioRewrite(
         workspace.entries
           .filter((entry) => bibleIds.has(entry.id))
           .map((entry) =>
-            xmlEntryBlock(
-              states.get(entry.id) ?? { entry, aspects: [] },
-              STUDIO_ENTRY_TEMPLATES,
-            ),
+            xmlEntryBlock(states.get(entry.id) ?? { entry, aspects: [] }),
           ),
       ),
     ),

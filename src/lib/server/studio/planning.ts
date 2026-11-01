@@ -8,7 +8,7 @@ import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
 import {
   STUDIO_CRAFT_FIELDS,
-  STUDIO_ENTRY_TEMPLATES,
+  STUDIO_ENTRY_SUGGESTIONS,
   STUDIO_STRUCTURE_TEMPLATES,
 } from "@/lib/studio/bible-templates";
 import type {
@@ -198,11 +198,10 @@ function bibleBlock(
   return xmlGroup(
     "bible",
     workspace.entries.map((entry) =>
-      xmlEntryBlock(
-        states?.get(entry.id) ?? { entry, aspects: [] },
-        STUDIO_ENTRY_TEMPLATES,
-        { includeBackstoryOnly: true, names },
-      ),
+      xmlEntryBlock(states?.get(entry.id) ?? { entry, aspects: [] }, {
+        includeBackstoryOnly: true,
+        names,
+      }),
     ),
   );
 }
@@ -310,17 +309,18 @@ function ancestorsBlock(workspace: StudioWorkspace, itemId: string): string {
   );
 }
 
-function entryTemplatesBlock(): string {
+/** Examples of what is worth tracking. Nothing here is required. */
+function entrySuggestionsBlock(): string {
   return xmlGroup(
-    "entry_templates",
-    Object.entries(STUDIO_ENTRY_TEMPLATES).map(([type, template]) =>
+    "entry_field_examples",
+    Object.entries(STUDIO_ENTRY_SUGGESTIONS).map(([type, group]) =>
       xmlGroup(
         "type",
-        template.fields.map((field) =>
-          xmlField("field", field.hint, {
-            key: field.key,
-            label: field.label,
-            use: field.neverSays ? "steer-only-never-narrate" : undefined,
+        group.suggestions.map((suggestion) =>
+          xmlField("example", suggestion.hint, {
+            label: suggestion.label,
+            use: suggestion.steerOnly ? "steer-only-never-narrate" : undefined,
+            scope: suggestion.backstoryOnly ? "backstory-only" : undefined,
           }),
         ),
         { name: type },
@@ -445,7 +445,8 @@ async function generateInitialPlan(
     "- style: povAndTense, register, pacing, avoid, notes. Infer from the voice samples when present; otherwise from the brain dump. Leave a part empty rather than guessing.",
     "- theme: one sentence on what the story is about underneath. This is for planning only and is never stated in prose.",
     "- structureTemplate: pick the one template from structure_templates that best fits and shape the chapters by its guidance. Choose freeform when none fits.",
-    "- entries: the Bible. A character entry for every named or important person, a relationship entry for each significant pair (relatedTempIds holds the two people), places that recur, things that matter, lore only where rules matter. Use short tempIds such as c1, p1. Use only the field keys listed in entry_templates for the entry's type. Omit a field rather than padding it with generic text, but fill wants, needs, and falseBelief whenever the story implies them. relatedTempIds may link any entries that belong together.",
+    "- entries: the Bible. A character entry for every named or important person, a relationship entry for each significant pair (relatedTempIds holds the two people), places that recur, things that matter, lore only where rules matter. If the story needs a kind of entry none of those fit (a group, an event), use type custom and set customTypeLabel (for example Group); otherwise customTypeLabel is null. Use short tempIds such as c1, p1. relatedTempIds may link any entries that belong together.",
+    "- entry fields: each entry has fields, an ordered list of { label, value, steerOnly, backstoryOnly }. entry_field_examples lists examples of things worth tracking for each type; they are ideas, not a required set. Choose the 4-10 fields that matter most for this entry in this story. Make them specific and concrete (for example what she hides behind jokes, who owns the deck chairs) rather than generic. Reuse the same label across entries of the same type when it fits naturally, so the Bible stays consistent. Never pad: leave out a field you have nothing specific to say about. Set steerOnly to true for fields the writing should follow but never state (what a character needs, a false belief, theme-like fields). Set backstoryOnly to true for origin or backstory fields that should not surface in present-day scenes. Otherwise both are false.",
     "- chapters: in story order. Each has a title (short and particular, not generic), whatHappens, howToWrite, craft (keys purpose and endHook), tension (1-10), presentTempIds (entries in the chapter), and plannedChanges: the key changes the chapter causes in what an entry believes, wants, knows, feels, where it is, its status, or how it looks (aspect), with a short value. aboutTempId is set only when the aspect concerns another entry, such as how one character feels about another.",
     "- scenes: include a chapter's scenes only where the brain dump specified scenes for it; otherwise omit scenes. A scene has the same fields as a chapter without tension; its craft keys are wants, goesWrong, differentAfter, entry, exit.",
     "Propose as many chapters as the story needs. Follow the brain dump's own count and order when it gives one.",
@@ -467,7 +468,7 @@ async function generateInitialPlan(
       { protected: false, dropOrder: 1 },
     ),
     section("structure", structureTemplatesBlock()),
-    section("entry_templates", entryTemplatesBlock()),
+    section("entry_field_examples", entrySuggestionsBlock()),
     section("craft_fields", craftFieldsBlock(["chapter", "scene"])),
   ];
 
@@ -503,7 +504,7 @@ async function generateInitialPlan(
         dropOrder: 1,
       }),
       section("structure", structureTemplatesBlock()),
-      section("entry_templates", entryTemplatesBlock()),
+      section("entry_field_examples", entrySuggestionsBlock()),
       section("craft_fields", craftFieldsBlock(["chapter", "scene"])),
       section("draft", xmlField("draft_plan", JSON.stringify(draft))),
       section("task", critiqueTask),

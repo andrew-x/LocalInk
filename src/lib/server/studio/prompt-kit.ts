@@ -1,12 +1,6 @@
 import "server-only";
 
-import type {
-  STUDIO_ENTRY_TEMPLATES,
-  StudioEntryFieldTemplate,
-} from "@/lib/studio/bible-templates";
 import type { StudioEntryState } from "@/lib/studio/state";
-
-type StudioEntryTemplates = typeof STUDIO_ENTRY_TEMPLATES;
 
 export class StudioContextTooLargeError extends Error {
   constructor(
@@ -90,36 +84,24 @@ const NEVER_SAYS_USE = "steer-only-never-narrate";
  */
 export function xmlEntryBlock(
   state: StudioEntryState,
-  templates: StudioEntryTemplates,
   options: {
     includeBackstoryOnly?: boolean;
     names?: ReadonlyMap<string, string>;
   } = {},
 ): string {
   const { entry } = state;
-  const template = templates[entry.type];
-  const fieldTemplates = new Map<string, StudioEntryFieldTemplate>(
-    template.fields.map((field) => [field.key, field]),
-  );
 
-  const fieldBlocks: string[] = [];
-  const seen = new Set<string>();
-  const pushField = (key: string) => {
-    const field = entry.fields[key];
-    if (!field || seen.has(key)) return;
-    seen.add(key);
-    const fieldTemplate = fieldTemplates.get(key);
-    if (fieldTemplate?.backstoryOnly && !options.includeBackstoryOnly) return;
-    const block = xmlField("field", field.value, {
-      key,
-      label: fieldTemplate?.label ?? key,
-      author: field.author === "author" ? "true" : undefined,
-      use: fieldTemplate?.neverSays ? NEVER_SAYS_USE : undefined,
-    });
-    if (block) fieldBlocks.push(block);
-  };
-  for (const fieldTemplate of template.fields) pushField(fieldTemplate.key);
-  for (const key of Object.keys(entry.fields)) pushField(key);
+  // Fields render in the order the Bible holds them; the label is the name.
+  const fieldBlocks = entry.fields
+    .filter((field) => options.includeBackstoryOnly || !field.backstoryOnly)
+    .map((field) =>
+      xmlField("field", field.value, {
+        label: field.label,
+        author: field.author === "author" ? "true" : undefined,
+        use: field.steerOnly ? NEVER_SAYS_USE : undefined,
+      }),
+    )
+    .filter(Boolean);
 
   const stateBlocks = state.aspects
     .map((aspect) =>

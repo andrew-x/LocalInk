@@ -10,28 +10,15 @@ import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { InspectPill } from "@/components/studio/inspect/inspect-section";
 import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
-import { STUDIO_ENTRY_TEMPLATES } from "@/lib/studio/bible-templates";
-import type { StudioEntryDto, StudioEntryType } from "@/lib/studio/contracts";
+import { STUDIO_ENTRY_SUGGESTIONS } from "@/lib/studio/bible-templates";
+import type { StudioEntryDto } from "@/lib/studio/contracts";
 import { getOrderedMoments } from "@/lib/studio/plan-order";
 
 import { EntryFieldGroup } from "./entry-fields";
 import { OverTheStory } from "./over-the-story";
-import {
-  RelationshipEditor,
-  relationshipFieldLabel,
-  relationshipPair,
-} from "./relationship-editor";
+import { RelationshipEditor } from "./relationship-editor";
 import { useDeleteEntry } from "./use-delete-entry";
 import { type EntryPatch, usePatchEntry } from "./use-patch-entry";
-
-const FIXED_TITLE: Record<StudioEntryType, string> = {
-  character: "Who they are",
-  relationship: "Between them",
-  place: "The place",
-  thing: "The thing",
-  lore: "The rule",
-  custom: "Details",
-};
 
 const FIELD_PREFIX = "field:";
 
@@ -52,7 +39,7 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
   const deleteEntry = useDeleteEntry();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const template = STUDIO_ENTRY_TEMPLATES[entry.type];
+  const template = STUDIO_ENTRY_SUGGESTIONS[entry.type];
 
   const appearsIn = useMemo(
     () =>
@@ -73,10 +60,22 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
         else patch.name = trimmed;
       }
       if (changed.summary !== undefined) patch.summary = changed.summary;
+      const fieldEdits = new Map<string, string>();
       for (const [key, value] of Object.entries(changed)) {
-        if (!key.startsWith(FIELD_PREFIX) || value === undefined) continue;
-        patch.fields ??= {};
-        patch.fields[key.slice(FIELD_PREFIX.length)] = { value };
+        if (key.startsWith(FIELD_PREFIX) && value !== undefined)
+          fieldEdits.set(key.slice(FIELD_PREFIX.length), value);
+      }
+      if (fieldEdits.size > 0) {
+        // Rebuild the full list from the newest saved entry.
+        const saved = await patchEntry(entry.id, (latest) => ({
+          ...patch,
+          fields: latest.fields.map((field) => {
+            const value = fieldEdits.get(field.id);
+            return value === undefined ? field : { ...field, value };
+          }),
+        }));
+        if (saved === null) return false;
+        return keep.length > 0 ? keep : true;
       }
       if (Object.keys(patch).length > 0) {
         if ((await patchEntry(entry.id, patch)) === null) return false;
@@ -91,12 +90,11 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
       name: entry.name,
       summary: entry.summary,
     };
-    for (const field of template.fields) {
-      values[`${FIELD_PREFIX}${field.key}`] =
-        entry.fields[field.key]?.value ?? "";
+    for (const field of entry.fields) {
+      values[`${FIELD_PREFIX}${field.id}`] = field.value;
     }
     return values;
-  }, [entry.fields, entry.name, entry.summary, template.fields]);
+  }, [entry.fields, entry.name, entry.summary]);
 
   const { flush, setValue, values } = useAutosaveFields<string>({
     save,
@@ -105,32 +103,11 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
 
   const fieldValues = useMemo(() => {
     const result: Record<string, string> = {};
-    for (const field of template.fields) {
-      result[field.key] = values[`${FIELD_PREFIX}${field.key}`] ?? "";
+    for (const field of entry.fields) {
+      result[field.id] = values[`${FIELD_PREFIX}${field.id}`] ?? field.value;
     }
     return result;
-  }, [template.fields, values]);
-
-  const pair = useMemo(
-    () => relationshipPair(entry, state.entries),
-    [entry, state.entries],
-  );
-  const labelFor =
-    entry.type === "relationship"
-      ? (field: (typeof template.fields)[number]) =>
-          relationshipFieldLabel(field, pair)
-      : undefined;
-
-  const groups = [
-    {
-      title: `${FIXED_TITLE[entry.type]} · fixed`,
-      fields: template.fields.filter((field) => field.group === "fixed"),
-    },
-    {
-      title: "Voice",
-      fields: template.fields.filter((field) => field.group === "voice"),
-    },
-  ].filter((group) => group.fields.length > 0);
+  }, [entry.fields, values]);
 
   async function confirmDelete() {
     setIsDeleting(true);
@@ -196,18 +173,18 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
         <RelationshipEditor entry={entry} />
       ) : null}
 
-      {groups.map((group) => (
+      {entry.fields.length > 0 ? (
         <EntryFieldGroup
           entryId={entry.id}
-          fields={group.fields}
-          key={group.title}
-          labelFor={labelFor}
+          fields={entry.fields}
           onBlur={() => void flush(true)}
-          onChange={(key, value) => setValue(`${FIELD_PREFIX}${key}`, value)}
-          title={group.title}
+          onChange={(fieldId, value) =>
+            setValue(`${FIELD_PREFIX}${fieldId}`, value)
+          }
+          title="Details"
           values={fieldValues}
         />
-      ))}
+      ) : null}
 
       <OverTheStory entry={entry} />
 

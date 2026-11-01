@@ -4,6 +4,8 @@ import { storyGenerationModelSchema } from "@/lib/story-generation-models";
 import {
   studioAspectSchema,
   studioCraftSchema,
+  studioEntryFieldSchema,
+  studioEntryFieldsSchema,
   studioIdListSchema,
   studioStyleSchema,
   studioVoiceSamplesSchema,
@@ -79,6 +81,17 @@ export const createStudioEntryActionSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(200),
   customTypeLabel: z.string().trim().max(60).optional(),
   relatedEntryIds: studioIdListSchema.optional(),
+  fields: z
+    .array(
+      studioEntryFieldSchema.pick({
+        label: true,
+        value: true,
+        steerOnly: true,
+        backstoryOnly: true,
+      }),
+    )
+    .max(40)
+    .optional(),
 });
 
 export const updateStudioEntryActionSchema = z.object({
@@ -89,14 +102,8 @@ export const updateStudioEntryActionSchema = z.object({
     .object({
       name: z.string().trim().min(1).max(200),
       summary: z.string().max(20_000),
-      // The server stamps every submitted field as author-written.
-      fields: z.record(
-        z.string().min(1).max(64),
-        z.object({
-          value: z.string().max(20_000),
-          author: z.enum(["ai", "author"]).optional(),
-        }),
-      ),
+      // The full desired list; the server stamps authorship by comparison.
+      fields: studioEntryFieldsSchema,
       relatedEntryIds: studioIdListSchema,
       customTypeLabel: z.string().trim().max(60),
     })

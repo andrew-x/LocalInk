@@ -4,7 +4,6 @@ import type { LocalinkAiModelProfile } from "@/lib/ai";
 import {
   STUDIO_ASPECTS,
   STUDIO_CRAFT_FIELDS,
-  STUDIO_ENTRY_TEMPLATES,
 } from "@/lib/studio/bible-templates";
 import type {
   StudioChangeDto,
@@ -205,11 +204,9 @@ export function buildStudioMomentPrompt(
         workspace.entries
           .filter((entry) => bibleIds.has(entry.id))
           .map((entry) =>
-            xmlEntryBlock(
-              states.get(entry.id) ?? { entry, aspects: [] },
-              STUDIO_ENTRY_TEMPLATES,
-              { names: entryNames },
-            ),
+            xmlEntryBlock(states.get(entry.id) ?? { entry, aspects: [] }, {
+              names: entryNames,
+            }),
           ),
       ),
     ),

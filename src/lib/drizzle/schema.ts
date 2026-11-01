@@ -23,7 +23,6 @@ import type {
   StudioChangeSource,
   StudioChangeStatus,
   StudioEntryType,
-  StudioFieldValue,
   StudioFlagKind,
   StudioFlagPayload,
   StudioFlagStatus,
@@ -381,7 +380,10 @@ export const studioEntries = sqliteTable(
     name: text("name").notNull(),
     summary: text("summary").notNull().default(""),
     fields: text("fields", { mode: "json" })
-      .$type<Record<string, StudioFieldValue>>()
+      // Entry fields are a StudioEntryField[] in the current shape; rows
+      // written before Amendment A hold a legacy key record. Read through
+      // normalizeEntryFields, never directly.
+      .$type<unknown>()
       .notNull()
       .default(emptyJsonObjectSql),
     relatedEntryIds: text("related_entry_ids", { mode: "json" })

@@ -23,6 +23,7 @@ import type {
   StudioStoryDto,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
+import { normalizeEntryFields } from "@/lib/studio/entry-fields";
 
 export type StudioStoryRow = typeof studioStories.$inferSelect;
 export type StudioEntryRow = typeof studioEntries.$inferSelect;
@@ -81,7 +82,7 @@ export function toEntryDto(row: StudioEntryRow): StudioEntryDto {
     customTypeLabel: row.customTypeLabel,
     name: row.name,
     summary: row.summary,
-    fields: row.fields,
+    fields: normalizeEntryFields(row.fields, row.type),
     relatedEntryIds: row.relatedEntryIds,
     position: row.position,
     revision: row.revision,

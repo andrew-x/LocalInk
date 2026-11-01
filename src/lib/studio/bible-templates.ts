@@ -5,227 +5,263 @@ import type {
   StudioStructureTemplateId,
 } from "@/lib/studio/contracts";
 
-export type StudioEntryFieldTemplate = {
-  key: string;
+export type StudioEntrySuggestion = {
   label: string;
   hint: string;
-  group: "fixed" | "voice";
   /** Steers generation but must never appear as narration. */
-  neverSays?: true;
+  steerOnly: boolean;
   /** Only relevant to backstory scenes; never surfaces in present-day prose. */
-  backstoryOnly?: true;
+  backstoryOnly: boolean;
+  /** The pre-Amendment-A record key, used to convert legacy entries. */
+  legacyKey?: string;
 };
 
-export const STUDIO_ENTRY_TEMPLATES: Record<
+/**
+ * Craft-informed examples of what is worth tracking, per entry type. They are
+ * ideas for the model and quick-add chips for the author; nothing requires
+ * them. Order matters: legacy entries convert in this order.
+ */
+export const STUDIO_ENTRY_SUGGESTIONS: Record<
   StudioEntryType,
-  { label: string; fields: StudioEntryFieldTemplate[] }
+  { label: string; suggestions: StudioEntrySuggestion[] }
 > = {
   character: {
     label: "Character",
-    fields: [
-      { key: "age", label: "Age", hint: "How old they are.", group: "fixed" },
+    suggestions: [
       {
-        key: "role",
+        label: "Age",
+        hint: "How old they are.",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "age",
+      },
+      {
         label: "Role",
         hint: "Who they are in the story.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "role",
       },
       {
-        key: "shows",
         label: "What they show people",
         hint: "The face they present to others.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "shows",
       },
       {
-        key: "underneath",
         label: "What's underneath",
         hint: "What they hide or don't admit.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "underneath",
       },
       {
-        key: "wants",
         label: "What they want",
         hint: "The goal they consciously chase.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "wants",
       },
       {
-        key: "needs",
         label: "What they need",
         hint: "What would actually fix things for them.",
-        group: "fixed",
-        neverSays: true,
+        steerOnly: true,
+        backstoryOnly: false,
+        legacyKey: "needs",
       },
       {
-        key: "falseBelief",
         label: "False belief",
         hint: "The wrong idea about themselves or the world that drives them.",
-        group: "fixed",
-        neverSays: true,
+        steerOnly: true,
+        backstoryOnly: false,
+        legacyKey: "falseBelief",
       },
       {
-        key: "beliefOrigin",
         label: "Where the belief came from",
         hint: "The past event that planted it.",
-        group: "fixed",
-        neverSays: true,
+        steerOnly: true,
         backstoryOnly: true,
+        legacyKey: "beliefOrigin",
       },
       {
-        key: "contradiction",
         label: "A contradiction",
         hint: "Something about them that doesn't fit.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "contradiction",
       },
       {
-        key: "talks",
         label: "How they talk",
         hint: "Rhythm, slang, habits of speech.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "talks",
       },
       {
-        key: "wouldSay",
         label: "A line they'd say",
         hint: "A sample line that sounds like them.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "wouldSay",
       },
       {
-        key: "wouldNeverSay",
         label: "A line they'd never say",
         hint: "Something out of character.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "wouldNeverSay",
       },
       {
-        key: "notices",
         label: "What they notice",
         hint: "What catches their eye first.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "notices",
       },
       {
-        key: "carries",
         label: "Objects they carry",
         hint: "Things always on them.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "carries",
       },
       {
-        key: "doesntKnowYet",
         label: "What they don't know yet",
         hint: "Blind spots.",
-        group: "voice",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "doesntKnowYet",
       },
     ],
   },
   relationship: {
     label: "Relationship",
-    fields: [
+    suggestions: [
       {
-        key: "insideObstacle",
         label: "What's in the way inside",
         hint: "How their beliefs collide.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "insideObstacle",
       },
       {
-        key: "outsideObstacle",
         label: "What's in the way outside",
         hint: "Circumstances keeping them apart.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "outsideObstacle",
       },
       {
-        key: "aSeesInB",
         label: "What the first sees in the second",
         hint: "What draws them in.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "aSeesInB",
       },
       {
-        key: "bSeesInA",
         label: "What the second sees in the first",
         hint: "What draws them in.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "bSeesInA",
       },
       {
-        key: "unsaid",
         label: "What's unsaid",
         hint: "What neither will say aloud yet.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "unsaid",
       },
     ],
   },
   place: {
     label: "Place",
-    fields: [
+    suggestions: [
       {
-        key: "whatItIs",
         label: "What it is",
         hint: "A plain description.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "whatItIs",
       },
       {
-        key: "detailsToUse",
         label: "Details to use",
         hint: "Specific sensory details.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "detailsToUse",
       },
       {
-        key: "whoGoesThere",
         label: "Who goes there",
         hint: "Who is found here and why.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "whoGoesThere",
       },
     ],
   },
   thing: {
     label: "Thing",
-    fields: [
+    suggestions: [
       {
-        key: "description",
         label: "Description",
         hint: "What it is and looks like.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "description",
       },
       {
-        key: "whyItMatters",
         label: "Why it matters",
         hint: "Its role in the story.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "whyItMatters",
       },
     ],
   },
   lore: {
     label: "Lore and rules",
-    fields: [
+    suggestions: [
       {
-        key: "description",
         label: "Description",
         hint: "What this is.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "description",
       },
       {
-        key: "rules",
         label: "Rules",
         hint: "How it works and its limits.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "rules",
       },
     ],
   },
   custom: {
     label: "Custom",
-    fields: [
+    suggestions: [
       {
-        key: "description",
         label: "Description",
         hint: "What this is.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "description",
       },
       {
-        key: "details",
         label: "Details",
         hint: "Specifics worth remembering.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "details",
       },
       {
-        key: "notes",
         label: "Notes",
         hint: "Anything else.",
-        group: "fixed",
+        steerOnly: false,
+        backstoryOnly: false,
+        legacyKey: "notes",
       },
     ],
   },

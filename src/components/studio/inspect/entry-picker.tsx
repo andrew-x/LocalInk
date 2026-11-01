@@ -10,7 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/common/popover";
-import { STUDIO_ENTRY_TEMPLATES } from "@/lib/studio/bible-templates";
+import { STUDIO_ENTRY_SUGGESTIONS } from "@/lib/studio/bible-templates";
 import type { StudioEntryDto } from "@/lib/studio/contracts";
 
 type EntryPickerProps = {
@@ -83,7 +83,7 @@ export function EntryPicker({ entries, label, onPick }: EntryPickerProps) {
                   <span className="shrink-0 text-caption text-muted-foreground">
                     {entry.type === "custom" && entry.customTypeLabel
                       ? entry.customTypeLabel
-                      : STUDIO_ENTRY_TEMPLATES[entry.type].label}
+                      : STUDIO_ENTRY_SUGGESTIONS[entry.type].label}
                   </span>
                 </button>
               </li>

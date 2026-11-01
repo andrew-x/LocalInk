@@ -141,9 +141,18 @@ export const studioInitialPlanSchema = z.object({
         "lore",
         "custom",
       ]),
+      /** Set only when type is "custom" (e.g. "Group", "Event"). */
+      customTypeLabel: z.string().nullable(),
       name: z.string(),
       summary: z.string(),
-      fields: keyValueListSchema,
+      fields: z.array(
+        z.object({
+          label: z.string(),
+          value: z.string(),
+          steerOnly: z.boolean(),
+          backstoryOnly: z.boolean(),
+        }),
+      ),
       relatedTempIds: z.array(z.string()),
     }),
   ),
@@ -162,8 +171,8 @@ export type StudioInitialScene = Omit<RawInitialScene, "craft"> & {
   craft: Record<string, string>;
 };
 export type StudioInitialPlan = Omit<RawInitialPlan, "entries" | "chapters"> & {
-  entries: (Omit<RawInitialPlan["entries"][number], "fields"> & {
-    fields: Record<string, string>;
+  entries: (Omit<RawInitialPlan["entries"][number], "customTypeLabel"> & {
+    customTypeLabel: string;
   })[];
   chapters: (StudioInitialScene & {
     tension: number;
@@ -185,7 +194,19 @@ export function normalizeStudioInitialPlan(
     ...raw,
     entries: raw.entries.map((entry) => ({
       ...entry,
-      fields: keyValueListToRecord(entry.fields),
+      customTypeLabel:
+        entry.type === "custom"
+          ? (entry.customTypeLabel ?? "").trim().slice(0, 60)
+          : "",
+      // Limits are enforced here because the model schema cannot carry them.
+      fields: entry.fields
+        .map((field) => ({
+          ...field,
+          label: field.label.trim().replace(/\s+/g, " ").slice(0, 80),
+          value: field.value.trim().slice(0, 4000),
+        }))
+        .filter((field) => field.label && field.value)
+        .slice(0, 40),
     })),
     chapters: raw.chapters.map(({ scenes, tension, ...chapter }) => ({
       ...normalizeScene(chapter),
