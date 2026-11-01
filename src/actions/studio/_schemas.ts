@@ -220,3 +220,15 @@ export const keepStudioMomentDraftActionSchema = z.object({
   generationId: id,
   expectedRevision: revisionSchema,
 });
+
+export const applyStudioReadBackActionSchema = z.object({
+  ...storyIdField,
+  momentId: id,
+  generationId: id,
+});
+
+export const resolveStudioFlagActionSchema = z.object({
+  ...storyIdField,
+  flagId: id,
+  resolution: z.enum(["record", "dismiss", "drop"]),
+});

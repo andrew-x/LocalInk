@@ -24,3 +24,8 @@ export type StudioProseVersionListItem = {
   wordCount: number;
   createdAt: string;
 };
+
+export type {
+  StudioFlagResolveResult,
+  StudioReadBackApplyResult,
+} from "@/lib/server/studio/read-back-apply";
