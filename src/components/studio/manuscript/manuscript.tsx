@@ -106,8 +106,12 @@ export function Manuscript() {
   const { state, dispatch } = useStudioStore();
   const proseById = useProseByMomentId();
   const loop = useWritingLoop();
-  const { proseOpByMomentId } = useBundlePreview();
+  const { pending, proseOpByMomentId } = useBundlePreview();
   const focusBundleOp = useFocusBundleOp();
+  const reviewProposedProse = (momentId: string) => {
+    const op = proseOpByMomentId.get(momentId);
+    if (pending && op) focusBundleOp({ bundleId: pending.id, opId: op.id });
+  };
   const storyPlan = useStoryFleshOut();
   const storyId = state.story.id;
   const selectedItemId = state.selectedItemId;
@@ -200,11 +204,7 @@ export function Manuscript() {
               >
                 {proseOpByMomentId.has(block.moment.id) ? (
                   <ProposedProseMarker
-                    onReview={() =>
-                      focusBundleOp(
-                        proseOpByMomentId.get(block.moment.id)?.id ?? "",
-                      )
-                    }
+                    onReview={() => reviewProposedProse(block.moment.id)}
                   />
                 ) : null}
                 <MomentEditor
@@ -249,9 +249,7 @@ export function Manuscript() {
               >
                 {momentId && proseOpByMomentId.has(momentId) ? (
                   <ProposedProseMarker
-                    onReview={() =>
-                      focusBundleOp(proseOpByMomentId.get(momentId)?.id ?? "")
-                    }
+                    onReview={() => reviewProposedProse(momentId)}
                   />
                 ) : null}
                 <MomentEditor

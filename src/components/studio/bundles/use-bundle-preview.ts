@@ -12,6 +12,8 @@ import type { StudioPlanKind } from "@/lib/studio/contracts";
 
 /** A plan.create op, shaped for rendering as a proposed tree row. */
 export type ProposedPlanItem = {
+  /** The pending bundle the op belongs to (op ids repeat across bundles). */
+  bundleId: string;
   opId: string;
   /** The op's temp id; it doubles as the row's key and collapse id. */
   tempId: string;
@@ -68,8 +70,9 @@ export function useBundlePreview(): BundlePreview {
     const proseOpByMomentId = new Map<string, StudioBundleOpDto>();
     for (const op of pending?.operations ?? []) {
       if (op.status !== "pending") continue;
-      if (op.kind === "plan.create") {
+      if (pending && op.kind === "plan.create") {
         proposedPlanItems.push({
+          bundleId: pending.id,
           opId: op.id,
           tempId: op.tempId,
           label: op.label,

@@ -29,6 +29,12 @@ export type StudioBibleTarget = { section: string; entryId?: string };
 
 export type StudioRightTab = "inspect" | "chat";
 
+/**
+ * A review-card op. Op ids are unique only within their bundle (every turn
+ * numbers from op-1), so focus always names the bundle too.
+ */
+export type StudioBundleOpFocus = { bundleId: string; opId: string };
+
 export type StudioStoreState = StudioWorkspace & {
   /** Read-only global instructions, kept for the Inspect panel. */
   globalInstructions: string;
@@ -47,7 +53,7 @@ export type StudioStoreState = StudioWorkspace & {
    */
   rightTab: StudioRightTab;
   /** The bundle op the chat review card should scroll to and highlight. */
-  focusedBundleOpId: string | null;
+  focusedBundleOp: StudioBundleOpFocus | null;
   /** Bumped by every focusBundleOp, so refocusing the same op re-highlights. */
   bundleFocusNonce: number;
 };
@@ -77,7 +83,7 @@ export type StudioStoreAction =
   | { type: "select"; itemId: string | null }
   | { type: "setReadMode"; value: boolean }
   | { type: "setRightTab"; tab: StudioRightTab }
-  | { type: "focusBundleOp"; opId: string }
+  | ({ type: "focusBundleOp" } & StudioBundleOpFocus)
   | { type: "clearBundleFocus" }
   | ({ type: "openBible" } & StudioBibleTarget)
   | { type: "closeBible" };
@@ -209,13 +215,13 @@ function studioReducer(
         // The review card lives in the chat column, which Read mode hides.
         readMode: false,
         rightTab: "chat",
-        focusedBundleOpId: action.opId,
+        focusedBundleOp: { bundleId: action.bundleId, opId: action.opId },
         bundleFocusNonce: state.bundleFocusNonce + 1,
       };
     case "clearBundleFocus":
-      return state.focusedBundleOpId === null
+      return state.focusedBundleOp === null
         ? state
-        : { ...state, focusedBundleOpId: null };
+        : { ...state, focusedBundleOp: null };
     case "openBible":
       return {
         ...state,
@@ -251,7 +257,7 @@ export function StudioStoreProvider({
       readMode: false,
       bibleOpen: null,
       rightTab: "inspect",
-      focusedBundleOpId: null,
+      focusedBundleOp: null,
       bundleFocusNonce: 0,
     }),
   );
@@ -268,13 +274,14 @@ export function useStudioStore(): StudioStoreValue {
 }
 
 /**
- * Opens the chat tab on the review-card op with this id. The Inspect "Review
- * in chat" link, proposed plan rows, and manuscript markers call it.
+ * Opens the chat tab on this bundle's review-card op. The Inspect "Review in
+ * chat" link, proposed plan rows, and manuscript markers call it.
  */
-export function useFocusBundleOp(): (opId: string) => void {
+export function useFocusBundleOp(): (target: StudioBundleOpFocus) => void {
   const { dispatch } = useStudioStore();
   return useCallback(
-    (opId: string) => dispatch({ type: "focusBundleOp", opId }),
+    ({ bundleId, opId }: StudioBundleOpFocus) =>
+      dispatch({ type: "focusBundleOp", bundleId, opId }),
     [dispatch],
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import { useFocusBundleOp } from "@/components/studio/workspace/use-studio-store";
 import { cn } from "@/lib/util";
 
 import type { ProposedPlanItem } from "./use-bundle-preview";
@@ -18,7 +18,7 @@ type ProposedPlanRowProps = {
  * review card.
  */
 export function ProposedPlanRow({ depth, item }: ProposedPlanRowProps) {
-  const { dispatch } = useStudioStore();
+  const focusBundleOp = useFocusBundleOp();
   const title = item.title.trim() || `Untitled ${KIND_LABEL[item.kind]}`;
   return (
     <div className="relative" style={{ paddingLeft: `${depth * 0.875}rem` }}>
@@ -31,7 +31,9 @@ export function ProposedPlanRow({ depth, item }: ProposedPlanRowProps) {
           "my-0.5 flex min-h-8 w-full cursor-pointer items-center gap-1.5 rounded-md border border-studio-proposed/60 border-dashed px-1.5 text-left text-label-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/40",
         )}
         data-proposed-plan-row={item.tempId}
-        onClick={() => dispatch({ type: "focusBundleOp", opId: item.opId })}
+        onClick={() =>
+          focusBundleOp({ bundleId: item.bundleId, opId: item.opId })
+        }
         role="treeitem"
         type="button"
       >

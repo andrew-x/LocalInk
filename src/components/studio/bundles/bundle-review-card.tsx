@@ -45,24 +45,13 @@ const STATUS_NOTE: Partial<Record<StudioBundleStatus, string>> = {
 
 const HIGHLIGHT_MS = 2500;
 
-type BundleReviewCardProps = {
-  bundle: StudioBundleDto;
-  /**
-   * The op to scroll into view and briefly highlight. Defaults to the store's
-   * `focusedBundleOpId`, which the Inspect link and manuscript marker set.
-   */
-  focusedOpId?: string | null;
-};
-
 /**
  * The review card for one change bundle: ops grouped by area with a checkbox
  * each (all checked), expandable diffs, and accept / discard / undo. Hosted
- * by the chat panel.
+ * by the chat panel. It scrolls to and briefly highlights the store's
+ * focused op when that op is in this bundle.
  */
-export function BundleReviewCard({
-  bundle,
-  focusedOpId,
-}: BundleReviewCardProps) {
+export function BundleReviewCard({ bundle }: { bundle: StudioBundleDto }) {
   const { state, dispatch } = useStudioStore();
   const { resolve, busy, issuesByOpId, clearIssues } = useResolveBundle();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -80,7 +69,10 @@ export function BundleReviewCard({
   >(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
-  const focusId = focusedOpId ?? state.focusedBundleOpId;
+  // Op ids repeat across bundles (each turn numbers from op-1), so the focus
+  // applies only when it names this bundle.
+  const focus = state.focusedBundleOp;
+  const focusId = focus?.bundleId === bundle.id ? focus.opId : null;
   const focusNonce = state.bundleFocusNonce;
   const highlightTimer = useRef<number | null>(null);
   // Focus is handled once: the card that owns the op expands, scrolls to and

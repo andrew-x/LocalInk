@@ -323,29 +323,37 @@ export function ChatPanel({ active }: { active: boolean }) {
   }, [state.bundles, threadBundles]);
 
   // A focused op in another thread's bundle opens that thread so its card
-  // mounts; the card itself scrolls, highlights, and clears the focus. A
-  // running turn settles first rather than being aborted by a tree click.
-  const focusedOpId = state.focusedBundleOpId;
+  // mounts; the card itself scrolls, highlights, and clears the focus. The
+  // switch happens now or never: a tree click must not abort a running turn,
+  // and jumping threads when that turn settles, long after the click, would
+  // be disorienting. A save-failed reply stays recoverable from its thread.
+  const focusedBundleId = state.focusedBundleOp?.bundleId ?? null;
   const focusThreadId = useMemo(() => {
-    if (!focusedOpId) return null;
-    const owner = [...state.bundles, ...threadBundles].find((bundle) =>
-      bundle.operations.some((op) => op.id === focusedOpId),
-    );
+    if (!focusedBundleId) return null;
+    const owner =
+      state.bundles.find((bundle) => bundle.id === focusedBundleId) ??
+      threadBundles.find((bundle) => bundle.id === focusedBundleId);
     return owner?.threadId ?? null;
-  }, [focusedOpId, state.bundles, threadBundles]);
+  }, [focusedBundleId, state.bundles, threadBundles]);
   useEffect(() => {
     focusPendingRef.current = focusThreadId !== null;
     if (!focusThreadId || focusThreadId === activeThreadId) return;
-    if (turn.status !== "idle") return;
     if (handledFocusNonceRef.current === state.bundleFocusNonce) return;
     handledFocusNonceRef.current = state.bundleFocusNonce;
+    const status = getTurnStatus();
+    if (status !== "idle" && status !== "save-failed") {
+      toast.info(
+        "Those changes are in another chat. Try again once this reply finishes.",
+      );
+      return;
+    }
     openThread(focusThreadId);
   }, [
     activeThreadId,
     focusThreadId,
+    getTurnStatus,
     openThread,
     state.bundleFocusNonce,
-    turn.status,
   ]);
 
   // Give the composer its focus back once a turn sent from it settles.

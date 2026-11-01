@@ -40,7 +40,9 @@ export function ProposedChangesSection({ item }: { item: StudioPlanItemDto }) {
               </button>
               <button
                 className="shrink-0 rounded-sm text-caption text-primary underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                onClick={() => focusBundleOp(op.id)}
+                onClick={() =>
+                  focusBundleOp({ bundleId: pending.id, opId: op.id })
+                }
                 type="button"
               >
                 Review in chat
