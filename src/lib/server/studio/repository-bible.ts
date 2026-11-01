@@ -31,7 +31,10 @@ import {
   type StudioStyle,
   type StudioVoiceSample,
 } from "@/lib/studio/contracts";
-import { normalizeEntryFields } from "@/lib/studio/entry-fields";
+import {
+  cleanFieldLabel,
+  normalizeEntryFields,
+} from "@/lib/studio/entry-fields";
 import { generateId } from "@/lib/util";
 
 import {
@@ -175,7 +178,7 @@ function stampAuthorFields(
   const storedById = new Map(stored.map((field) => [field.id, field]));
   const usedIds = new Set<string>();
   return desired.map((field) => {
-    const label = field.label.trim();
+    const label = cleanFieldLabel(field.label);
     const previous = storedById.get(field.id);
     const id = usedIds.has(field.id) ? generateId("studio-field") : field.id;
     usedIds.add(id);

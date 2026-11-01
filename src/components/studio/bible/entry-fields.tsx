@@ -48,7 +48,7 @@ export function EntryFieldGroup({
             <Textarea
               className="min-h-14"
               id={id}
-              maxLength={4000}
+              maxLength={20_000}
               onBlur={onBlur}
               onChange={(event) => onChange(field.id, event.target.value)}
               value={values[field.id] ?? ""}

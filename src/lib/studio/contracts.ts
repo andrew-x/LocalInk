@@ -57,9 +57,10 @@ export type StudioEntryField = {
 };
 
 export const studioEntryFieldSchema = z.object({
-  id: z.string().min(1).max(64),
+  id: z.string().min(1).max(128),
   label: z.string().trim().min(1).max(80),
-  value: z.string().max(4000),
+  // Matches the Phase 1 limit so long legacy values stay editable.
+  value: z.string().max(20_000),
   author: z.enum(["ai", "author"]),
   steerOnly: z.boolean(),
   backstoryOnly: z.boolean(),

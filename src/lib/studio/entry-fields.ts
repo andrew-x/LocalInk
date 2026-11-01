@@ -18,6 +18,27 @@ export function normalizeFieldLabel(label: string): string {
   return label.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
+/** The one cleaning applied to every stored field label. */
+export function cleanFieldLabel(label: string): string {
+  return label.trim().replace(/\s+/g, " ");
+}
+
+/** Short deterministic id suffix for keys too long to embed verbatim. */
+function hashKey(key: string): string {
+  let hash = 5381;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = ((hash * 33) ^ key.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function legacyFieldId(key: string): string {
+  const id = `studio-field-legacy-${key}`;
+  return id.length <= 100
+    ? id
+    : `studio-field-legacy-${key.slice(0, 40)}-${hashKey(key)}`;
+}
+
 function titleCaseKey(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -79,7 +100,7 @@ function parseLegacyShape(
   ): StudioEntryField => {
     const stored = legacy.get(key) as StudioFieldValue;
     return {
-      id: `studio-field-legacy-${key}`,
+      id: legacyFieldId(key),
       label,
       value: stored.value,
       author: stored.author,
@@ -135,7 +156,7 @@ export function mergeAiFields(
 ): StudioEntryField[] {
   const merged = existing.map((field) => ({ ...field }));
   for (const item of proposed) {
-    const label = item.label.trim().replace(/\s+/g, " ");
+    const label = cleanFieldLabel(item.label);
     const value = item.value.trim();
     if (!label || !value) continue;
     const normalized = normalizeFieldLabel(label);
