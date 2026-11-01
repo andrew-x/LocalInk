@@ -11,9 +11,11 @@ import {
   studioPlanItems,
   studioStories,
 } from "@/lib/drizzle/schema";
+import { aspectIdentityKey, cleanAspectLabel } from "@/lib/studio/aspects";
 import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type {
   StudioAspect,
+  StudioChangeMode,
   StudioPlanField,
   StudioPlanKind,
   StudioWorkspace,
@@ -83,6 +85,7 @@ function pickCraft(
 type PlannedChangeInput = {
   entryId: string;
   aspect: StudioAspect;
+  mode: StudioChangeMode;
   aboutEntryId?: string | null;
   value: string;
 };
@@ -141,7 +144,8 @@ function insertAiPlanItem(
   let position = 0;
   for (const change of item.plannedChanges) {
     const value = clip(change.value, MAX_CHANGE_VALUE);
-    if (!value || !validEntryIds.has(change.entryId)) continue;
+    const aspect = cleanAspectLabel(change.aspect);
+    if (!value || !aspect || !validEntryIds.has(change.entryId)) continue;
     tx.insert(studioChanges)
       .values({
         id: generateId("studio-change"),
@@ -151,7 +155,8 @@ function insertAiPlanItem(
           change.aboutEntryId && validEntryIds.has(change.aboutEntryId)
             ? change.aboutEntryId
             : null,
-        aspect: change.aspect,
+        aspect,
+        mode: change.mode,
         value,
         planItemId: id,
         position: position++,
@@ -169,9 +174,14 @@ function insertAiPlanItem(
 const changeKey = (change: {
   entryId: string;
   aspect: string;
+  mode: StudioChangeMode;
   aboutEntryId?: string | null;
+  value: string;
 }) =>
-  JSON.stringify([change.entryId, change.aspect, change.aboutEntryId ?? null]);
+  aspectIdentityKey({
+    ...change,
+    aboutEntryId: change.aboutEntryId ?? null,
+  });
 
 function loadEntryRows(tx: LocalinkTx, storyId: string) {
   return tx
@@ -324,6 +334,7 @@ function applyInitial(
             {
               entryId,
               aspect: change.aspect,
+              mode: change.mode,
               aboutEntryId: resolve(change.aboutTempId),
               value: change.value,
             },

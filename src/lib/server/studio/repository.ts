@@ -13,10 +13,12 @@ import {
   studioProseVersions,
   studioStories,
 } from "@/lib/drizzle/schema";
+import { legacyAspectMode } from "@/lib/studio/aspects";
 import type {
   StudioChangeDto,
   StudioEntryDto,
   StudioFlagDto,
+  StudioFlagPayload,
   StudioPlanItemDto,
   StudioPlanKind,
   StudioProseDto,
@@ -122,6 +124,7 @@ export function toChangeDto(row: StudioChangeRow): StudioChangeDto {
     entryId: row.entryId,
     aboutEntryId: row.aboutEntryId,
     aspect: row.aspect,
+    mode: row.mode,
     value: row.value,
     planItemId: row.planItemId,
     position: row.position,
@@ -147,13 +150,19 @@ export function toProseDto(row: StudioProseRow): StudioProseDto {
   };
 }
 
+/** Flags stored before modes existed get the mode their aspect implied. */
+export function withFlagMode(payload: StudioFlagPayload): StudioFlagPayload {
+  if (payload.kind !== "unplanned-change" || payload.mode) return payload;
+  return { ...payload, mode: legacyAspectMode(payload.aspect) };
+}
+
 export function toFlagDto(row: StudioFlagRow): StudioFlagDto {
   return {
     id: row.id,
     storyId: row.storyId,
     planItemId: row.planItemId,
     kind: row.kind,
-    payload: row.payload,
+    payload: withFlagMode(row.payload),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

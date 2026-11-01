@@ -1,5 +1,5 @@
 import type {
-  StudioAspect,
+  StudioChangeMode,
   StudioEntryType,
   StudioPlanKind,
   StudioStructureTemplateId,
@@ -267,19 +267,21 @@ export const STUDIO_ENTRY_SUGGESTIONS: Record<
   },
 };
 
-export const STUDIO_ASPECTS: {
-  key: StudioAspect;
+/** Examples only. Aspects are free-text labels; these seed prompts and the form. */
+export const STUDIO_ASPECT_SUGGESTIONS: {
   label: string;
-  accumulates: boolean;
+  mode: StudioChangeMode;
+  hint: string;
 }[] = [
-  { key: "believes", label: "Believes", accumulates: false },
-  { key: "wants", label: "Wants", accumulates: false },
-  { key: "knows", label: "Knows", accumulates: true },
-  { key: "feels", label: "Feels about", accumulates: false },
-  { key: "where", label: "Is at", accumulates: false },
-  { key: "status", label: "Status", accumulates: false },
-  { key: "looks", label: "Looks", accumulates: false },
-  { key: "note", label: "Note", accumulates: true },
+  { label: "Believes", mode: "set", hint: "what they hold to be true" },
+  { label: "Wants", mode: "set", hint: "what they are after right now" },
+  { label: "Knows", mode: "add", hint: "facts and secrets they have learned" },
+  { label: "Feels about", mode: "set", hint: "feelings toward another entry" },
+  { label: "Is at", mode: "set", hint: "where they are" },
+  { label: "Status", mode: "set", hint: "their standing or condition" },
+  { label: "Looks", mode: "set", hint: "how they appear" },
+  { label: "Promises", mode: "add", hint: "promises made or owed" },
+  { label: "Note", mode: "add", hint: "anything else worth tracking" },
 ];
 
 export const STUDIO_STRUCTURE_TEMPLATES: {

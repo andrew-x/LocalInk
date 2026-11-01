@@ -1,10 +1,7 @@
 import "server-only";
 
 import type { LocalinkAiModelProfile } from "@/lib/ai";
-import {
-  STUDIO_ASPECTS,
-  STUDIO_CRAFT_FIELDS,
-} from "@/lib/studio/bible-templates";
+import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type {
   StudioChangeDto,
   StudioPlanItemDto,
@@ -105,10 +102,6 @@ function section(
     protected: options.protected ?? true,
     dropOrder: options.dropOrder,
   };
-}
-
-function aspectLabel(aspect: string): string {
-  return STUDIO_ASPECTS.find((item) => item.key === aspect)?.label ?? aspect;
 }
 
 function pickVoiceSamples(
@@ -269,7 +262,8 @@ export function buildStudioMomentPrompt(
   const changeBlock = (change: StudioChangeDto) =>
     xmlField("change", change.value, {
       entry: entryNames.get(change.entryId),
-      aspect: aspectLabel(change.aspect),
+      aspect: change.aspect,
+      mode: change.mode,
       about: change.aboutEntryId
         ? entryNames.get(change.aboutEntryId)
         : undefined,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -8,9 +8,16 @@ import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Label } from "@/components/common/label";
 import { formResolver } from "@/lib/schemas/resolve";
-import { STUDIO_ASPECTS } from "@/lib/studio/bible-templates";
+import {
+  entryAspectLabels,
+  modeForLabel,
+  normalizeAspect,
+} from "@/lib/studio/aspects";
+import { STUDIO_ASPECT_SUGGESTIONS } from "@/lib/studio/bible-templates";
 import {
   type StudioAspect,
+  type StudioChangeDto,
+  type StudioChangeMode,
   type StudioEntryDto,
   studioAspectSchema,
 } from "@/lib/studio/contracts";
@@ -18,9 +25,15 @@ import {
 export type ChangeFormValues = {
   entryId: string;
   aspect: StudioAspect;
+  mode: StudioChangeMode;
   aboutEntryId: string | null;
   value: string;
 };
+
+const MODE_OPTIONS: { mode: StudioChangeMode; label: string }[] = [
+  { mode: "set", label: "Replaces" },
+  { mode: "add", label: "Adds to list" },
+];
 
 const changeFormSchema = z.object({
   entryId: z.string().min(1, "Pick who or what changes."),
@@ -33,6 +46,8 @@ type ChangeFormInput = z.infer<typeof changeFormSchema>;
 
 type ChangeFormProps = {
   entries: StudioEntryDto[];
+  /** All of the story's changes; the form suggests this entry's labels. */
+  changes: StudioChangeDto[];
   initial?: Partial<ChangeFormValues>;
   /** Shows the entry as fixed text; an existing record keeps its entry. */
   lockEntry?: boolean;
@@ -48,6 +63,7 @@ const SELECT_CLASS =
 /** Entry, aspect, about and value for one change record. Shared with the Bible. */
 export function ChangeForm({
   entries,
+  changes,
   initial,
   lockEntry = false,
   mode,
@@ -57,23 +73,40 @@ export function ChangeForm({
   const form = useForm<ChangeFormInput>({
     defaultValues: {
       entryId: initial?.entryId ?? "",
-      aspect: initial?.aspect ?? "knows",
+      aspect: initial?.aspect ?? "",
       aboutEntryId: initial?.aboutEntryId ?? "",
       value: initial?.value ?? "",
     },
     resolver: formResolver(changeFormSchema),
   });
   const { errors, isSubmitting } = form.formState;
+  const entryId = form.watch("entryId");
   const aspect = form.watch("aspect");
-  const showAbout = aspect === "feels" || Boolean(initial?.aboutEntryId);
+  const [pickedMode, setPickedMode] = useState<StudioChangeMode | null>(
+    initial?.mode ?? null,
+  );
+  const existingLabels = entryAspectLabels(changes, entryId);
+  const existingKeys = new Set(existingLabels.map(normalizeAspect));
+  const suggestionLabels = STUDIO_ASPECT_SUGGESTIONS.map(
+    (item) => item.label,
+  ).filter((label) => !existingKeys.has(normalizeAspect(label)));
+  // Until the author picks a mode, follow the label: an existing label keeps
+  // its mode, a suggested one uses the suggestion's, anything else replaces.
+  const matchedMode =
+    modeForLabel(changes, entryId, aspect) ??
+    STUDIO_ASPECT_SUGGESTIONS.find(
+      (item) => normalizeAspect(item.label) === normalizeAspect(aspect),
+    )?.mode ??
+    "set";
+  const changeMode = pickedMode ?? matchedMode;
   const idPrefix = useId();
 
   const submit = form.handleSubmit(async (values) => {
     await onSubmit({
       entryId: values.entryId,
-      aspect: values.aspect,
-      aboutEntryId:
-        showAbout && values.aboutEntryId ? values.aboutEntryId : null,
+      aspect: values.aspect.trim(),
+      mode: changeMode,
+      aboutEntryId: values.aboutEntryId || null,
       value: values.value.trim(),
     });
   });
@@ -126,41 +159,60 @@ export function ChangeForm({
           >
             Aspect
           </Label>
-          <select
-            className={SELECT_CLASS}
+          <Input
+            aria-invalid={Boolean(errors.aspect)}
+            autoComplete="off"
+            className="h-8"
             id={`${idPrefix}-aspect`}
+            list={`${idPrefix}-aspect-options`}
+            maxLength={60}
+            placeholder="e.g. Trusts Mara"
             {...form.register("aspect")}
-          >
-            {STUDIO_ASPECTS.map((item) => (
-              <option key={item.key} value={item.key}>
-                {item.label}
-              </option>
+          />
+          <datalist id={`${idPrefix}-aspect-options`}>
+            {[...existingLabels, ...suggestionLabels].map((label) => (
+              <option key={label} value={label} />
             ))}
-          </select>
+          </datalist>
         </div>
       </div>
-      {showAbout ? (
-        <div className="flex flex-col gap-1">
-          <Label
-            className="text-caption text-muted-foreground"
-            htmlFor={`${idPrefix}-about`}
+      <fieldset
+        aria-label="How this change applies"
+        className="m-0 flex min-w-0 gap-1 border-0 p-0"
+      >
+        {MODE_OPTIONS.map((option) => (
+          <Button
+            aria-pressed={changeMode === option.mode}
+            key={option.mode}
+            onClick={() => setPickedMode(option.mode)}
+            size="sm"
+            type="button"
+            variant={changeMode === option.mode ? "secondary" : "ghost"}
           >
-            About
-          </Label>
-          <select
-            className={SELECT_CLASS}
-            id={`${idPrefix}-about`}
-            {...form.register("aboutEntryId")}
-          >
-            <option value="">Nobody in particular</option>
-            {entries.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
+            {option.label}
+          </Button>
+        ))}
+      </fieldset>
+      <div className="flex flex-col gap-1">
+        <Label
+          className="text-caption text-muted-foreground"
+          htmlFor={`${idPrefix}-about`}
+        >
+          About (optional)
+        </Label>
+        <select
+          className={SELECT_CLASS}
+          id={`${idPrefix}-about`}
+          {...form.register("aboutEntryId")}
+        >
+          <option value="">Nobody in particular</option>
+          {entries.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="flex flex-col gap-1">
         <Label
           className="text-caption text-muted-foreground"
@@ -177,9 +229,13 @@ export function ChangeForm({
           {...form.register("value")}
         />
       </div>
-      {errors.entryId || errors.value ? (
+      {errors.entryId || errors.aspect || errors.value ? (
         <p className="text-caption text-destructive" role="alert">
-          {errors.entryId?.message ?? errors.value?.message}
+          {errors.entryId?.message ??
+            (errors.aspect
+              ? "Name what changes (up to 60 characters)."
+              : undefined) ??
+            errors.value?.message}
         </p>
       ) : null}
       <div className="flex justify-end gap-1">

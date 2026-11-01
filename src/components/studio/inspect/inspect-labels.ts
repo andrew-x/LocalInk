@@ -1,14 +1,9 @@
-import { STUDIO_ASPECTS } from "@/lib/studio/bible-templates";
 import type {
   StudioAspect,
   StudioEntryDto,
   StudioPlanItemDto,
 } from "@/lib/studio/contracts";
 import { buildPlanTree } from "@/lib/studio/plan-order";
-
-export function aspectLabel(aspect: StudioAspect): string {
-  return STUDIO_ASPECTS.find((item) => item.key === aspect)?.label ?? aspect;
-}
 
 /** Chapter id to its 1-based number in story order. */
 export function chapterNumbers(
@@ -39,7 +34,7 @@ export function entryNameMap(entries: StudioEntryDto[]): Map<string, string> {
   return new Map(entries.map((entry) => [entry.id, entry.name]));
 }
 
-/** "June Is at: the snack bar", with "about" folded in for relationships. */
+/** "June, Is at (about Mara): the snack bar". Labels render as stored. */
 export function describeChange(
   change: {
     aspect: StudioAspect;
@@ -51,7 +46,7 @@ export function describeChange(
 ): string {
   const who = names.get(change.entryId) ?? "Unknown entry";
   const about = change.aboutEntryId
-    ? ` ${names.get(change.aboutEntryId) ?? "unknown entry"}`
+    ? ` (about ${names.get(change.aboutEntryId) ?? "unknown entry"})`
     : "";
-  return `${who} ${aspectLabel(change.aspect).toLowerCase()}${about}: ${change.value}`;
+  return `${who}, ${change.aspect}${about}: ${change.value}`;
 }

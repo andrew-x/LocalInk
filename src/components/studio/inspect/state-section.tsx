@@ -3,11 +3,11 @@
 import { useMemo } from "react";
 
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import { normalizeAspect } from "@/lib/studio/aspects";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 import { computeStateGoingIn } from "@/lib/studio/state";
 
 import {
-  aspectLabel,
   chapterNumberOf,
   chapterNumbers,
   entryNameMap,
@@ -36,11 +36,11 @@ export function StateSection({ item }: { item: StudioPlanItemDto }) {
             const last = aspect.values[aspect.values.length - 1];
             const since = chapterNumberOf(planItems, numbers, last.planItemId);
             const about = aspect.aboutEntryId
-              ? ` ${names.get(aspect.aboutEntryId) ?? "unknown entry"}`
+              ? ` (about ${names.get(aspect.aboutEntryId) ?? "unknown entry"})`
               : "";
             return {
-              key: `${aspect.aspect}:${aspect.aboutEntryId ?? ""}`,
-              label: `${aspectLabel(aspect.aspect)}${about}`,
+              key: `${normalizeAspect(aspect.aspect)}:${aspect.aboutEntryId ?? ""}`,
+              label: `${aspect.aspect}${about}`,
               value: aspect.values.map((v) => v.value).join(" · "),
               since: since === null ? null : `since Ch ${since}`,
             };

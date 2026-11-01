@@ -65,6 +65,7 @@ export function ChangesSection({ item }: { item: StudioPlanItemDto }) {
         changeId: change.id,
         patch: {
           aspect: values.aspect,
+          mode: values.mode,
           aboutEntryId: values.aboutEntryId,
           value: values.value,
         },
@@ -97,10 +98,12 @@ export function ChangesSection({ item }: { item: StudioPlanItemDto }) {
           editingId === change.id ? (
             <li key={change.id}>
               <ChangeForm
+                changes={changes}
                 entries={entries}
                 initial={{
                   entryId: change.entryId,
                   aspect: change.aspect,
+                  mode: change.mode,
                   aboutEntryId: change.aboutEntryId,
                   value: change.value,
                 }}
@@ -159,6 +162,7 @@ export function ChangesSection({ item }: { item: StudioPlanItemDto }) {
       </ul>
       {adding ? (
         <ChangeForm
+          changes={changes}
           entries={entries}
           initial={{ entryId: item.presentEntryIds[0] }}
           mode="create"

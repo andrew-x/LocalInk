@@ -10,7 +10,6 @@ import {
   type ChangeFormValues,
 } from "@/components/studio/inspect/changes-section";
 import {
-  aspectLabel,
   chapterNumberOf,
   chapterNumbers,
   entryNameMap,
@@ -19,7 +18,7 @@ import {
   useRunStudioAction,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
-import { STUDIO_ASPECTS } from "@/lib/studio/bible-templates";
+import { normalizeAspect } from "@/lib/studio/aspects";
 import type { StudioChangeDto, StudioEntryDto } from "@/lib/studio/contracts";
 import {
   buildPlanTree,
@@ -73,30 +72,23 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
     for (const change of mine) {
       const chapter = chapterNumberOf(planItems, numbers, change.planItemId);
       if (chapter === null) continue;
-      const key = `${change.aspect}|${change.aboutEntryId ?? ""}`;
+      const key = `${normalizeAspect(change.aspect)}|${change.aboutEntryId ?? ""}`;
       let row = byRow.get(key);
       if (!row) {
-        const about = change.aboutEntryId
-          ? ` ${names.get(change.aboutEntryId) ?? "someone"}`
-          : "";
-        row = {
-          key,
-          label: `${aspectLabel(change.aspect)}${about}`,
-          cells: new Map(),
-        };
+        row = { key, label: "", cells: new Map() };
         byRow.set(key, row);
       }
+      // Rows read as stored; the latest change's wording names the row.
+      const about = change.aboutEntryId
+        ? ` (about ${names.get(change.aboutEntryId) ?? "someone"})`
+        : "";
+      row.label = `${change.aspect.trim()}${about}`;
       const cell = row.cells.get(chapter) ?? [];
       cell.push(change);
       row.cells.set(chapter, cell);
     }
-    const aspectOrder = (key: string) =>
-      STUDIO_ASPECTS.findIndex((a) => a.key === key.split("|")[0]);
-    return [...byRow.values()].sort(
-      (a, b) =>
-        aspectOrder(a.key) - aspectOrder(b.key) ||
-        a.label.localeCompare(b.label),
-    );
+    // Rows keep the order each label was first used.
+    return [...byRow.values()];
   }, [changes, entry.id, names, numbers, planItems]);
 
   const momentOptions = useMemo(() => {
@@ -261,6 +253,7 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
             </select>
           </div>
           <ChangeForm
+            changes={changes}
             entries={entries}
             initial={{ entryId: entry.id }}
             lockEntry

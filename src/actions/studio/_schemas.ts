@@ -3,6 +3,7 @@ import { z } from "zod";
 import { storyGenerationModelSchema } from "@/lib/story-generation-models";
 import {
   studioAspectSchema,
+  studioChangeModeSchema,
   studioCraftSchema,
   studioEntryFieldSchema,
   studioEntryFieldsSchema,
@@ -119,6 +120,7 @@ export const createStudioChangeActionSchema = z.object({
   ...storyIdField,
   entryId: id,
   aspect: studioAspectSchema,
+  mode: studioChangeModeSchema,
   aboutEntryId: nullableId.optional(),
   value: z.string().max(4000),
   planItemId: id,
@@ -130,6 +132,7 @@ export const updateStudioChangeActionSchema = z.object({
   patch: z
     .object({
       aspect: studioAspectSchema,
+      mode: studioChangeModeSchema,
       aboutEntryId: nullableId,
       value: z.string().max(4000),
       planItemId: id,

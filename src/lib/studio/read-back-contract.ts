@@ -1,11 +1,16 @@
 import { z } from "zod";
 
-import { STUDIO_ASPECTS } from "@/lib/studio/bible-templates";
+import {
+  aspectIdentityKey,
+  cleanAspectLabel,
+  exactAspectKey,
+} from "@/lib/studio/aspects";
 import {
   type StudioAspect,
+  type StudioChangeMode,
   type StudioFlagPayload,
   type StudioFlagStatus,
-  studioAspectSchema,
+  studioChangeModeSchema,
 } from "@/lib/studio/contracts";
 
 const id = z.string().trim().min(1).max(128);
@@ -39,7 +44,8 @@ export const studioReadBackOutputSchema = z.object({
   unplannedChanges: z.array(
     z.object({
       entryId: z.string(),
-      aspect: studioAspectSchema,
+      aspect: z.string(),
+      mode: studioChangeModeSchema,
       aboutEntryId: z.string().nullable(),
       value: z.string(),
     }),
@@ -87,19 +93,27 @@ export function normalizeStudioReadBack(
   const seen = new Set<string>();
   const unplannedChanges = raw.unplannedChanges.flatMap((change) => {
     const value = change.value.trim();
+    const aspect = cleanAspectLabel(change.aspect);
     const aboutEntryId = change.aboutEntryId?.trim() || null;
-    if (!value || !allowed.entryIds.has(change.entryId)) return [];
+    if (!value || !aspect || !allowed.entryIds.has(change.entryId)) return [];
     if (aboutEntryId !== null && !allowed.entryIds.has(aboutEntryId)) return [];
-    const key = JSON.stringify([
-      change.entryId,
-      change.aspect,
+    const key = exactAspectKey({
+      entryId: change.entryId,
+      aspect,
+      mode: change.mode,
       aboutEntryId,
-      value.toLowerCase(),
-    ]);
+      value,
+    });
     if (seen.has(key)) return [];
     seen.add(key);
     return [
-      { entryId: change.entryId, aspect: change.aspect, aboutEntryId, value },
+      {
+        entryId: change.entryId,
+        aspect,
+        mode: change.mode,
+        aboutEntryId,
+        value,
+      },
     ];
   });
 
@@ -133,42 +147,26 @@ export type StudioUnplannedFinding = Extract<
   { kind: "unplanned-change" }
 >;
 
-const ACCUMULATING_ASPECTS = new Set<StudioAspect>(
-  STUDIO_ASPECTS.filter((aspect) => aspect.accumulates).map(
-    (aspect) => aspect.key,
-  ),
-);
-
 type FindingLike = {
   entryId: string;
   aspect: StudioAspect;
+  mode: StudioChangeMode;
   aboutEntryId: string | null;
   value: string;
 };
 
 /** Same entry, aspect, about-entry, and (case- and space-insensitive) value. */
 export function exactFindingKey(finding: FindingLike): string {
-  return JSON.stringify([
-    finding.entryId,
-    finding.aspect,
-    finding.aboutEntryId ?? null,
-    finding.value.trim().toLowerCase(),
-  ]);
+  return exactAspectKey(finding);
 }
 
 /**
- * What a settled finding covers. A latest-wins aspect (feels, wants, where…)
- * has one end state per entry and about-entry in a moment, so wording does not
- * matter. Accumulating aspects (knows, note) hold many facts, so a settled
- * one covers only its own fact.
+ * What a settled finding covers. A `set` aspect has one end state per entry
+ * and about-entry in a moment, so wording does not matter. An `add` aspect
+ * holds many facts, so a settled one covers only its own fact.
  */
 export function findingKey(finding: FindingLike): string {
-  if (ACCUMULATING_ASPECTS.has(finding.aspect)) return exactFindingKey(finding);
-  return JSON.stringify([
-    finding.entryId,
-    finding.aspect,
-    finding.aboutEntryId ?? null,
-  ]);
+  return aspectIdentityKey(finding);
 }
 
 /**
@@ -183,30 +181,17 @@ export function settledUnplannedFindings(
     status: StudioFlagStatus;
     payload: StudioFlagPayload;
   }[],
-  momentChanges: {
-    entryId: string;
-    aspect: StudioAspect;
-    aboutEntryId: string | null;
-  }[],
+  momentChanges: FindingLike[],
   momentId: string,
 ): StudioUnplannedFinding[] {
-  const recorded = new Set(
-    momentChanges.map((change) =>
-      JSON.stringify([change.entryId, change.aspect, change.aboutEntryId]),
-    ),
-  );
+  const recorded = new Set(momentChanges.map(findingKey));
   return flags.flatMap((flag) => {
     const { payload } = flag;
     if (flag.planItemId !== momentId || payload.kind !== "unplanned-change") {
       return [];
     }
     if (flag.status === "dismissed") return [payload];
-    if (
-      flag.status === "resolved" &&
-      recorded.has(
-        JSON.stringify([payload.entryId, payload.aspect, payload.aboutEntryId]),
-      )
-    ) {
+    if (flag.status === "resolved" && recorded.has(findingKey(payload))) {
       return [payload];
     }
     return [];

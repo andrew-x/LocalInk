@@ -99,10 +99,12 @@ export function FlagsSection({ item }: { item: StudioPlanItemDto }) {
                 </p>
                 {editingId === flag.id ? (
                   <ChangeForm
+                    changes={state.changes}
                     entries={state.entries}
                     initial={{
                       entryId: payload.entryId,
                       aspect: payload.aspect,
+                      mode: payload.mode,
                       aboutEntryId: payload.aboutEntryId,
                       value: payload.value,
                     }}

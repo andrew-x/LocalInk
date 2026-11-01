@@ -39,6 +39,7 @@ import {
   toPlanItemDto,
   toProseDto,
   touchStudioStory,
+  withFlagMode,
 } from "./repository";
 
 export type StudioReadBackApplyResult = {
@@ -291,7 +292,8 @@ export function applyStagedReadBack(
         eq(studioFlags.kind, "unplanned-change"),
       ),
     )
-    .all();
+    .all()
+    .map((flag) => ({ ...flag, payload: withFlagMode(flag.payload) }));
   const settled = new Set(
     settledUnplannedFindings(
       momentUnplannedFlags,
@@ -323,6 +325,7 @@ export function applyStagedReadBack(
       kind: "unplanned-change",
       entryId: change.entryId,
       aspect: change.aspect,
+      mode: change.mode,
       aboutEntryId: change.aboutEntryId,
       value: change.value.trim(),
     };
@@ -444,7 +447,7 @@ export function resolveStudioFlagInTx(
   }
 
   const now = day().toISOString();
-  const payload = flag.payload;
+  const payload = withFlagMode(flag.payload);
   const changes: StudioChangeDto[] = [];
   const deletedChangeIds: string[] = [];
   const settle = (ids: string[], status: "resolved" | "dismissed") =>
@@ -477,6 +480,7 @@ export function resolveStudioFlagInTx(
         entryId: payload.entryId,
         aboutEntryId: payload.aboutEntryId,
         aspect: payload.aspect,
+        mode: payload.mode,
         value: payload.value,
         planItemId: flag.planItemId,
         position: nextChangePosition(tx, flag.planItemId),

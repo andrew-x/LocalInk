@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { ActionError } from "@/lib/action-error";
-import { studioAspectSchema, studioStyleSchema } from "@/lib/studio/contracts";
+import {
+  studioChangeModeSchema,
+  studioStyleSchema,
+} from "@/lib/studio/contracts";
 
 const id = z.string().trim().min(1).max(128);
 
@@ -110,7 +113,9 @@ function keyValueListToRecord(
 
 const initialPlannedChangeSchema = z.object({
   entryTempId: z.string(),
-  aspect: studioAspectSchema,
+  /** Free-text label; trimmed and clipped when the plan is applied. */
+  aspect: z.string(),
+  mode: studioChangeModeSchema,
   aboutTempId: z.string().nullable(),
   value: z.string(),
 });
@@ -228,7 +233,8 @@ export const studioChildrenSchema = z.object({
       plannedChanges: z.array(
         z.object({
           entryId: z.string(),
-          aspect: studioAspectSchema,
+          aspect: z.string(),
+          mode: studioChangeModeSchema,
           aboutEntryId: z.string().nullable(),
           value: z.string(),
         }),

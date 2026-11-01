@@ -1,5 +1,8 @@
 import "server-only";
 
+import { entryAspectLabels, modeForLabel } from "@/lib/studio/aspects";
+import { STUDIO_ASPECT_SUGGESTIONS } from "@/lib/studio/bible-templates";
+import type { StudioChangeDto, StudioEntryDto } from "@/lib/studio/contracts";
 import type { StudioEntryState } from "@/lib/studio/state";
 
 export class StudioContextTooLargeError extends Error {
@@ -73,6 +76,49 @@ export function xmlGroup(
   return `<${tag}${renderAttributes(attributes)}>\n${body}\n</${tag}>`;
 }
 
+/**
+ * Rules for choosing a change's aspect label and mode. Shared by planning and
+ * read-back so both reuse labels the story already tracks.
+ */
+export const ASPECT_GUIDANCE =
+  "An aspect is a short free-text label for what is changing (for example Trusts Mara, Believes the letter was burned). Reuse a label from tracked_aspects when the same thing changes; invent a short, specific label only for something new. mode is add for things that accumulate (knowledge, secrets, promises) and set for anything that replaces its previous value. Keep the same mode every time a label is used.";
+
+/** Examples of labels and modes. They are ideas, not a required set. */
+export function aspectExamplesBlock(): string {
+  return xmlGroup(
+    "aspect_examples",
+    STUDIO_ASPECT_SUGGESTIONS.map((suggestion) =>
+      xmlField("example", suggestion.hint, {
+        label: suggestion.label,
+        mode: suggestion.mode,
+      }),
+    ),
+  );
+}
+
+/** The aspect labels each listed entry already tracks, with their modes. */
+export function trackedAspectsBlock(
+  entries: StudioEntryDto[],
+  changes: StudioChangeDto[],
+): string {
+  return xmlGroup(
+    "tracked_aspects",
+    entries.map((entry) => {
+      const labels = entryAspectLabels(changes, entry.id);
+      return xmlGroup(
+        "entry",
+        labels.map((label) =>
+          xmlEmpty("aspect", {
+            label,
+            mode: modeForLabel(changes, entry.id, label) ?? undefined,
+          }),
+        ),
+        { id: entry.id, name: entry.name },
+      );
+    }),
+  );
+}
+
 const NEVER_SAYS_USE = "steer-only-never-narrate";
 
 /**
@@ -107,6 +153,7 @@ export function xmlEntryBlock(
     .map((aspect) =>
       xmlField("state", aspect.values.map((item) => item.value).join("\n"), {
         aspect: aspect.aspect,
+        mode: aspect.mode,
         about: aspect.aboutEntryId
           ? (options.names?.get(aspect.aboutEntryId) ?? aspect.aboutEntryId)
           : undefined,

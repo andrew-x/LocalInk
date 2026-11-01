@@ -1,7 +1,7 @@
-import { STUDIO_ASPECTS } from "@/lib/studio/bible-templates";
+import { normalizeAspect } from "@/lib/studio/aspects";
 import type {
-  StudioAspect,
   StudioChangeDto,
+  StudioChangeMode,
   StudioEntryDto,
   StudioPlanItemDto,
 } from "@/lib/studio/contracts";
@@ -10,7 +10,9 @@ import { getPlanIndex } from "@/lib/studio/plan-order";
 export type StudioEntryState = {
   entry: StudioEntryDto;
   aspects: {
-    aspect: StudioAspect;
+    /** Display label: the most recent change's wording. */
+    aspect: string;
+    mode: StudioChangeMode;
     aboutEntryId: string | null;
     values: { value: string; changeId: string; planItemId: string }[];
   }[];
@@ -21,12 +23,6 @@ export type StudioStateInput = {
   changes: StudioChangeDto[];
   planItems: StudioPlanItemDto[];
 };
-
-const ACCUMULATING_ASPECTS = new Set<StudioAspect>(
-  STUDIO_ASPECTS.filter((aspect) => aspect.accumulates).map(
-    (aspect) => aspect.key,
-  ),
-);
 
 /** Changes whose plan item exists, sorted into story replay order. */
 function sortForReplay(
@@ -98,20 +94,24 @@ function replay(
       changeId: change.id,
       planItemId: change.planItemId,
     };
+    const key = normalizeAspect(change.aspect);
     const existing = state.aspects.find(
       (item) =>
-        item.aspect === change.aspect && item.aboutEntryId === aboutEntryId,
+        normalizeAspect(item.aspect) === key &&
+        item.aboutEntryId === aboutEntryId,
     );
     if (!existing) {
       state.aspects.push({
-        aspect: change.aspect,
+        aspect: change.aspect.trim(),
+        mode: change.mode,
         aboutEntryId,
         values: [value],
       });
-    } else if (ACCUMULATING_ASPECTS.has(change.aspect)) {
-      existing.values.push(value);
     } else {
-      existing.values = [value];
+      existing.aspect = change.aspect.trim();
+      existing.mode = change.mode;
+      if (change.mode === "add") existing.values.push(value);
+      else existing.values = [value];
     }
   }
   return states;

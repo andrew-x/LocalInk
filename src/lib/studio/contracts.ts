@@ -9,15 +9,11 @@ export type StudioEntryType =
   | "lore"
   | "custom";
 
-export type StudioAspect =
-  | "believes"
-  | "wants"
-  | "knows"
-  | "feels"
-  | "where"
-  | "status"
-  | "looks"
-  | "note";
+/** Free-text label chosen by the author or the AI, e.g. "Trusts Mara". */
+export type StudioAspect = string;
+
+/** `set` replaces the aspect's value; `add` appends to a list. */
+export type StudioChangeMode = "set" | "add";
 
 export type StudioPlanKind = "chapter" | "scene" | "moment";
 
@@ -83,6 +79,7 @@ export type StudioFlagPayload =
       kind: "unplanned-change";
       entryId: string;
       aspect: StudioAspect;
+      mode: StudioChangeMode;
       aboutEntryId: string | null;
       value: string;
     }
@@ -148,6 +145,7 @@ export type StudioChangeDto = {
   entryId: string;
   aboutEntryId: string | null;
   aspect: StudioAspect;
+  mode: StudioChangeMode;
   value: string;
   planItemId: string;
   position: number;
@@ -193,16 +191,10 @@ export type StudioWorkspace = {
 export const STUDIO_MAX_VOICE_SAMPLES = 3;
 export const STUDIO_MAX_VOICE_SAMPLE_CHARS = 4000;
 
-export const studioAspectSchema = z.enum([
-  "believes",
-  "wants",
-  "knows",
-  "feels",
-  "where",
-  "status",
-  "looks",
-  "note",
-]);
+export const studioChangeModeSchema = z.enum(["set", "add"]);
+
+/** Stored aspect labels: 1-60 characters once trimmed. */
+export const studioAspectSchema = z.string().trim().min(1).max(60);
 
 export const studioStyleSchema = z.object({
   povAndTense: z.string(),
@@ -236,6 +228,7 @@ export const studioFlagPayloadSchema = z.discriminatedUnion("kind", [
     kind: z.literal("unplanned-change"),
     entryId: z.string().min(1),
     aspect: studioAspectSchema,
+    mode: studioChangeModeSchema,
     aboutEntryId: z.string().min(1).nullable(),
     value: z.string(),
   }),

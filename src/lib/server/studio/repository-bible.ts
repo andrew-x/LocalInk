@@ -22,6 +22,7 @@ import {
   EMPTY_STUDIO_STYLE,
   type StudioAspect,
   type StudioChangeDto,
+  type StudioChangeMode,
   type StudioEntryDto,
   type StudioEntryField,
   type StudioEntryType,
@@ -379,6 +380,7 @@ export function insertStudioChange(
     storyId: string;
     entryId: string;
     aspect: StudioAspect;
+    mode: StudioChangeMode;
     aboutEntryId?: string | null;
     value: string;
     planItemId: string;
@@ -403,6 +405,7 @@ export function insertStudioChange(
       entryId: input.entryId,
       aboutEntryId: input.aboutEntryId ?? null,
       aspect: input.aspect,
+      mode: input.mode,
       value: input.value,
       planItemId: input.planItemId,
       position: (last?.value ?? -1) + 1,
@@ -425,6 +428,7 @@ export function patchStudioChange(
     changeId: string;
     patch: Partial<{
       aspect: StudioAspect;
+      mode: StudioChangeMode;
       aboutEntryId: string | null;
       value: string;
       planItemId: string;

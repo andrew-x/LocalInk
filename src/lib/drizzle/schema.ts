@@ -20,6 +20,7 @@ import type {
 } from "@/lib/story-manuscript-contract";
 import type {
   StudioAspect,
+  StudioChangeMode,
   StudioChangeSource,
   StudioChangeStatus,
   StudioEntryType,
@@ -490,6 +491,7 @@ export const studioChanges = sqliteTable(
       onDelete: "set null",
     }),
     aspect: text("aspect").$type<StudioAspect>().notNull(),
+    mode: text("mode").$type<StudioChangeMode>().notNull().default("set"),
     value: text("value").notNull(),
     planItemId: text("plan_item_id")
       .notNull()
@@ -508,10 +510,7 @@ export const studioChanges = sqliteTable(
       table.storyId,
       table.planItemId,
     ),
-    check(
-      "studio_changes_aspect_check",
-      sql`${table.aspect} IN ('believes', 'wants', 'knows', 'feels', 'where', 'status', 'looks', 'note')`,
-    ),
+    check("studio_changes_mode_check", sql`${table.mode} IN ('set', 'add')`),
     check(
       "studio_changes_source_check",
       sql`${table.source} IN ('planned', 'read-back', 'author')`,
