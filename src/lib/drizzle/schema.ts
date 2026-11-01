@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   check,
   index,
   integer,
@@ -11,10 +12,30 @@ import type {
   StoryDetailsChange,
   StoryDetailsProposalStatus,
 } from "@/lib/story-details-contract";
+import type { StoryGenerationModel } from "@/lib/story-generation-models";
+import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
 import type {
   ManuscriptProposalChapter,
   ManuscriptProposalStatus,
 } from "@/lib/story-manuscript-contract";
+import type {
+  StudioAspect,
+  StudioChangeSource,
+  StudioChangeStatus,
+  StudioEntryType,
+  StudioFieldValue,
+  StudioFlagKind,
+  StudioFlagPayload,
+  StudioFlagStatus,
+  StudioPlanField,
+  StudioPlanKind,
+  StudioPlanOrigin,
+  StudioProseOrigin,
+  StudioSetupStatus,
+  StudioStructureTemplateId,
+  StudioStyle,
+  StudioVoiceSample,
+} from "@/lib/studio/contracts";
 
 const currentTimestampSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
@@ -295,5 +316,367 @@ export const chaptersRelations = relations(chapters, ({ one }) => ({
   story: one(stories, {
     fields: [chapters.storyId],
     references: [stories.id],
+  }),
+}));
+
+const emptyJsonArraySql = sql`'[]'`;
+const emptyJsonObjectSql = sql`'{}'`;
+
+export const studioStories = sqliteTable(
+  "studio_stories",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    overview: text("overview").notNull().default(""),
+    instructions: text("instructions").notNull().default(""),
+    style: text("style", { mode: "json" })
+      .$type<StudioStyle>()
+      .notNull()
+      .default(
+        sql`'{"povAndTense":"","register":"","pacing":"","avoid":"","notes":""}'`,
+      ),
+    theme: text("theme").notNull().default(""),
+    structureTemplate: text("structure_template")
+      .$type<StudioStructureTemplateId>()
+      .notNull()
+      .default("freeform"),
+    structureNotes: text("structure_notes").notNull().default(""),
+    brainDump: text("brain_dump").notNull().default(""),
+    voiceSamples: text("voice_samples", { mode: "json" })
+      .$type<StudioVoiceSample[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    proseModel: text("prose_model")
+      .$type<StoryGenerationModel>()
+      .notNull()
+      .default(DEFAULT_STORY_GENERATION_MODEL),
+    setupStatus: text("setup_status")
+      .$type<StudioSetupStatus>()
+      .notNull()
+      .default("draft"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    check(
+      "studio_stories_structure_template_check",
+      sql`${table.structureTemplate} IN ('romance', 'coming-of-age', 'quiet', 'freeform')`,
+    ),
+    check(
+      "studio_stories_setup_status_check",
+      sql`${table.setupStatus} IN ('draft', 'planned')`,
+    ),
+  ],
+);
+
+export const studioEntries = sqliteTable(
+  "studio_entries",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    type: text("type").$type<StudioEntryType>().notNull(),
+    customTypeLabel: text("custom_type_label").notNull().default(""),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    fields: text("fields", { mode: "json" })
+      .$type<Record<string, StudioFieldValue>>()
+      .notNull()
+      .default(emptyJsonObjectSql),
+    relatedEntryIds: text("related_entry_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    position: integer("position").notNull().default(0),
+    revision: integer("revision").notNull().default(0),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_entries_story_type_position_idx").on(
+      table.storyId,
+      table.type,
+      table.position,
+    ),
+    check(
+      "studio_entries_type_check",
+      sql`${table.type} IN ('character', 'relationship', 'place', 'thing', 'lore', 'custom')`,
+    ),
+  ],
+);
+
+export const studioPlanItems = sqliteTable(
+  "studio_plan_items",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    parentId: text("parent_id").references(
+      (): AnySQLiteColumn => studioPlanItems.id,
+      {
+        onDelete: "cascade",
+      },
+    ),
+    kind: text("kind").$type<StudioPlanKind>().notNull(),
+    position: integer("position").notNull().default(0),
+    title: text("title").notNull().default(""),
+    whatHappens: text("what_happens").notNull().default(""),
+    howToWrite: text("how_to_write").notNull().default(""),
+    craft: text("craft", { mode: "json" })
+      .$type<Record<string, string>>()
+      .notNull()
+      .default(emptyJsonObjectSql),
+    presentEntryIds: text("present_entry_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    contextPinnedEntryIds: text("context_pinned_entry_ids", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    contextExcludedEntryIds: text("context_excluded_entry_ids", {
+      mode: "json",
+    })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    authorFields: text("author_fields", { mode: "json" })
+      .$type<StudioPlanField[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    origin: text("origin").$type<StudioPlanOrigin>().notNull().default("ai"),
+    summary: text("summary").notNull().default(""),
+    tension: integer("tension"),
+    revision: integer("revision").notNull().default(0),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_plan_items_story_parent_position_idx").on(
+      table.storyId,
+      table.parentId,
+      table.position,
+    ),
+    check(
+      "studio_plan_items_kind_check",
+      sql`${table.kind} IN ('chapter', 'scene', 'moment')`,
+    ),
+    check(
+      "studio_plan_items_origin_check",
+      sql`${table.origin} IN ('ai', 'author')`,
+    ),
+    check(
+      "studio_plan_items_tension_check",
+      sql`${table.tension} IS NULL OR (${table.kind} = 'chapter' AND ${table.tension} BETWEEN 1 AND 10)`,
+    ),
+  ],
+);
+
+export const studioChanges = sqliteTable(
+  "studio_changes",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    entryId: text("entry_id")
+      .notNull()
+      .references(() => studioEntries.id, { onDelete: "cascade" }),
+    aboutEntryId: text("about_entry_id").references(() => studioEntries.id, {
+      onDelete: "set null",
+    }),
+    aspect: text("aspect").$type<StudioAspect>().notNull(),
+    value: text("value").notNull(),
+    planItemId: text("plan_item_id")
+      .notNull()
+      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    source: text("source").$type<StudioChangeSource>().notNull(),
+    status: text("status").$type<StudioChangeStatus>().notNull(),
+    authorEdited: integer("author_edited", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_changes_story_plan_item_idx").on(
+      table.storyId,
+      table.planItemId,
+    ),
+    check(
+      "studio_changes_aspect_check",
+      sql`${table.aspect} IN ('believes', 'wants', 'knows', 'feels', 'where', 'status', 'looks', 'note')`,
+    ),
+    check(
+      "studio_changes_source_check",
+      sql`${table.source} IN ('planned', 'read-back', 'author')`,
+    ),
+    check(
+      "studio_changes_status_check",
+      sql`${table.status} IN ('planned', 'confirmed')`,
+    ),
+  ],
+);
+
+export const studioProse = sqliteTable(
+  "studio_prose",
+  {
+    momentId: text("moment_id")
+      .primaryKey()
+      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    markdown: text("markdown").notNull().default(""),
+    origin: text("origin").$type<StudioProseOrigin>().notNull(),
+    revision: integer("revision").notNull().default(0),
+    wordCount: integer("word_count").notNull().default(0),
+    // Hash of the markdown the read-back last ran against, so a stale async
+    // result can be told apart from one for the current text.
+    readBackSourceHash: text("read_back_source_hash").notNull().default(""),
+    readBackSentenceHashes: text("read_back_sentence_hashes", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_prose_story_idx").on(table.storyId),
+    check(
+      "studio_prose_origin_check",
+      sql`${table.origin} IN ('ai', 'author', 'ai-edited')`,
+    ),
+  ],
+);
+
+export const studioProseVersions = sqliteTable(
+  "studio_prose_versions",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    momentId: text("moment_id")
+      .notNull()
+      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    markdown: text("markdown").notNull(),
+    origin: text("origin").$type<StudioProseOrigin>().notNull(),
+    wordCount: integer("word_count").notNull().default(0),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_prose_versions_moment_created_idx").on(
+      table.momentId,
+      table.createdAt,
+    ),
+    check(
+      "studio_prose_versions_origin_check",
+      sql`${table.origin} IN ('ai', 'author', 'ai-edited')`,
+    ),
+  ],
+);
+
+export const studioFlags = sqliteTable(
+  "studio_flags",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    planItemId: text("plan_item_id")
+      .notNull()
+      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<StudioFlagKind>().notNull(),
+    payload: text("payload", { mode: "json" })
+      .$type<StudioFlagPayload>()
+      .notNull(),
+    status: text("status").$type<StudioFlagStatus>().notNull().default("open"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    index("studio_flags_story_status_idx").on(table.storyId, table.status),
+    check(
+      "studio_flags_kind_check",
+      sql`${table.kind} IN ('unplanned-change', 'missing-planned-change')`,
+    ),
+    check(
+      "studio_flags_status_check",
+      sql`${table.status} IN ('open', 'resolved', 'dismissed')`,
+    ),
+  ],
+);
+
+export const studioStoriesRelations = relations(studioStories, ({ many }) => ({
+  entries: many(studioEntries),
+  planItems: many(studioPlanItems),
+}));
+
+export const studioEntriesRelations = relations(studioEntries, ({ one }) => ({
+  story: one(studioStories, {
+    fields: [studioEntries.storyId],
+    references: [studioStories.id],
+  }),
+}));
+
+export const studioPlanItemsRelations = relations(
+  studioPlanItems,
+  ({ one, many }) => ({
+    story: one(studioStories, {
+      fields: [studioPlanItems.storyId],
+      references: [studioStories.id],
+    }),
+    parent: one(studioPlanItems, {
+      fields: [studioPlanItems.parentId],
+      references: [studioPlanItems.id],
+      relationName: "studioPlanItemParent",
+    }),
+    children: many(studioPlanItems, { relationName: "studioPlanItemParent" }),
+    changes: many(studioChanges),
+    flags: many(studioFlags),
+  }),
+);
+
+export const studioChangesRelations = relations(studioChanges, ({ one }) => ({
+  planItem: one(studioPlanItems, {
+    fields: [studioChanges.planItemId],
+    references: [studioPlanItems.id],
+  }),
+  entry: one(studioEntries, {
+    fields: [studioChanges.entryId],
+    references: [studioEntries.id],
+    relationName: "studioChangeEntry",
+  }),
+  aboutEntry: one(studioEntries, {
+    fields: [studioChanges.aboutEntryId],
+    references: [studioEntries.id],
+    relationName: "studioChangeAboutEntry",
+  }),
+}));
+
+export const studioProseRelations = relations(studioProse, ({ one }) => ({
+  moment: one(studioPlanItems, {
+    fields: [studioProse.momentId],
+    references: [studioPlanItems.id],
+  }),
+}));
+
+export const studioProseVersionsRelations = relations(
+  studioProseVersions,
+  ({ one }) => ({
+    moment: one(studioPlanItems, {
+      fields: [studioProseVersions.momentId],
+      references: [studioPlanItems.id],
+    }),
+  }),
+);
+
+export const studioFlagsRelations = relations(studioFlags, ({ one }) => ({
+  planItem: one(studioPlanItems, {
+    fields: [studioFlags.planItemId],
+    references: [studioPlanItems.id],
   }),
 }));
