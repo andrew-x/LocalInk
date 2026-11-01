@@ -19,7 +19,10 @@ type Stage = {
   output?: unknown;
 };
 
-const TTL_MS = 15 * 60 * 1000;
+// A staged result can sit on screen for a long time before the author keeps
+// or applies it, so it lives for hours and every read pushes expiry back.
+const STAGE_TTL_MS = 6 * 60 * 60 * 1000;
+const UNDO_TTL_MS = 15 * 60 * 1000;
 const MAX_ENTRIES = 50;
 const MAX_BYTES = 64 * 1024 * 1024;
 const stageGlobal = globalThis as typeof globalThis & {
@@ -51,6 +54,31 @@ function unavailable(): ActionError {
   );
 }
 
+/**
+ * With a long TTL, abandoned results (a discarded draft, an alternative never
+ * picked) accumulate, so a full pool evicts the finished result that was
+ * touched least recently instead of refusing new work. Running generations
+ * are never evicted. Returns false when nothing could be evicted.
+ */
+function evictLeastRecentFinished(keep?: string): boolean {
+  let oldestKey: string | undefined;
+  let oldestExpiry = Number.POSITIVE_INFINITY;
+  for (const [key, stage] of stages) {
+    if (key === keep || stage.output === undefined) continue;
+    if (stage.expiresAt < oldestExpiry) {
+      oldestExpiry = stage.expiresAt;
+      oldestKey = key;
+    }
+  }
+  if (oldestKey === undefined) return false;
+  stages.delete(oldestKey);
+  return true;
+}
+
+function totalBytes(): number {
+  return [...stages.values()].reduce((total, item) => total + item.bytes, 0);
+}
+
 export function beginStudioStage(binding: StudioStageBinding): string {
   prune();
   if (stages.has(binding.generationId)) {
@@ -59,17 +87,19 @@ export function beginStudioStage(binding: StudioStageBinding): string {
       "This generation is already running or ready to save.",
     );
   }
-  if (stages.size >= MAX_ENTRIES) {
-    throw new ActionError(
-      "GENERATION_FAILED",
-      "Too many generations are waiting to finish. Please try again shortly.",
-    );
+  while (stages.size >= MAX_ENTRIES) {
+    if (!evictLeastRecentFinished()) {
+      throw new ActionError(
+        "GENERATION_FAILED",
+        "Too many generations are waiting to finish. Please try again shortly.",
+      );
+    }
   }
   const attemptId = generateId("studio-attempt");
   stages.set(binding.generationId, {
     binding: bindingKey(binding),
     attemptId,
-    expiresAt: day().valueOf() + TTL_MS,
+    expiresAt: day().valueOf() + STAGE_TTL_MS,
     bytes: 0,
   });
   return attemptId;
@@ -90,11 +120,10 @@ export function finishStudioStage<T>(
   )
     throw unavailable();
   const bytes = new TextEncoder().encode(JSON.stringify(output)).byteLength;
-  const totalBytes = [...stages.values()].reduce(
-    (total, item) => total + item.bytes,
-    0,
-  );
-  if (bytes + totalBytes > MAX_BYTES) {
+  while (bytes + totalBytes() > MAX_BYTES) {
+    if (!evictLeastRecentFinished(binding.generationId)) break;
+  }
+  if (bytes + totalBytes() > MAX_BYTES) {
     stages.delete(binding.generationId);
     throw new ActionError(
       "GENERATION_FAILED",
@@ -104,9 +133,10 @@ export function finishStudioStage<T>(
   // Copy so callers cannot modify the staged result after handing it over.
   stage.output = structuredClone(output);
   stage.bytes = bytes;
-  stage.expiresAt = day().valueOf() + TTL_MS;
+  stage.expiresAt = day().valueOf() + STAGE_TTL_MS;
 }
 
+/** Reads a staged result and pushes its expiry back by a full TTL. */
 export function getStudioStage<T>(binding: StudioStageBinding): T {
   prune();
   const stage = stages.get(binding.generationId);
@@ -116,6 +146,7 @@ export function getStudioStage<T>(binding: StudioStageBinding): T {
     stage.binding !== bindingKey(binding)
   )
     throw unavailable();
+  stage.expiresAt = day().valueOf() + STAGE_TTL_MS;
   return structuredClone(stage.output) as T;
 }
 
@@ -191,7 +222,7 @@ export function putStudioUndo<T>(storyId: string, snapshot: T): string {
   const token = generateId("studio-undo");
   undoStages.set(token, {
     storyId,
-    expiresAt: day().valueOf() + TTL_MS,
+    expiresAt: day().valueOf() + UNDO_TTL_MS,
     bytes,
     snapshot: structuredClone(snapshot),
   });
