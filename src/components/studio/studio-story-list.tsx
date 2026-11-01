@@ -7,14 +7,7 @@ import { useMemo, useState } from "react";
 import type { StudioStoryListItem } from "@/actions/studio/_types";
 import { deleteStudioStory } from "@/actions/studio/delete-studio-story";
 import { Button } from "@/components/common/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/common/dialog";
+import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { useRunStudioAction } from "@/components/studio/workspace/use-studio-store";
 import day from "@/lib/dayjs";
 
@@ -141,41 +134,24 @@ export function StudioStoryList({
         )}
       </div>
 
-      <Dialog
+      <StudioConfirmDialog
+        confirmLabel="Delete"
+        description={
+          <>
+            &ldquo;{pendingDelete?.title}&rdquo; and everything in it (its
+            Bible, plan, prose, and saved versions) are permanently deleted.
+            This cannot be undone.
+          </>
+        }
+        destructive
+        loading={isDeleting}
+        onConfirm={() => void confirmDelete()}
         onOpenChange={(open) => {
-          if (!open && !isDeleting) setPendingDelete(null);
+          if (!open) setPendingDelete(null);
         }}
         open={pendingDelete !== null}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this story?</DialogTitle>
-            <DialogDescription>
-              &ldquo;{pendingDelete?.title}&rdquo; and everything in it (its
-              Bible, plan, prose, and saved versions) are permanently deleted.
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              disabled={isDeleting}
-              onClick={() => setPendingDelete(null)}
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              loading={isDeleting}
-              onClick={() => void confirmDelete()}
-              type="button"
-              variant="destructive"
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title="Delete this story?"
+      />
     </section>
   );
 }

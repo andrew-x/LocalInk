@@ -10,14 +10,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/common/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/common/dialog";
+import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 import {
   buildPlanTree,
@@ -276,42 +269,22 @@ export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
         ))}
       </div>
 
-      <Dialog
+      <StudioConfirmDialog
+        confirmLabel="Delete"
+        description={`${
+          pendingDelete?.kind === "moment"
+            ? "Any prose written for this moment is deleted with it."
+            : "Everything inside it is deleted too, including any prose already written."
+        } You can undo right after.`}
+        destructive
+        loading={isDeleting}
+        onConfirm={() => void confirmDelete()}
         onOpenChange={(open) => {
-          if (!open && !isDeleting) setPendingDelete(null);
+          if (!open) setPendingDelete(null);
         }}
         open={pendingDelete !== null}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete this {pendingDelete?.kind}?</DialogTitle>
-            <DialogDescription>
-              {pendingDelete?.kind === "moment"
-                ? "Any prose written for this moment is deleted with it."
-                : "Everything inside it is deleted too, including any prose already written."}{" "}
-              You can undo right after.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              disabled={isDeleting}
-              onClick={() => setPendingDelete(null)}
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              loading={isDeleting}
-              onClick={() => void confirmDelete()}
-              type="button"
-              variant="destructive"
-            >
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title={`Delete this ${pendingDelete?.kind ?? "item"}?`}
+      />
     </div>
   );
 }

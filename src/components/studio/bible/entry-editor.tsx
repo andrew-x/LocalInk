@@ -4,16 +4,9 @@ import { Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@/components/common/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/common/dialog";
 import { Input } from "@/components/common/input";
 import { Textarea } from "@/components/common/textarea";
+import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { InspectPill } from "@/components/studio/inspect/inspect-section";
 import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
@@ -218,34 +211,16 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
 
       <OverTheStory entry={entry} />
 
-      <Dialog onOpenChange={setConfirmingDelete} open={confirmingDelete}>
-        <DialogContent className="p-5" showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>Delete {entry.name}?</DialogTitle>
-            <DialogDescription>
-              This also deletes every change tracked for it over the story, and
-              removes it from the moments it appears in. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              onClick={() => setConfirmingDelete(false)}
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              loading={isDeleting}
-              onClick={() => void confirmDelete()}
-              type="button"
-              variant="destructive"
-            >
-              Delete entry
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StudioConfirmDialog
+        confirmLabel="Delete entry"
+        description="This also deletes every change tracked for it over the story, and removes it from the moments it appears in. This cannot be undone."
+        destructive
+        loading={isDeleting}
+        onConfirm={() => void confirmDelete()}
+        onOpenChange={setConfirmingDelete}
+        open={confirmingDelete}
+        title={`Delete ${entry.name}?`}
+      />
     </div>
   );
 }

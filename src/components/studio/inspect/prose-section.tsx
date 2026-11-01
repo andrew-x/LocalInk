@@ -9,14 +9,7 @@ import { getStudioProseVersions } from "@/actions/studio/get-studio-prose-versio
 import { mergeStudioMoment } from "@/actions/studio/merge-studio-moment";
 import { restoreStudioProseVersion } from "@/actions/studio/restore-studio-prose-version";
 import { Button } from "@/components/common/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/common/dialog";
+import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import {
   flushMomentEditor,
   retryMomentSave,
@@ -340,33 +333,15 @@ export function ProseSection({ item }: { item: StudioPlanItemDto }) {
         </div>
       ) : null}
 
-      <Dialog onOpenChange={setConfirmMerge} open={confirmMerge}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Merge with the previous moment?</DialogTitle>
-            <DialogDescription>
-              This moment's text moves to the end of the previous moment, its
-              changes follow it, and this plan item is removed.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              onClick={() => setConfirmMerge(false)}
-              type="button"
-              variant="ghost"
-            >
-              Cancel
-            </Button>
-            <Button
-              loading={busy === "merge"}
-              onClick={() => void merge()}
-              type="button"
-            >
-              Merge
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <StudioConfirmDialog
+        confirmLabel="Merge"
+        description="This moment's text moves to the end of the previous moment, its changes follow it, and this plan item is removed."
+        loading={busy === "merge"}
+        onConfirm={() => void merge()}
+        onOpenChange={setConfirmMerge}
+        open={confirmMerge}
+        title="Merge with the previous moment?"
+      />
     </InspectSection>
   );
 }
