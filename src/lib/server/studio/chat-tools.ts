@@ -8,7 +8,17 @@ import {
   isAiConfigurationError,
   LOCALINK_AI_MODEL_PROFILES,
 } from "@/lib/ai";
+import {
+  STUDIO_CRAFT_FIELDS,
+  STUDIO_ENTRY_SUGGESTIONS,
+  STUDIO_STRUCTURE_TEMPLATES,
+} from "@/lib/studio/bible-templates";
 import type { StudioChatStep } from "@/lib/studio/chat-contract";
+import {
+  type StudioEntryType,
+  type StudioPlanKind,
+  studioChangeModeSchema,
+} from "@/lib/studio/contracts";
 import { countWords } from "@/lib/studio/prose-text";
 
 import type { StudioBundleBuilder } from "./bundle-builder";
@@ -34,24 +44,25 @@ import {
  */
 
 const nullableText = z.string().nullable();
-const entryTypeSchema = z.enum([
-  "character",
-  "relationship",
-  "place",
-  "thing",
-  "lore",
-  "custom",
-]);
-const planKindSchema = z.enum(["chapter", "scene", "moment"]);
-const modeSchema = z.enum(["set", "add"]);
+// Enums and craft keys come from the Studio constants so the tools cannot
+// drift from the data model. Both records are complete by type.
+const ENTRY_TYPES = Object.keys(STUDIO_ENTRY_SUGGESTIONS) as StudioEntryType[];
+const PLAN_KINDS = Object.keys(STUDIO_CRAFT_FIELDS) as StudioPlanKind[];
+const entryTypeSchema = z.enum(ENTRY_TYPES);
+const planKindSchema = z.enum(PLAN_KINDS);
+const structureTemplateSchema = z.enum(
+  STUDIO_STRUCTURE_TEMPLATES.map((template) => template.id),
+);
+const CRAFT_KEYS_TEXT = PLAN_KINDS.map(
+  (kind) =>
+    `${kind} ${STUDIO_CRAFT_FIELDS[kind].map((field) => field.key).join(", ")}`,
+).join("; ");
 
 const proposeStorySettingsSchema = z.object({
   overview: nullableText,
   instructions: nullableText,
   theme: nullableText,
-  structureTemplate: z
-    .enum(["romance", "coming-of-age", "quiet", "freeform"])
-    .nullable(),
+  structureTemplate: structureTemplateSchema.nullable(),
   structureNotes: nullableText,
   style: z
     .object({
@@ -120,7 +131,7 @@ const proposeChangesSchema = z.object({
       entryId: nullableText,
       planItemId: nullableText,
       aspect: nullableText,
-      mode: modeSchema.nullable(),
+      mode: studioChangeModeSchema.nullable(),
       value: nullableText,
       aboutEntryId: nullableText,
     }),
@@ -194,83 +205,92 @@ export function createStudioChatTools({
       | { momentId: string; ok: true; words: number }
       | { momentId: string; ok: false; error: string }
     )[] = [];
-    for (const [index, momentRef] of plan.momentRefs.entries()) {
-      abortSignal.throwIfAborted();
-      onProgress({
-        tool: "write_moments",
-        label: `Writing moment ${index + 1} of ${plan.momentRefs.length}`,
-      });
-      let built: ReturnType<typeof buildStudioMomentPrompt>;
-      try {
-        built = buildStudioMomentPrompt(
-          plan.preview,
-          momentRef,
-          globalInstructions,
-          profile,
-          "first",
-          builder.proseOverlay,
-        );
-      } catch (error) {
-        if (
-          !(error instanceof StudioContextTooLargeError) &&
-          !(error instanceof StudioNotFoundError)
-        ) {
-          throw error;
-        }
-        results.push({
-          momentId: momentRef,
-          ok: false,
-          error:
-            error instanceof StudioContextTooLargeError
-              ? "The story is too large for the prose model's context."
-              : "The moment could not be found.",
-        });
-        break;
-      }
-      const request = xmlField("writer_request_for_this_pass", guidance);
-      try {
-        const result = await generateLocalinkText({
-          model: profile.model,
-          temperature: getStudioMomentTemperature(profile, "first"),
-          system: built.system,
-          prompt: request ? `${built.prompt}\n\n${request}` : built.prompt,
-          maxOutputTokens: built.maxOutputTokens,
-          abortSignal,
-        });
+    try {
+      for (const [index, momentRef] of plan.momentRefs.entries()) {
         abortSignal.throwIfAborted();
-        const markdown = result.text.trim();
-        if (result.finishReason !== "stop" || !markdown) {
+        onProgress({
+          tool: "write_moments",
+          label: `Writing moment ${index + 1} of ${plan.momentRefs.length}`,
+        });
+        let built: ReturnType<typeof buildStudioMomentPrompt>;
+        try {
+          built = buildStudioMomentPrompt(
+            plan.preview,
+            momentRef,
+            globalInstructions,
+            profile,
+            "first",
+            builder.proseOverlay,
+          );
+        } catch (error) {
+          if (
+            !(error instanceof StudioContextTooLargeError) &&
+            !(error instanceof StudioNotFoundError)
+          ) {
+            throw error;
+          }
           results.push({
             momentId: momentRef,
             ok: false,
             error:
-              result.finishReason === "length"
-                ? "The prose model hit its output limit before finishing."
-                : "The prose model did not finish this moment.",
+              error instanceof StudioContextTooLargeError
+                ? "The story is too large for the prose model's context."
+                : "The moment could not be found.",
           });
           break;
         }
-        const added = builder.addProse(plan, momentRef, markdown);
-        if ("error" in added) {
-          results.push({ momentId: momentRef, ok: false, error: added.error });
+        const request = xmlField("writer_request_for_this_pass", guidance);
+        try {
+          const result = await generateLocalinkText({
+            model: profile.model,
+            temperature: getStudioMomentTemperature(profile, "first"),
+            system: built.system,
+            prompt: request ? `${built.prompt}\n\n${request}` : built.prompt,
+            maxOutputTokens: built.maxOutputTokens,
+            abortSignal,
+          });
+          abortSignal.throwIfAborted();
+          const markdown = result.text.trim();
+          if (result.finishReason !== "stop" || !markdown) {
+            results.push({
+              momentId: momentRef,
+              ok: false,
+              error:
+                result.finishReason === "length"
+                  ? "The prose model hit its output limit before finishing."
+                  : "The prose model did not finish this moment.",
+            });
+            break;
+          }
+          const added = builder.addProse(plan, momentRef, markdown);
+          if ("error" in added) {
+            results.push({
+              momentId: momentRef,
+              ok: false,
+              error: added.error,
+            });
+            break;
+          }
+          results.push({
+            momentId: momentRef,
+            ok: true,
+            words: countWords(markdown),
+          });
+        } catch (error) {
+          if (abortSignal.aborted) throw error;
+          results.push({
+            momentId: momentRef,
+            ok: false,
+            error: isAiConfigurationError(error)
+              ? "AI is not configured for this story's prose model."
+              : "Prose generation failed for this moment.",
+          });
           break;
         }
-        results.push({
-          momentId: momentRef,
-          ok: true,
-          words: countWords(markdown),
-        });
-      } catch (error) {
-        if (abortSignal.aborted) throw error;
-        results.push({
-          momentId: momentRef,
-          ok: false,
-          error: isAiConfigurationError(error)
-            ? "AI is not configured for this story's prose model."
-            : "Prose generation failed for this moment.",
-        });
-        break;
       }
+    } finally {
+      // Releases the scene claim; keeps it when prose was proposed.
+      builder.endProse();
     }
     const done = new Set(results.map((result) => result.momentId));
     return charge({
@@ -306,7 +326,7 @@ export function createStudioChatTools({
         "update: itemId, then any of title, whatHappens, howToWrite, craft (merged by key), presentEntryIds (replaces the list), tension (saved chapters only, 1 to 10).",
         "move: itemId (saved), parentId, newIndex (0 = first among the new parent's children, counting items this proposal adds).",
         "delete: itemId (saved); removes everything inside it.",
-        "Craft keys: chapter purpose, endHook; scene wants, goesWrong, differentAfter, entry, exit; moment turn, said, meant, endsWith.",
+        `Craft keys: ${CRAFT_KEYS_TEXT}.`,
       ].join(" "),
       inputSchema: proposePlanSchema,
       execute: async ({ items }) => charge(builder.proposePlan(items)),

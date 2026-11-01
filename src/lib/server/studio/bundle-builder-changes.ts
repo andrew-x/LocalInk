@@ -207,13 +207,8 @@ function updateChange(
     "change.update",
     (candidate) => candidate.changeId === id,
   );
-  const baseline: OpOf<"change.update">["baseline"] = op?.baseline ?? {
-    aspect: row.aspect,
-    mode: row.mode,
-    value: row.value,
-    aboutEntryId: row.aboutEntryId,
-    planItemId: row.planItemId,
-  };
+  const baseline: OpOf<"change.update">["baseline"] =
+    op?.baseline ?? draft.changeBaseline(row);
   const target = {
     aspect: op?.patch.aspect ?? baseline.aspect,
     mode: op?.patch.mode ?? baseline.mode,
@@ -321,13 +316,7 @@ function deleteChange(
     kind: "change.delete",
     label: changeLabel(draft, "Remove change for", row.entryId, row.aspect),
     changeId: id,
-    baseline: {
-      aspect: row.aspect,
-      mode: row.mode,
-      value: row.value,
-      aboutEntryId: row.aboutEntryId,
-      planItemId: row.planItemId,
-    },
+    baseline: draft.changeBaseline(row),
   });
 }
 

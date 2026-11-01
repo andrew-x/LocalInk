@@ -6,6 +6,7 @@ import { z } from "zod";
 import { entryAspectLabels, modeForLabel } from "@/lib/studio/aspects";
 import {
   STUDIO_CRAFT_FIELDS,
+  STUDIO_ENTRY_SUGGESTIONS,
   STUDIO_STRUCTURE_TEMPLATES,
 } from "@/lib/studio/bible-templates";
 import type {
@@ -41,6 +42,9 @@ import { loadStudioWorkspace } from "./repository";
 export type StudioChatToolBudget = { remaining: number };
 
 const MAX_PROSE_CHARS = 24_000;
+const BUILT_IN_TYPES = Object.keys(STUDIO_ENTRY_SUGGESTIONS).filter(
+  (type) => type !== "custom",
+);
 const BRIEF_CHARS = 200;
 const SUMMARY_CHARS = 300;
 
@@ -307,8 +311,7 @@ export function createStudioChatReadTools({
       },
     }),
     get_bible: tool({
-      description:
-        "List Bible entries: id, type, name, the start of the summary, and field labels. type filters by entry type (character, relationship, place, thing, lore, or a custom type label); null lists all.",
+      description: `List Bible entries: id, type, name, the start of the summary, and field labels. type filters by entry type (${BUILT_IN_TYPES.join(", ")}, or a custom type label); null lists all.`,
       inputSchema: bibleSchema,
       execute: async ({ type }) => {
         const workspace = load();

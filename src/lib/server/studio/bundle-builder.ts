@@ -61,6 +61,16 @@ export type ProsePlan = {
   momentRefs: string[];
 };
 
+/**
+ * Proposals and finalize wait while write_moments runs (they can arrive in
+ * the same step): an edit could change what the prose is written from, and
+ * a finalize would shut out the moments still being written.
+ */
+const WRITING_ERROR = {
+  error:
+    "write_moments is still running. Wait for it to finish, then call this again.",
+};
+
 const ISSUE_TEXT: Record<StudioBundleSelectionIssue["kind"], string> = {
   "missing-dependency": "depends on something no other proposed change creates",
   conflict: "no longer matches the saved story",
@@ -86,14 +96,16 @@ const GROUP_ORDER: Record<StudioBundleOpInput["kind"], number> = {
 /**
  * Checks the whole candidate the way insert and accept will. Problems with
  * ops this call touched are errors (the call is rejected). A conflict on an
- * op whose baseline was read in an earlier call (including one this call
- * merged into) means the author edited that record during the turn; only
- * the author can resolve that, so it is a note, and accept will flag it.
+ * op whose baseline was first read in an earlier call (an op merged into,
+ * or a new op reusing the record's first-seen baseline) means the author
+ * edited that record during the turn; only the author can resolve that, so
+ * it is a note, and accept will flag it. `fresh` holds the ops whose
+ * baselines were read in this call, where a conflict is an error.
  */
 function checkCandidate(
   ops: StudioBundleOpInput[],
   snapshot: BuilderSnapshot,
-  { touched, created }: { touched: Set<string>; created: Set<string> },
+  { touched, fresh }: { touched: Set<string>; fresh: Set<string> },
 ): { errors: string[]; notes: string[] } {
   const errors: string[] = [];
   const notes: string[] = [];
@@ -125,7 +137,7 @@ function checkCandidate(
   );
   for (const issue of issues) {
     const text = `“${issue.label}” ${ISSUE_TEXT[issue.kind]}`;
-    if (issue.kind === "conflict" && !created.has(issue.opId)) {
+    if (issue.kind === "conflict" && !fresh.has(issue.opId)) {
       notes.push(
         `${text}: the author changed it during this turn, so it will show as a conflict for them to deselect.`,
       );
@@ -200,6 +212,7 @@ export class StudioBundleBuilder {
   }
 
   finalize(summary: string): BuilderOutcome {
+    if (this.state.proseWriting) return WRITING_ERROR;
     if (this.isFinalized) {
       return {
         error:
@@ -222,7 +235,7 @@ export class StudioBundleBuilder {
     if ("error" in snapshot) return snapshot;
     const { errors, notes } = checkCandidate(this.state.ops, snapshot, {
       touched: new Set(),
-      created: new Set(),
+      fresh: new Set(),
     });
     if (errors.length > 0) {
       return {
@@ -241,11 +254,23 @@ export class StudioBundleBuilder {
 
   /**
    * Checks the moments write_moments was asked for: saved or new moments,
-   * all in one scene, and the same scene as any prose already written this
-   * turn. Returns them in story order with the snapshot whose prose
-   * revisions become the baselines.
+   * all in one scene (as placed after this turn's moves), and the same scene
+   * as any prose already written this turn. Returns them in story order
+   * with the snapshot whose prose revisions become the baselines.
+   *
+   * Synchronous on purpose: the SDK starts every tool call of a step at
+   * once, so the scene is claimed here, before the caller's first await. A
+   * second write_moments while one runs is refused, whatever its scene,
+   * since it could not see the first one's prose. The caller must call
+   * `endProse` when it finishes.
    */
   planProse(momentIds: string[]): { error: string } | ProsePlan {
+    if (this.state.proseWriting) {
+      return {
+        error:
+          "Another write_moments call is still running. Wait for the previous write_moments to finish, then call it again for any moments still needed.",
+      };
+    }
     if (this.isFinalized) {
       return {
         error:
@@ -299,6 +324,8 @@ export class StudioBundleBuilder {
         index,
       ]),
     );
+    this.state.proseSceneRef = sceneRef;
+    this.state.proseWriting = true;
     return {
       snapshot,
       preview,
@@ -320,10 +347,19 @@ export class StudioBundleBuilder {
     if (this.isFinalized) {
       return { error: "The proposal is already finalized." };
     }
+    // Last guard for the one-scene limit: only the running call's scene.
+    if (
+      !this.state.proseWriting ||
+      this.state.proseSceneRef !== plan.sceneRef
+    ) {
+      return {
+        error:
+          "Prose is limited to one scene per turn; this moment was not added.",
+      };
+    }
     if (markdown.length > MAX_PROSE_CHARS) {
       return { error: "The generated prose is too long to propose." };
     }
-    this.state.proseSceneRef = plan.sceneRef;
     const existing = this.state.ops.find(
       (op): op is OpOf<"prose.write"> =>
         op.kind === "prose.write" && op.momentRef === momentRef,
@@ -350,6 +386,18 @@ export class StudioBundleBuilder {
     return { opId: op.id };
   }
 
+  /**
+   * Ends a write_moments call (whatever its outcome). A call that left no
+   * prose in the proposal (aborted or failed before any moment) releases
+   * the scene, so a later call may pick another one.
+   */
+  endProse(): void {
+    this.state.proseWriting = false;
+    if (!this.state.ops.some((op) => op.kind === "prose.write")) {
+      this.state.proseSceneRef = null;
+    }
+  }
+
   private snapshot(): BuilderSnapshot | { error: string } {
     try {
       return loadBuilderSnapshot(this.storyId);
@@ -360,6 +408,7 @@ export class StudioBundleBuilder {
   }
 
   private run(apply: (draft: BuilderDraft) => void): BuilderOutcome {
+    if (this.state.proseWriting) return WRITING_ERROR;
     if (this.isFinalized) {
       return {
         error:
@@ -378,7 +427,13 @@ export class StudioBundleBuilder {
     }
     const { errors, notes } = checkCandidate(draft.state.ops, snapshot, {
       touched: draft.touched,
-      created: draft.created,
+      fresh: new Set(
+        draft.state.ops
+          .filter(
+            (op) => draft.created.has(op.id) && draft.hasFreshBaseline(op),
+          )
+          .map((op) => op.id),
+      ),
     });
     if (errors.length > 0) {
       return {

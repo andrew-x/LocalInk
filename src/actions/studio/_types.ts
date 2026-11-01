@@ -46,6 +46,7 @@ export type {
   StudioChatPreparedTurn,
   StudioChatSavedTurn,
   StudioChatStep,
+  StudioChatThreadDeleteResult,
   StudioChatThreadDetail,
   StudioChatThreadDto,
 } from "@/lib/studio/chat-contract";

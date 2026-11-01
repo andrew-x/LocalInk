@@ -18,13 +18,18 @@ import type {
   StudioChatRole,
   StudioChatSavedTurn,
   StudioChatStep,
+  StudioChatThreadDeleteResult,
   StudioChatThreadDetail,
   StudioChatThreadDto,
 } from "@/lib/studio/chat-contract";
 import { generateId } from "@/lib/util";
 
 import type { StudioChatBundleCandidate } from "./bundle-builder";
-import { getStudioBundleByGeneration, insertStudioBundle } from "./bundles";
+import {
+  getStudioBundleByGeneration,
+  insertStudioBundle,
+  resolveStudioBundle,
+} from "./bundles";
 import { requireStudioStory, toBundleDto } from "./repository";
 import { getStudioStage, type StudioStageBinding } from "./staging";
 
@@ -454,23 +459,40 @@ export function loadStudioChatThread(
 }
 
 /**
- * Deletes a thread and its messages. Bundles it proposed stay: they belong
- * to the story (a pending one still shows in place; accepted ones stay
- * undoable). Idempotent.
+ * Deletes a thread and its messages. Its pending bundles are rejected first,
+ * in the same transaction, through the bundle reject path (op statuses and
+ * updatedAt stay consistent; the rows are kept): once the thread is gone
+ * there is no review card left to accept them from (Ruling A25). Accepted
+ * bundles stay undoable from the workspace. Idempotent: a missing thread
+ * deletes and rejects nothing.
  */
 export function deleteStudioChatThread(
   tx: LocalinkTx,
   input: { storyId: string; threadId: string },
-): { deleted: boolean } {
-  const deleted = tx
-    .delete(studioChatThreads)
+): StudioChatThreadDeleteResult {
+  const thread = findThread(tx, input.storyId, input.threadId);
+  if (!thread) return { deleted: false, rejectedBundles: [] };
+  const rejectedBundles = tx
+    .select({ id: studioBundles.id })
+    .from(studioBundles)
     .where(
       and(
-        eq(studioChatThreads.id, input.threadId),
-        eq(studioChatThreads.storyId, input.storyId),
+        eq(studioBundles.storyId, input.storyId),
+        eq(studioBundles.threadId, thread.id),
+        eq(studioBundles.status, "pending"),
       ),
     )
-    .returning({ id: studioChatThreads.id })
-    .all();
-  return { deleted: deleted.length > 0 };
+    .orderBy(asc(studioBundles.createdAt), asc(studioBundles.id))
+    .all()
+    .map(
+      ({ id }) =>
+        resolveStudioBundle(tx, {
+          storyId: input.storyId,
+          bundleId: id,
+          decision: "reject",
+          opIds: null,
+        }).bundle,
+    );
+  tx.delete(studioChatThreads).where(eq(studioChatThreads.id, thread.id)).run();
+  return { deleted: true, rejectedBundles };
 }

@@ -69,6 +69,17 @@ export type StudioChatSavedTurn = {
   bundle: StudioBundleDto | null;
 };
 
+export type StudioChatThreadDeleteResult = {
+  /** False when the thread was already gone (nothing was changed). */
+  deleted: boolean;
+  /**
+   * The thread's bundles that were pending and are now rejected (rows kept,
+   * every op rejected). Merge them into the workspace store so their
+   * in-place previews disappear.
+   */
+  rejectedBundles: StudioBundleDto[];
+};
+
 export type StudioChatDiscardResult = {
   /** False when there was nothing to discard (already gone or answered). */
   discarded: boolean;

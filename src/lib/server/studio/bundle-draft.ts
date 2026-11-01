@@ -3,6 +3,7 @@ import "server-only";
 import { getDb } from "@/lib/drizzle/db";
 import {
   isStudioBundleTempRef,
+  type StudioBundleChangeBaseline,
   type StudioBundleOpInput,
   type StudioBundleOpKind,
 } from "@/lib/studio/bundle-contract";
@@ -20,6 +21,7 @@ import {
   createAspectModeResolver,
 } from "./aspect-modes";
 import { captureStoryRows, type StudioStoryRows } from "./bundle-kit";
+import type { StudioChangeRow } from "./repository";
 import {
   toChangeDto,
   toEntryDto,
@@ -46,9 +48,29 @@ export type BuilderState = {
   nextOp: number;
   /** Modes decided for labels new in this bundle, by entry ref + label. */
   decidedModes: Map<string, StudioChangeMode>;
-  /** The scene whose moments this turn writes (one scene per turn). */
+  /**
+   * The scene whose moments this turn writes (one scene per turn). Claimed
+   * synchronously when write_moments starts, before any await, because the
+   * SDK runs a step's tool calls concurrently.
+   */
   proseSceneRef: string | null;
+  /** True while a write_moments call is generating. */
+  proseWriting: boolean;
   finalizedSummary: string | null;
+  /**
+   * Each saved record's baseline as first read by an op this turn (Ruling
+   * A22). Every later op on the same record reuses it, so an author edit
+   * made during the turn shows up as a conflict at accept instead of being
+   * folded into a newer baseline.
+   */
+  seen: {
+    entries: Map<string, { revision: number }>;
+    items: Map<
+      string,
+      { revision: number; parentId: string | null; position: number }
+    >;
+    changes: Map<string, StudioBundleChangeBaseline>;
+  };
 };
 
 export function emptyBuilderState(): BuilderState {
@@ -57,7 +79,9 @@ export function emptyBuilderState(): BuilderState {
     nextOp: 1,
     decidedModes: new Map(),
     proseSceneRef: null,
+    proseWriting: false,
     finalizedSummary: null,
+    seen: { entries: new Map(), items: new Map(), changes: new Map() },
   };
 }
 
@@ -138,7 +162,10 @@ export type ResolvedPlanItem = {
   ref: string;
   kind: StudioPlanKind;
   title: string;
-  /** Saved parent id or a temp ref; null for chapters. */
+  /**
+   * Its parent once this bundle's creates and moves apply (saved id or temp
+   * ref); null for chapters.
+   */
   parentRef: string | null;
   temp: boolean;
 };
@@ -159,11 +186,44 @@ export class BuilderDraft {
   readonly created = new Set<string>();
   readonly added: { opId: string; label: string; ref: string | null }[] = [];
   private readonly deferred: (() => void)[] = [];
+  /** Records whose baselines were read before this call. */
+  private readonly seenBefore: {
+    entries: Set<string>;
+    items: Set<string>;
+    changes: Set<string>;
+  };
 
   constructor(
     readonly state: BuilderState,
     readonly snap: BuilderSnapshot,
-  ) {}
+  ) {
+    this.seenBefore = {
+      entries: new Set(state.seen.entries.keys()),
+      items: new Set(state.seen.items.keys()),
+      changes: new Set(state.seen.changes.keys()),
+    };
+  }
+
+  /**
+   * True when the op's baseline was read in this call, so a conflict on it
+   * cannot come from an author edit during the turn.
+   */
+  hasFreshBaseline(op: StudioBundleOpInput): boolean {
+    switch (op.kind) {
+      case "entry.update":
+      case "entry.delete":
+        return !this.seenBefore.entries.has(op.entryId);
+      case "plan.update":
+      case "plan.move":
+      case "plan.delete":
+        return !this.seenBefore.items.has(op.itemId);
+      case "change.update":
+      case "change.delete":
+        return !this.seenBefore.changes.has(op.changeId);
+      default:
+        return true;
+    }
+  }
 
   fail(index: number, message: string): void {
     this.errors.push(`item ${index + 1}: ${message}`);
@@ -265,36 +325,43 @@ export class BuilderDraft {
     };
   }
 
-  /** Saved ids from `id` up to its chapter, including `id`. */
-  savedChain(id: string): string[] {
+  /**
+   * The parent a plan ref has once this bundle's creates and moves apply: a
+   * new item's parentRef, a moved item's new parent, otherwise its saved
+   * parent. Previews and accept place items the same way.
+   */
+  parentOf(ref: string): string | null {
+    if (isStudioBundleTempRef(ref)) {
+      const create: OpOf<"plan.create"> | undefined = this.find(
+        "plan.create",
+        (op) => op.tempId === ref,
+      );
+      return create?.item.parentRef ?? null;
+    }
+    const move = this.find("plan.move", (op) => op.itemId === ref);
+    if (move) return move.newParentRef;
+    return this.snap.items.get(ref)?.parentId ?? null;
+  }
+
+  /** `ref` and its ancestors after this bundle's moves, up to its chapter. */
+  chain(ref: string): string[] {
     const chain: string[] = [];
-    let current = this.snap.items.get(id);
-    while (current && !chain.includes(current.id)) {
-      chain.push(current.id);
-      current = current.parentId
-        ? this.snap.items.get(current.parentId)
-        : undefined;
+    let current: string | null = ref;
+    while (current !== null && !chain.includes(current)) {
+      chain.push(current);
+      current = this.parentOf(current);
     }
     return chain;
   }
 
-  /** True when the item or one of its saved ancestors is being deleted. */
+  /**
+   * True when the item, or an item it sits in once this bundle's moves
+   * apply, is being deleted. An item moved out of a deleted one survives
+   * (accept moves before it deletes).
+   */
   isDeletedPlanRef(ref: string): boolean {
-    let savedId: string | null = ref;
-    // A temp item sits under a saved one eventually (or is a chapter).
-    const seen = new Set<string>();
-    while (savedId && isStudioBundleTempRef(savedId) && !seen.has(savedId)) {
-      seen.add(savedId);
-      const temp: string = savedId;
-      const create: OpOf<"plan.create"> | undefined = this.find(
-        "plan.create",
-        (op) => op.tempId === temp,
-      );
-      savedId = create?.item.parentRef ?? null;
-    }
-    if (!savedId) return false;
     const deleted = new Set(this.filter("plan.delete").map((op) => op.itemId));
-    return this.savedChain(savedId).some((id) => deleted.has(id));
+    return this.chain(ref).some((id) => deleted.has(id));
   }
 
   /** A saved plan item, or one a plan.create in this bundle declares. */
@@ -326,7 +393,7 @@ export class BuilderDraft {
         ref: id,
         kind: item.kind,
         title: item.title,
-        parentRef: item.parentId,
+        parentRef: this.parentOf(id),
         temp: false,
       };
     }
@@ -337,6 +404,50 @@ export class BuilderDraft {
       };
     }
     return { ok: true, value };
+  }
+
+  /** The entry's first-seen baseline this turn (see BuilderState.seen). */
+  entryBaseline(entry: StudioEntryDto): { revision: number } {
+    let seen = this.state.seen.entries.get(entry.id);
+    if (!seen) {
+      seen = { revision: entry.revision };
+      this.state.seen.entries.set(entry.id, seen);
+    }
+    return seen;
+  }
+
+  /** The plan item's first-seen revision and stored place this turn. */
+  itemBaseline(item: StudioPlanItemDto): {
+    revision: number;
+    parentId: string | null;
+    position: number;
+  } {
+    let seen = this.state.seen.items.get(item.id);
+    if (!seen) {
+      seen = {
+        revision: item.revision,
+        parentId: item.parentId,
+        position: item.position,
+      };
+      this.state.seen.items.set(item.id, seen);
+    }
+    return seen;
+  }
+
+  /** The change record's first-seen values this turn. */
+  changeBaseline(row: StudioChangeRow): StudioBundleChangeBaseline {
+    let seen = this.state.seen.changes.get(row.id);
+    if (!seen) {
+      seen = {
+        aspect: row.aspect,
+        mode: row.mode,
+        value: row.value,
+        aboutEntryId: row.aboutEntryId,
+        planItemId: row.planItemId,
+      };
+      this.state.seen.changes.set(row.id, seen);
+    }
+    return { ...seen };
   }
 
   entryName(ref: string): string {

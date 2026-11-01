@@ -205,6 +205,14 @@ function createItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
   if (item.afterId !== null) {
     const after = draft.planItem(item.afterId);
     if (!after.ok) return draft.fail(index, `afterId: ${after.error}`);
+    // Accept creates before it moves, so a sibling this bundle moves would
+    // not be a sibling when the new item is placed.
+    if (draft.find("plan.move", (op) => op.itemId === after.value.ref)) {
+      return draft.fail(
+        index,
+        "afterId names an item this proposal moves; place the new item after one that stays",
+      );
+    }
     if (after.value.kind !== kind || after.value.parentRef !== parent.ref) {
       return draft.fail(
         index,
@@ -369,7 +377,7 @@ function updateItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
       kind: "plan.update",
       label: planLabel("Edit", saved.kind, saved.title),
       itemId: id,
-      baselineRevision: saved.revision,
+      baselineRevision: draft.itemBaseline(saved).revision,
       patch,
     },
     id,
@@ -412,6 +420,12 @@ function moveItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
   if (item.kind !== null && item.kind !== saved.kind) {
     return draft.fail(index, "an item's kind cannot change");
   }
+  if (draft.find("plan.create", (op) => op.item.afterRef === id)) {
+    return draft.fail(
+      index,
+      `a new item in this proposal is placed after ${id}, so it cannot also move`,
+    );
+  }
   const parent = parentFor(draft, index, saved.kind, item.parentId);
   if (!parent.ok) return;
   const newIndex = item.newIndex;
@@ -430,9 +444,9 @@ function moveItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
       kind: "plan.move",
       label: planLabel("Move", saved.kind, saved.title),
       itemId: id,
-      baselineRevision: saved.revision,
-      baselineParentId: saved.parentId,
-      baselinePosition: saved.position,
+      baselineRevision: draft.itemBaseline(saved).revision,
+      baselineParentId: draft.itemBaseline(saved).parentId,
+      baselinePosition: draft.itemBaseline(saved).position,
       newParentRef: parent.ref,
       newIndex,
     },
@@ -481,7 +495,7 @@ function deleteItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
       );
     } else if (
       op.kind === "plan.delete" &&
-      draft.savedChain(op.itemId).includes(id)
+      draft.chain(op.itemId).includes(id)
     ) {
       draft.removeOp(
         op,
@@ -494,7 +508,7 @@ function deleteItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
       kind: "plan.delete",
       label: planLabel("Delete", saved.kind, saved.title),
       itemId: id,
-      baselineRevision: saved.revision,
+      baselineRevision: draft.itemBaseline(saved).revision,
     },
     id,
   );

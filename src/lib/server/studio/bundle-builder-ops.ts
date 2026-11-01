@@ -563,7 +563,7 @@ function updateEntry(draft: BuilderDraft, item: EntryItemInput, index: number) {
       kind: "entry.update",
       label: `Edit ${typeLabel(entry.type, entry.customTypeLabel)} ${quoted(entry.name, "Untitled")}`,
       entryId: id,
-      baselineRevision: entry.revision,
+      baselineRevision: draft.entryBaseline(entry).revision,
       patch,
     },
     id,
@@ -611,7 +611,7 @@ function deleteEntry(draft: BuilderDraft, item: EntryItemInput, index: number) {
       kind: "entry.delete",
       label: `Delete ${typeLabel(entry.type, entry.customTypeLabel)} ${quoted(entry.name, "Untitled")}`,
       entryId: id,
-      baselineRevision: entry.revision,
+      baselineRevision: draft.entryBaseline(entry).revision,
     },
     id,
   );
