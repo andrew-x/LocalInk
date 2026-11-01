@@ -61,6 +61,13 @@ export function xmlField(
   return `<${tag}${renderAttributes(attributes)}>\n${escapeXml(trimmed)}\n</${tag}>`;
 }
 
+export function xmlEmpty(
+  tag: string,
+  attributes?: Record<string, string | undefined>,
+): string {
+  return `<${tag}${renderAttributes(attributes)} />`;
+}
+
 /** A wrapper around already-rendered child blocks. Empty children yield "". */
 export function xmlGroup(
   tag: string,

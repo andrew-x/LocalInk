@@ -205,3 +205,11 @@ export const mergeStudioMomentActionSchema = z.object({
   expectedRevision: revisionSchema,
   previousExpectedRevision: revisionSchema,
 });
+
+export const applyStudioPlanActionSchema = z.object({
+  ...storyIdField,
+  generationId: id,
+  mode: z.enum(["initial", "flesh-out", "alternatives", "rewrite-brief"]),
+  targetItemId: id.optional(),
+  optionIndex: z.number().int().min(0).max(2).optional(),
+});
