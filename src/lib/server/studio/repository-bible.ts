@@ -1,0 +1,343 @@
+import "server-only";
+
+import { isDeepStrictEqual } from "node:util";
+
+import { and, eq, max } from "drizzle-orm";
+
+import { ActionError } from "@/lib/action-error";
+import day from "@/lib/dayjs";
+import type { LocalinkTx } from "@/lib/drizzle/db";
+import {
+  studioChanges,
+  studioEntries,
+  studioStories,
+} from "@/lib/drizzle/schema";
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
+import {
+  EMPTY_STUDIO_STYLE,
+  type StudioAspect,
+  type StudioChangeDto,
+  type StudioEntryDto,
+  type StudioEntryType,
+  type StudioFieldValue,
+  type StudioStoryDto,
+  type StudioStructureTemplateId,
+  type StudioStyle,
+  type StudioVoiceSample,
+} from "@/lib/studio/contracts";
+import { generateId } from "@/lib/util";
+
+import {
+  assertEntryIds,
+  requireEntry,
+  requirePlanItem,
+  requireStudioStory,
+  toChangeDto,
+  toEntryDto,
+  toStoryDto,
+  touchStudioStory,
+} from "./repository";
+
+export function insertStudioStory(
+  tx: LocalinkTx,
+  input: {
+    title: string;
+    brainDump: string;
+    voiceSamples?: StudioVoiceSample[];
+  },
+): StudioStoryDto {
+  const now = day().toISOString();
+  // The migration also bakes defaults for these, but app code stays explicit.
+  const row = tx
+    .insert(studioStories)
+    .values({
+      id: generateId("studio-story"),
+      title: input.title,
+      brainDump: input.brainDump,
+      voiceSamples: input.voiceSamples ?? [],
+      proseModel: DEFAULT_STORY_GENERATION_MODEL,
+      style: { ...EMPTY_STUDIO_STYLE },
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  return toStoryDto(row);
+}
+
+export type StudioStoryPatch = Partial<{
+  title: string;
+  overview: string;
+  instructions: string;
+  style: StudioStyle;
+  theme: string;
+  structureTemplate: StudioStructureTemplateId;
+  structureNotes: string;
+  voiceSamples: StudioVoiceSample[];
+  proseModel: StoryGenerationModel;
+}>;
+
+/** Settings fields have a single writer, so the last write wins. */
+export function patchStudioStory(
+  tx: LocalinkTx,
+  storyId: string,
+  patch: StudioStoryPatch,
+): StudioStoryDto {
+  requireStudioStory(tx, storyId);
+  const row = tx
+    .update(studioStories)
+    .set({ ...patch, updatedAt: day().toISOString() })
+    .where(eq(studioStories.id, storyId))
+    .returning()
+    .get();
+  return toStoryDto(row);
+}
+
+export function insertStudioEntry(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    type: StudioEntryType;
+    name: string;
+    customTypeLabel?: string;
+    relatedEntryIds?: string[];
+  },
+): StudioEntryDto {
+  const now = day().toISOString();
+  requireStudioStory(tx, input.storyId);
+  assertEntryIds(tx, input.storyId, input.relatedEntryIds ?? []);
+  const last = tx
+    .select({ value: max(studioEntries.position) })
+    .from(studioEntries)
+    .where(
+      and(
+        eq(studioEntries.storyId, input.storyId),
+        eq(studioEntries.type, input.type),
+      ),
+    )
+    .get();
+  const row = tx
+    .insert(studioEntries)
+    .values({
+      id: generateId("studio-entry"),
+      storyId: input.storyId,
+      type: input.type,
+      name: input.name,
+      customTypeLabel:
+        input.type === "custom" ? (input.customTypeLabel ?? "") : "",
+      relatedEntryIds: [...new Set(input.relatedEntryIds ?? [])],
+      position: (last?.value ?? -1) + 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  touchStudioStory(tx, input.storyId, now);
+  return toEntryDto(row);
+}
+
+export type StudioEntryPatch = Partial<{
+  name: string;
+  summary: string;
+  fields: Record<string, { value: string; author?: "ai" | "author" }>;
+  relatedEntryIds: string[];
+  customTypeLabel: string;
+}>;
+
+export function patchStudioEntry(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    entryId: string;
+    expectedRevision: number;
+    patch: StudioEntryPatch;
+  },
+): StudioEntryDto {
+  const { storyId, entryId, patch } = input;
+  const current = requireEntry(tx, storyId, entryId);
+  if (patch.relatedEntryIds) assertEntryIds(tx, storyId, patch.relatedEntryIds);
+
+  // Any field the author submits is author-written from here on.
+  const fields: Record<string, StudioFieldValue> = { ...current.fields };
+  for (const [key, field] of Object.entries(patch.fields ?? {})) {
+    fields[key] = { value: field.value, author: "author" };
+  }
+  const next = {
+    name: patch.name ?? current.name,
+    summary: patch.summary ?? current.summary,
+    fields,
+    relatedEntryIds: patch.relatedEntryIds
+      ? [...new Set(patch.relatedEntryIds)]
+      : current.relatedEntryIds,
+    customTypeLabel:
+      current.type === "custom"
+        ? (patch.customTypeLabel ?? current.customTypeLabel)
+        : "",
+  };
+  // A response may be lost after commit. A retry of that exact patch is safe.
+  if (
+    next.name === current.name &&
+    next.summary === current.summary &&
+    next.customTypeLabel === current.customTypeLabel &&
+    isDeepStrictEqual(next.fields, current.fields) &&
+    isDeepStrictEqual(next.relatedEntryIds, current.relatedEntryIds)
+  ) {
+    return toEntryDto(current);
+  }
+  if (current.revision !== input.expectedRevision) {
+    throw new ActionError(
+      "CONFLICT",
+      "This entry changed elsewhere. Your edits are still on screen; reload the saved entry before trying again.",
+    );
+  }
+  const now = day().toISOString();
+  const row = tx
+    .update(studioEntries)
+    .set({ ...next, revision: current.revision + 1, updatedAt: now })
+    .where(
+      and(
+        eq(studioEntries.id, entryId),
+        eq(studioEntries.storyId, storyId),
+        eq(studioEntries.revision, input.expectedRevision),
+      ),
+    )
+    .returning()
+    .get();
+  if (!row) {
+    throw new ActionError(
+      "CONFLICT",
+      "This entry changed elsewhere. Your edits are still on screen.",
+    );
+  }
+  touchStudioStory(tx, storyId, now);
+  return toEntryDto(row);
+}
+
+export function removeStudioEntry(
+  tx: LocalinkTx,
+  storyId: string,
+  entryId: string,
+): void {
+  requireEntry(tx, storyId, entryId);
+  // Foreign keys cascade the entry's change records.
+  tx.delete(studioEntries)
+    .where(
+      and(eq(studioEntries.id, entryId), eq(studioEntries.storyId, storyId)),
+    )
+    .run();
+  touchStudioStory(tx, storyId, day().toISOString());
+}
+
+export function insertStudioChange(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    entryId: string;
+    aspect: StudioAspect;
+    aboutEntryId?: string | null;
+    value: string;
+    planItemId: string;
+  },
+): StudioChangeDto {
+  const now = day().toISOString();
+  requireEntry(tx, input.storyId, input.entryId);
+  if (input.aboutEntryId) {
+    assertEntryIds(tx, input.storyId, [input.aboutEntryId]);
+  }
+  requirePlanItem(tx, input.storyId, input.planItemId);
+  const last = tx
+    .select({ value: max(studioChanges.position) })
+    .from(studioChanges)
+    .where(eq(studioChanges.planItemId, input.planItemId))
+    .get();
+  const row = tx
+    .insert(studioChanges)
+    .values({
+      id: generateId("studio-change"),
+      storyId: input.storyId,
+      entryId: input.entryId,
+      aboutEntryId: input.aboutEntryId ?? null,
+      aspect: input.aspect,
+      value: input.value,
+      planItemId: input.planItemId,
+      position: (last?.value ?? -1) + 1,
+      source: "author",
+      status: "confirmed",
+      authorEdited: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning()
+    .get();
+  touchStudioStory(tx, input.storyId, now);
+  return toChangeDto(row);
+}
+
+export function patchStudioChange(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    changeId: string;
+    patch: Partial<{
+      aspect: StudioAspect;
+      aboutEntryId: string | null;
+      value: string;
+      planItemId: string;
+    }>;
+  },
+): StudioChangeDto {
+  const { storyId, changeId, patch } = input;
+  const current = tx
+    .select()
+    .from(studioChanges)
+    .where(
+      and(eq(studioChanges.id, changeId), eq(studioChanges.storyId, storyId)),
+    )
+    .get();
+  if (!current) {
+    throw new ActionError("BAD_REQUEST", "The change could not be found.");
+  }
+  if (patch.aboutEntryId) assertEntryIds(tx, storyId, [patch.aboutEntryId]);
+  const moved = patch.planItemId && patch.planItemId !== current.planItemId;
+  if (patch.planItemId) requirePlanItem(tx, storyId, patch.planItemId);
+  let position = current.position;
+  if (moved && patch.planItemId) {
+    const last = tx
+      .select({ value: max(studioChanges.position) })
+      .from(studioChanges)
+      .where(eq(studioChanges.planItemId, patch.planItemId))
+      .get();
+    position = (last?.value ?? -1) + 1;
+  }
+  const now = day().toISOString();
+  const row = tx
+    .update(studioChanges)
+    .set({ ...patch, position, authorEdited: true, updatedAt: now })
+    .where(eq(studioChanges.id, changeId))
+    .returning()
+    .get();
+  touchStudioStory(tx, storyId, now);
+  return toChangeDto(row);
+}
+
+export function removeStudioChange(
+  tx: LocalinkTx,
+  storyId: string,
+  changeId: string,
+): void {
+  const current = tx
+    .select({ id: studioChanges.id })
+    .from(studioChanges)
+    .where(
+      and(eq(studioChanges.id, changeId), eq(studioChanges.storyId, storyId)),
+    )
+    .get();
+  if (!current) {
+    throw new ActionError("BAD_REQUEST", "The change could not be found.");
+  }
+  tx.delete(studioChanges).where(eq(studioChanges.id, changeId)).run();
+  touchStudioStory(tx, storyId, day().toISOString());
+}
