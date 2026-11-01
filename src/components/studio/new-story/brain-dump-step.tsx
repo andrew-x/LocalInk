@@ -19,6 +19,7 @@ import {
   STUDIO_MAX_VOICE_SAMPLE_CHARS,
   STUDIO_MAX_VOICE_SAMPLES,
 } from "@/lib/studio/contracts";
+import { generateId } from "@/lib/util";
 
 type BrainDumpStepProps = {
   onCreated: (story: { id: string; title: string }) => void;
@@ -162,7 +163,7 @@ export function BrainDumpStep({ onCreated }: BrainDumpStepProps) {
               leftSection={<Plus aria-hidden="true" />}
               onClick={() =>
                 samples.append({
-                  id: crypto.randomUUID(),
+                  id: generateId("studio-voice"),
                   label: "",
                   text: "",
                 })

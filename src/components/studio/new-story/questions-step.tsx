@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -33,40 +33,45 @@ const answersFormSchema = z.object({
 
 type AnswersFormValues = z.infer<typeof answersFormSchema>;
 
+type StudioQuestion = StudioQuestionsResponse["questions"][number];
+
 type QuestionsStepProps = {
-  initialAnswers: QuestionAnswer[];
+  drafts: Record<string, string>;
+  failed: boolean;
   onContinue: (answers: QuestionAnswer[]) => void;
+  onDraftsChange: (drafts: Record<string, string>) => void;
+  onFailed: () => void;
+  onLoaded: (questions: StudioQuestion[]) => void;
+  onRetry: () => void;
+  questions: StudioQuestion[] | null;
   storyId: string;
   title: string;
 };
 
-type QuestionsState =
-  | { status: "loading" }
-  | { status: "failed" }
-  | { status: "ready"; questions: StudioQuestionsResponse["questions"] };
-
 export function QuestionsStep({
-  initialAnswers,
+  drafts,
+  failed,
   onContinue,
+  onDraftsChange,
+  onFailed,
+  onLoaded,
+  onRetry,
+  questions,
   storyId,
   title,
 }: QuestionsStepProps) {
-  const [state, setState] = useState<QuestionsState>({ status: "loading" });
-  const [attempt, setAttempt] = useState(0);
+  const needsFetch = questions === null && !failed;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` re-runs the request when the author retries.
   useEffect(() => {
+    if (!needsFetch) return;
     const controller = new AbortController();
-    setState({ status: "loading" });
 
     postStudioJson<StudioQuestionsResponse>(
       "/api/studio/questions",
       { storyId },
       controller.signal,
     )
-      .then((response) => {
-        setState({ status: "ready", questions: response.questions });
-      })
+      .then((response) => onLoaded(response.questions))
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         toast.error(
@@ -74,11 +79,11 @@ export function QuestionsStep({
             ? error.message
             : "The questions could not be loaded.",
         );
-        setState({ status: "failed" });
+        onFailed();
       });
 
     return () => controller.abort();
-  }, [storyId, attempt]);
+  }, [needsFetch, storyId, onLoaded, onFailed]);
 
   return (
     <div className="grid gap-6">
@@ -90,24 +95,21 @@ export function QuestionsStep({
         </p>
       </div>
 
-      {state.status === "loading" ? (
-        <p
-          aria-live="polite"
-          className="rounded-lg border border-border/80 bg-card/45 px-panel py-10 text-center text-body text-muted-foreground"
-        >
-          Reading your brain dump and thinking of questions...
-        </p>
-      ) : state.status === "failed" ? (
+      {questions ? (
+        <QuestionsForm
+          drafts={drafts}
+          onContinue={onContinue}
+          onDraftsChange={onDraftsChange}
+          questions={questions}
+        />
+      ) : failed ? (
         <div className="grid gap-4 rounded-lg border border-border/80 bg-card/45 px-panel py-8 text-center">
           <p className="text-body text-muted-foreground">
             The questions could not be loaded. You can try again or continue
             without them.
           </p>
           <div className="flex justify-center gap-2">
-            <Button
-              onClick={() => setAttempt((value) => value + 1)}
-              variant="outline"
-            >
+            <Button onClick={onRetry} variant="outline">
               Try again
             </Button>
             <Button onClick={() => onContinue([])}>
@@ -116,31 +118,32 @@ export function QuestionsStep({
           </div>
         </div>
       ) : (
-        <QuestionsForm
-          initialAnswers={initialAnswers}
-          onContinue={onContinue}
-          questions={state.questions}
-        />
+        <p
+          aria-live="polite"
+          className="rounded-lg border border-border/80 bg-card/45 px-panel py-10 text-center text-body text-muted-foreground"
+        >
+          Reading your brain dump and thinking of questions...
+        </p>
       )}
     </div>
   );
 }
 
 function QuestionsForm({
-  initialAnswers,
+  drafts,
   onContinue,
+  onDraftsChange,
   questions,
 }: {
-  initialAnswers: QuestionAnswer[];
+  drafts: Record<string, string>;
   onContinue: (answers: QuestionAnswer[]) => void;
-  questions: StudioQuestionsResponse["questions"];
+  onDraftsChange: (drafts: Record<string, string>) => void;
+  questions: StudioQuestion[];
 }) {
   const form = useForm<AnswersFormValues>({
     defaultValues: {
       answers: questions.map((question) => ({
-        answer:
-          initialAnswers.find((entry) => entry.questionId === question.id)
-            ?.answer ?? "",
+        answer: drafts[question.id] ?? "",
         question: question.question,
         questionId: question.id,
         why: question.why,
@@ -148,6 +151,17 @@ function QuestionsForm({
     },
     resolver: formResolver(answersFormSchema),
   });
+
+  useEffect(() => {
+    const subscription = form.watch((values) => {
+      const next: Record<string, string> = {};
+      for (const entry of values.answers ?? []) {
+        if (entry?.questionId) next[entry.questionId] = entry.answer ?? "";
+      }
+      onDraftsChange(next);
+    });
+    return () => subscription.unsubscribe();
+  }, [form, onDraftsChange]);
 
   const submit = useCallback(
     (values: AnswersFormValues) => {
@@ -188,6 +202,9 @@ function QuestionsForm({
               ) : null}
               <Textarea
                 {...field}
+                aria-describedby={
+                  fieldState.error ? `studio-answer-${index}-error` : undefined
+                }
                 aria-invalid={fieldState.invalid || undefined}
                 autoComplete="off"
                 className="min-h-24 font-content"
@@ -195,7 +212,10 @@ function QuestionsForm({
                 maxLength={4000}
               />
               {fieldState.error ? (
-                <p className="text-caption text-destructive">
+                <p
+                  className="text-caption text-destructive"
+                  id={`studio-answer-${index}-error`}
+                >
                   {fieldState.error.message}
                 </p>
               ) : null}

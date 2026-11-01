@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
+
+import type { StudioQuestionsResponse } from "@/lib/studio/planning-contract";
 
 import { BrainDumpStep } from "./brain-dump-step";
 import { GeneratingStep } from "./generating-step";
@@ -20,6 +22,19 @@ export function NewStoryFlow({ resume }: NewStoryFlowProps) {
     resume ? "questions" : "brain-dump",
   );
   const [answers, setAnswers] = useState<QuestionAnswer[]>([]);
+  // Questions and typed answers live here so returning from generation neither
+  // refetches (another model call) nor drops what the author wrote.
+  const [questions, setQuestions] = useState<
+    StudioQuestionsResponse["questions"] | null
+  >(null);
+  const [questionsFailed, setQuestionsFailed] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const handleLoaded = useCallback(
+    (loaded: StudioQuestionsResponse["questions"]) => setQuestions(loaded),
+    [],
+  );
+  const handleFailed = useCallback(() => setQuestionsFailed(true), []);
 
   return (
     <section className="mx-auto w-full max-w-3xl flex-1 py-8">
@@ -32,7 +47,13 @@ export function NewStoryFlow({ resume }: NewStoryFlowProps) {
         />
       ) : step === "questions" ? (
         <QuestionsStep
-          initialAnswers={answers}
+          drafts={drafts}
+          failed={questionsFailed}
+          onDraftsChange={setDrafts}
+          onFailed={handleFailed}
+          onLoaded={handleLoaded}
+          onRetry={() => setQuestionsFailed(false)}
+          questions={questions}
           onContinue={(nextAnswers) => {
             setAnswers(nextAnswers);
             setStep("generating");
