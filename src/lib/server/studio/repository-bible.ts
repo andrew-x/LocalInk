@@ -33,7 +33,9 @@ import {
 } from "@/lib/studio/contracts";
 import {
   cleanFieldLabel,
+  mergeAiFields,
   normalizeEntryFields,
+  type StudioProposedField,
 } from "@/lib/studio/entry-fields";
 import { generateId } from "@/lib/util";
 
@@ -480,4 +482,50 @@ export function removeStudioChange(
   }
   tx.delete(studioChanges).where(eq(studioChanges.id, changeId)).run();
   touchStudioStory(tx, storyId, day().toISOString());
+}
+
+/**
+ * Adds AI-suggested fields to an entry. Author-written fields are never
+ * touched (`mergeAiFields`); the entry's revision is the compare-and-swap.
+ */
+export function applySuggestedEntryFields(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    entryId: string;
+    expectedRevision: number;
+    proposed: StudioProposedField[];
+  },
+): StudioEntryDto {
+  const current = requireEntry(tx, input.storyId, input.entryId);
+  if (current.revision !== input.expectedRevision) {
+    throw new ActionError(
+      "CONFLICT",
+      "This entry changed while suggestions were being made. Ask for suggestions again.",
+    );
+  }
+  const currentFields = normalizeEntryFields(current.fields, current.type);
+  const fields = mergeAiFields(currentFields, input.proposed);
+  if (isDeepStrictEqual(fields, currentFields)) return toEntryDto(current);
+  const now = day().toISOString();
+  const row = tx
+    .update(studioEntries)
+    .set({ fields, revision: current.revision + 1, updatedAt: now })
+    .where(
+      and(
+        eq(studioEntries.id, input.entryId),
+        eq(studioEntries.storyId, input.storyId),
+        eq(studioEntries.revision, input.expectedRevision),
+      ),
+    )
+    .returning()
+    .get();
+  if (!row) {
+    throw new ActionError(
+      "CONFLICT",
+      "This entry changed while suggestions were being made. Ask for suggestions again.",
+    );
+  }
+  touchStudioStory(tx, input.storyId, now);
+  return toEntryDto(row);
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import { applyStudioSuggestedFields } from "@/actions/studio/apply-studio-suggested-fields";
 import { updateStudioEntry } from "@/actions/studio/update-studio-entry";
 import {
   createRevisionSlots,
@@ -69,6 +70,58 @@ export function usePatchEntry() {
           });
         } catch {
           toast.error(PATCH_FAILED_MESSAGE, { id: PATCH_TOAST_ID });
+        }
+        return null;
+      });
+      slot.queue = task.catch(() => null);
+      return task;
+    },
+    [dispatch, storyId],
+  );
+}
+
+const APPLY_FAILED_MESSAGE = "The suggestions could not be added.";
+
+/**
+ * Adds picked suggestions through the same per-entry queue as field edits, so
+ * the compare-and-swap always uses the newest revision. Resolves the saved
+ * entry, or null after toasting a failure.
+ */
+export function useApplyEntrySuggestions() {
+  const { state, dispatch } = useStudioStore();
+  const storyId = state.story.id;
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  return useCallback(
+    (
+      entryId: string,
+      generationId: string,
+      pickedLabels: string[],
+    ): Promise<StudioEntryDto | null> => {
+      const slot = getSlot(`${storyId}:${entryId}`);
+      const task = slot.queue.then(async () => {
+        const stored = stateRef.current.entries.find((e) => e.id === entryId);
+        const latest = newestRevision(stored, slot);
+        if (!latest) return null;
+        try {
+          const result = await applyStudioSuggestedFields({
+            storyId,
+            entryId,
+            generationId,
+            pickedLabels,
+            expectedRevision: latest.revision,
+          });
+          if (result?.data) {
+            slot.newest = result.data;
+            dispatch({ type: "merge", entries: [result.data] });
+            return result.data;
+          }
+          toast.error(actionFailureMessage(result, APPLY_FAILED_MESSAGE));
+        } catch {
+          toast.error(APPLY_FAILED_MESSAGE);
         }
         return null;
       });

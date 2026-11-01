@@ -12,15 +12,18 @@ import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fiel
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { STUDIO_ENTRY_SUGGESTIONS } from "@/lib/studio/bible-templates";
 import type { StudioEntryDto } from "@/lib/studio/contracts";
+import { cleanFieldLabel } from "@/lib/studio/entry-fields";
 import { getOrderedMoments } from "@/lib/studio/plan-order";
 
-import { EntryFieldGroup } from "./entry-fields";
+import { EntryFieldList } from "./entry-fields";
 import { OverTheStory } from "./over-the-story";
 import { RelationshipEditor } from "./relationship-editor";
+import { SuggestFieldsButton } from "./suggest-fields-button";
 import { useDeleteEntry } from "./use-delete-entry";
 import { type EntryPatch, usePatchEntry } from "./use-patch-entry";
 
 const FIELD_PREFIX = "field:";
+const LABEL_PREFIX = "label:";
 
 type EntryEditorProps = {
   entry: StudioEntryDto;
@@ -61,17 +64,32 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
       }
       if (changed.summary !== undefined) patch.summary = changed.summary;
       const fieldEdits = new Map<string, string>();
+      const labelEdits = new Map<string, string>();
       for (const [key, value] of Object.entries(changed)) {
-        if (key.startsWith(FIELD_PREFIX) && value !== undefined)
+        if (value === undefined) continue;
+        if (key.startsWith(FIELD_PREFIX))
           fieldEdits.set(key.slice(FIELD_PREFIX.length), value);
+        else if (key.startsWith(LABEL_PREFIX)) {
+          const label = cleanFieldLabel(value);
+          // A blank label, or one still being typed, stays local until blur.
+          if (!label || (!final && label !== value)) keep.push(key);
+          else labelEdits.set(key.slice(LABEL_PREFIX.length), label);
+        }
       }
-      if (fieldEdits.size > 0) {
+      if (fieldEdits.size > 0 || labelEdits.size > 0) {
         // Rebuild the full list from the newest saved entry.
         const saved = await patchEntry(entry.id, (latest) => ({
           ...patch,
           fields: latest.fields.map((field) => {
             const value = fieldEdits.get(field.id);
-            return value === undefined ? field : { ...field, value };
+            const label = labelEdits.get(field.id);
+            return value === undefined && label === undefined
+              ? field
+              : {
+                  ...field,
+                  value: value ?? field.value,
+                  label: label ?? field.label,
+                };
           }),
         }));
         if (saved === null) return false;
@@ -92,6 +110,7 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
     };
     for (const field of entry.fields) {
       values[`${FIELD_PREFIX}${field.id}`] = field.value;
+      values[`${LABEL_PREFIX}${field.id}`] = field.label;
     }
     return values;
   }, [entry.fields, entry.name, entry.summary]);
@@ -105,6 +124,14 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
     const result: Record<string, string> = {};
     for (const field of entry.fields) {
       result[field.id] = values[`${FIELD_PREFIX}${field.id}`] ?? field.value;
+    }
+    return result;
+  }, [entry.fields, values]);
+
+  const labelValues = useMemo(() => {
+    const result: Record<string, string> = {};
+    for (const field of entry.fields) {
+      result[field.id] = values[`${LABEL_PREFIX}${field.id}`] ?? field.label;
     }
     return result;
   }, [entry.fields, values]);
@@ -154,6 +181,7 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
               ? entry.customTypeLabel || template.label
               : template.label}
           </InspectPill>
+          <SuggestFieldsButton entry={entry} />
           <span className="text-caption text-muted-foreground">
             appears in {appearsIn} {appearsIn === 1 ? "moment" : "moments"}
           </span>
@@ -173,18 +201,19 @@ export function EntryEditor({ entry, focusName, onDeleted }: EntryEditorProps) {
         <RelationshipEditor entry={entry} />
       ) : null}
 
-      {entry.fields.length > 0 ? (
-        <EntryFieldGroup
-          entryId={entry.id}
-          fields={entry.fields}
-          onBlur={() => void flush(true)}
-          onChange={(fieldId, value) =>
-            setValue(`${FIELD_PREFIX}${fieldId}`, value)
-          }
-          title="Details"
-          values={fieldValues}
-        />
-      ) : null}
+      <EntryFieldList
+        entry={entry}
+        labels={labelValues}
+        onBlur={() => void flush(true)}
+        onLabelChange={(fieldId, label) =>
+          setValue(`${LABEL_PREFIX}${fieldId}`, label)
+        }
+        onValueChange={(fieldId, value) =>
+          setValue(`${FIELD_PREFIX}${fieldId}`, value)
+        }
+        title="Details"
+        values={fieldValues}
+      />
 
       <OverTheStory entry={entry} />
 

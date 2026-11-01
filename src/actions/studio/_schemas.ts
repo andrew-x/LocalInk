@@ -249,6 +249,14 @@ export const applyStudioReadBackActionSchema = z.object({
   generationId: id,
 });
 
+export const applyStudioSuggestedFieldsActionSchema = z.object({
+  ...storyIdField,
+  entryId: id,
+  generationId: id,
+  pickedLabels: z.array(z.string().max(200)).max(40),
+  expectedRevision: revisionSchema,
+});
+
 export const resolveStudioFlagActionSchema = z.object({
   ...storyIdField,
   flagId: id,
