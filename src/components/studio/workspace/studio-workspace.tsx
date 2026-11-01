@@ -9,23 +9,24 @@ import {
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import { Button } from "@/components/common/button";
+import { Manuscript } from "@/components/studio/manuscript/manuscript";
+import {
+  useWritingLoop,
+  WritingLoopProvider,
+} from "@/components/studio/manuscript/use-writing-loop";
 import type { StudioWorkspace as StudioWorkspaceData } from "@/lib/studio/contracts";
 import { cn } from "@/lib/util";
 
 import { PlanTree } from "./plan-tree";
 import { StudioTopBar } from "./studio-top-bar";
 import { StudioStoreProvider, useStudioStore } from "./use-studio-store";
-import { InspectSlot, ManuscriptSlot } from "./workspace-slots";
+import { InspectSlot } from "./workspace-slots";
 
 type StudioWorkspaceProps = {
   globalInstructions: string;
   initial: StudioWorkspaceData;
   /** Task 12 fills the right column. */
   inspect?: ReactNode;
-  /** Task 11 fills the center column. */
-  manuscript?: ReactNode;
-  /** Task 11's writing loop; the tree's "Write" item appears only when set. */
-  onWriteMoment?: (itemId: string) => void;
 };
 
 type PaneToggleProps = {
@@ -71,12 +72,9 @@ function PaneToggle({ isOpen, label, onToggle, side }: PaneToggleProps) {
   );
 }
 
-function WorkspaceLayout({
-  inspect,
-  manuscript,
-  onWriteMoment,
-}: Pick<StudioWorkspaceProps, "inspect" | "manuscript" | "onWriteMoment">) {
+function WorkspaceLayout({ inspect }: Pick<StudioWorkspaceProps, "inspect">) {
   const { state } = useStudioStore();
+  const loop = useWritingLoop();
   const [isPlanOpen, setIsPlanOpen] = useState(true);
   const [isInspectOpen, setIsInspectOpen] = useState(true);
   const { readMode } = state;
@@ -117,14 +115,18 @@ function WorkspaceLayout({
               !isPlanOpen && "hidden",
             )}
           >
-            <PlanTree onWrite={onWriteMoment} />
+            <PlanTree
+              onWrite={(itemId) => void loop.write(itemId)}
+              onWriteRestOfScene={(itemId, autoKeep) =>
+                void loop.writeRestOfScene(itemId, autoKeep)
+              }
+            />
           </div>
         </aside>
 
+        {/* The manuscript caps its own measure in its content font. */}
         <section aria-label="Manuscript" className="min-h-0 overflow-y-auto">
-          <div className={cn(readMode && "mx-auto max-w-[70ch]")}>
-            {manuscript ?? <ManuscriptSlot />}
-          </div>
+          <Manuscript />
         </section>
 
         <aside
@@ -158,16 +160,13 @@ export function StudioWorkspace({
   globalInstructions,
   initial,
   inspect,
-  manuscript,
-  onWriteMoment,
 }: StudioWorkspaceProps) {
   return (
     <StudioStoreProvider initial={{ ...initial, globalInstructions }}>
-      <WorkspaceLayout
-        inspect={inspect}
-        manuscript={manuscript}
-        onWriteMoment={onWriteMoment}
-      />
+      {/* One writing loop shared by the manuscript, the tree and Inspect. */}
+      <WritingLoopProvider>
+        <WorkspaceLayout inspect={inspect} />
+      </WritingLoopProvider>
     </StudioStoreProvider>
   );
 }

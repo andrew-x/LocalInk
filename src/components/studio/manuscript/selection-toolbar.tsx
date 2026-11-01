@@ -1,0 +1,381 @@
+"use client";
+
+import {
+  $convertSelectionToMarkdownString,
+  $generateNodesFromMarkdownString,
+} from "@lexical/markdown";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import {
+  $getNodeByKey,
+  $getSelection,
+  $isParagraphNode,
+  $isRangeSelection,
+  $setSelection,
+  COMMAND_PRIORITY_LOW,
+  KEY_ESCAPE_COMMAND,
+} from "lexical";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { toast } from "sonner";
+
+import {
+  postStudioJson,
+  studioErrorMessage,
+} from "@/components/studio/studio-fetch";
+import {
+  STUDIO_REWRITE_MAX_SELECTION_CHARS,
+  type StudioRewriteMode,
+  type StudioRewriteResponse,
+} from "@/lib/studio/rewrite-contract";
+
+import {
+  AskForm,
+  type CapturedSelection,
+  RewriteOptions,
+  type RewritePanel,
+} from "./selection-toolbar-panels";
+import { STUDIO_MARKDOWN_TRANSFORMERS } from "./studio-markdown";
+import { useSplitMoment } from "./use-split-moment";
+
+const REWRITE_FAILED = "The rewrite could not be generated. Please try again.";
+const SELECTION_TOO_LONG =
+  "Select a shorter passage (up to 4,000 characters) to rewrite.";
+const SELECTION_CHANGED =
+  "The selected text changed. Select it again and retry.";
+
+const TOOLBAR_BUTTON_CLASS =
+  "rounded-sm px-2 py-1 text-label-sm text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50";
+
+type Anchor = { top: number; bottom: number; centerX: number };
+
+function rangeAnchor(range: Range | null): Anchor | null {
+  if (!range) return null;
+  const box = range.getBoundingClientRect();
+  if (box.width === 0 && box.height === 0) return null;
+  return {
+    top: box.top,
+    bottom: box.bottom,
+    centerX: box.left + box.width / 2,
+  };
+}
+
+type SelectionToolbarPluginProps = {
+  storyId: string;
+  momentId: string;
+  /** The moment's autosave flush; resolves to the saved revision or null. */
+  flush: () => Promise<number | null>;
+};
+
+/**
+ * Floating actions for a non-collapsed selection inside one moment: AI
+ * rewrite options shown beside the original, and "Split moment here".
+ */
+export function SelectionToolbarPlugin({
+  flush,
+  momentId,
+  storyId,
+}: SelectionToolbarPluginProps) {
+  const [editor] = useLexicalComposerContext();
+  const { isSplitting, splitHere } = useSplitMoment({
+    flush,
+    momentId,
+    storyId,
+  });
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const [panel, setPanel] = useState<RewritePanel | null>(null);
+  const [asking, setAsking] = useState<CapturedSelection | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const held = panel?.captured ?? asking;
+  // Set synchronously with the panel state: focusing the Ask input blurs the
+  // editor before effects run, and the toolbar must not vanish then.
+  const heldRef = useRef<CapturedSelection | null>(null);
+
+  const close = useCallback(() => {
+    heldRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPanel(null);
+    setAsking(null);
+  }, []);
+
+  // Follow the live selection, or the held one while a panel is open.
+  useEffect(() => {
+    const update = () => {
+      const current = heldRef.current;
+      if (current) {
+        const next = rangeAnchor(current.range);
+        if (next) setAnchor(next);
+        return;
+      }
+      // Every moment listens, so bail out cheaply unless this one has focus.
+      const root = editor.getRootElement();
+      const active = document.activeElement;
+      const native = window.getSelection();
+      if (
+        !root ||
+        !(active instanceof Node && root.contains(active)) ||
+        !native ||
+        native.rangeCount === 0 ||
+        !root.contains(native.anchorNode)
+      ) {
+        setAnchor(null);
+        return;
+      }
+      const hasText = editor.getEditorState().read(() => {
+        const selection = $getSelection();
+        return (
+          $isRangeSelection(selection) &&
+          !selection.isCollapsed() &&
+          selection.getTextContent().trim().length > 0
+        );
+      });
+      setAnchor(hasText ? rangeAnchor(native.getRangeAt(0)) : null);
+    };
+    const unregister = editor.registerUpdateListener(update);
+    document.addEventListener("selectionchange", update);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      unregister();
+      document.removeEventListener("selectionchange", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [editor]);
+
+  // Escape or a click elsewhere closes an open panel.
+  useEffect(() => {
+    if (!held) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !toolbarRef.current?.contains(event.target)
+      ) {
+        close();
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    const unregisterEscape = editor.registerCommand(
+      KEY_ESCAPE_COMMAND,
+      () => {
+        close();
+        return true;
+      },
+      COMMAND_PRIORITY_LOW,
+    );
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+      unregisterEscape();
+    };
+  }, [close, editor, held]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const capture = useCallback((): CapturedSelection | null => {
+    const native = window.getSelection();
+    const range =
+      native && native.rangeCount > 0
+        ? native.getRangeAt(0).cloneRange()
+        : null;
+    return editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection) || selection.isCollapsed()) return null;
+      const markdown = $convertSelectionToMarkdownString(
+        STUDIO_MARKDOWN_TRANSFORMERS,
+        selection,
+      ).trim();
+      if (!markdown) return null;
+      return {
+        selection: selection.clone(),
+        markdown,
+        plain: selection.getTextContent(),
+        range,
+      };
+    });
+  }, [editor]);
+
+  const requestRewrite = useCallback(
+    async (
+      mode: StudioRewriteMode,
+      captured: CapturedSelection,
+      instruction?: string,
+    ) => {
+      if (captured.markdown.length > STUDIO_REWRITE_MAX_SELECTION_CHARS) {
+        toast.error(SELECTION_TOO_LONG);
+        return;
+      }
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      heldRef.current = captured;
+      setAsking(null);
+      setPanel({ status: "loading", mode, captured });
+      try {
+        const response = await postStudioJson<StudioRewriteResponse>(
+          "/api/studio/rewrite",
+          {
+            storyId,
+            momentId,
+            selectedText: captured.markdown,
+            mode,
+            ...(instruction ? { instruction } : {}),
+          },
+          controller.signal,
+        );
+        if (abortRef.current !== controller) return;
+        setPanel({
+          status: "ready",
+          mode,
+          captured,
+          options: response.options,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        heldRef.current = null;
+        setPanel(null);
+        toast.error(studioErrorMessage(error, REWRITE_FAILED));
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
+      }
+    },
+    [momentId, storyId],
+  );
+
+  const startRewrite = (mode: Exclude<StudioRewriteMode, "custom">) => {
+    const captured = capture();
+    if (captured) void requestRewrite(mode, captured);
+  };
+
+  const startAsk = () => {
+    const captured = capture();
+    if (!captured) return;
+    heldRef.current = captured;
+    setAsking(captured);
+  };
+
+  const pickOption = (option: string) => {
+    if (panel?.status !== "ready") return;
+    const { captured } = panel;
+    let replaced = false;
+    editor.update(
+      () => {
+        try {
+          const selection = captured.selection.clone();
+          if (
+            !$getNodeByKey(selection.anchor.key) ||
+            !$getNodeByKey(selection.focus.key) ||
+            selection.getTextContent() !== captured.plain
+          ) {
+            return;
+          }
+          $setSelection(selection);
+          const nodes = $generateNodesFromMarkdownString(
+            option,
+            STUDIO_MARKDOWN_TRANSFORMERS,
+          );
+          const [first] = nodes;
+          if (nodes.length === 1 && $isParagraphNode(first)) {
+            selection.insertNodes(first.getChildren());
+          } else {
+            selection.insertNodes(nodes);
+          }
+          replaced = true;
+        } catch {
+          replaced = false;
+        }
+      },
+      { discrete: true },
+    );
+    close();
+    if (!replaced) toast.error(SELECTION_CHANGED);
+    editor.focus();
+  };
+
+  if (!anchor) return null;
+
+  const placeAbove = anchor.top > 220;
+  const style = {
+    left: Math.min(Math.max(anchor.centerX, 180), window.innerWidth - 180),
+    top: placeAbove ? anchor.top - 8 : anchor.bottom + 8,
+    transform: placeAbove ? "translate(-50%, -100%)" : "translate(-50%, 0)",
+  };
+
+  return createPortal(
+    <div
+      aria-label="Selection actions"
+      className="fixed z-50 w-max max-w-[min(32rem,calc(100vw-2rem))] rounded-md border border-border/90 bg-popover p-1 font-sans text-popover-foreground shadow-xl"
+      onMouseDown={(event) => {
+        // Keep the editor's selection while pressing toolbar buttons.
+        if (!(event.target instanceof HTMLInputElement)) event.preventDefault();
+      }}
+      ref={toolbarRef}
+      role="toolbar"
+      style={style}
+    >
+      {panel ? (
+        <RewriteOptions onClose={close} onPick={pickOption} panel={panel} />
+      ) : asking ? (
+        <AskForm
+          onCancel={close}
+          onSubmit={(instruction) =>
+            void requestRewrite("custom", asking, instruction)
+          }
+        />
+      ) : (
+        <div className="flex items-center gap-0.5">
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            onClick={() => startRewrite("rewrite")}
+            type="button"
+          >
+            <span aria-hidden="true" className="mr-1 text-accent">
+              ✦
+            </span>
+            Rewrite
+          </button>
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            onClick={() => startRewrite("tighten")}
+            type="button"
+          >
+            Tighten
+          </button>
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            onClick={() => startRewrite("subtext")}
+            type="button"
+          >
+            More subtext
+          </button>
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            onClick={startAsk}
+            type="button"
+          >
+            Ask…
+          </button>
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            disabled={isSplitting}
+            onClick={() => {
+              void splitHere().then((split) => {
+                if (split) setAnchor(null);
+              });
+            }}
+            type="button"
+          >
+            Split moment here
+          </button>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+}

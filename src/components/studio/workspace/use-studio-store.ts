@@ -64,6 +64,20 @@ function upsert<T>(list: T[], incoming: T[], key: (item: T) => string): T[] {
   return [...next.values()];
 }
 
+/**
+ * Drops incoming prose older than what the store holds. Revisions only grow,
+ * and a slow response (a read-back patch, say) must not roll a moment back
+ * past a newer autosave.
+ */
+function freshProse(
+  current: StudioProseDto[],
+  incoming: StudioProseDto[],
+): StudioProseDto[] {
+  if (incoming.length === 0) return incoming;
+  const revisions = new Map(current.map((p) => [p.momentId, p.revision]));
+  return incoming.filter((p) => p.revision >= (revisions.get(p.momentId) ?? 0));
+}
+
 function studioReducer(
   state: StudioStoreState,
   action: StudioStoreAction,
@@ -80,7 +94,11 @@ function studioReducer(
         ),
         entries: upsert(state.entries, action.entries ?? [], (e) => e.id),
         changes: upsert(state.changes, action.changes ?? [], (c) => c.id),
-        prose: upsert(state.prose, action.prose ?? [], (p) => p.momentId),
+        prose: upsert(
+          state.prose,
+          freshProse(state.prose, action.prose ?? []),
+          (p) => p.momentId,
+        ),
         flags: upsert(state.flags, action.flags ?? [], (f) => f.id),
       };
     case "remove": {

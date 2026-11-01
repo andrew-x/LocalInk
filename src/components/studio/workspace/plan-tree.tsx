@@ -36,8 +36,10 @@ import { usePlanStatuses, useStudioStore } from "./use-studio-store";
 import { scrollToStudioItem, studioPlanRowId } from "./workspace-anchors";
 
 type PlanTreeProps = {
-  /** Wired by the manuscript's writing loop (Task 11); hides "Write" if absent. */
+  /** Wired by the manuscript's writing loop; hides "Write" if absent. */
   onWrite?: (itemId: string) => void;
+  /** Chains drafts through a scene's unwritten moments. */
+  onWriteRestOfScene?: (itemId: string, autoKeep: boolean) => void;
 };
 
 type VisibleRow = { node: StudioPlanNode; depth: number };
@@ -57,7 +59,7 @@ function collectVisible(
   return rows;
 }
 
-export function PlanTree({ onWrite }: PlanTreeProps) {
+export function PlanTree({ onWrite, onWriteRestOfScene }: PlanTreeProps) {
   const { state, dispatch } = useStudioStore();
   const statuses = usePlanStatuses();
   const ai = usePlanAi();
@@ -232,6 +234,7 @@ export function PlanTree({ onWrite }: PlanTreeProps) {
             onSelect={(itemId) => dispatch({ type: "select", itemId })}
             onToggle={toggle}
             onWrite={onWrite}
+            onWriteRestOfScene={onWriteRestOfScene}
             status={statuses.get(node.id) ?? "planned"}
           />
         ))}

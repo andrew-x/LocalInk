@@ -46,6 +46,7 @@
   --sidebar-ring: oklch(0.747 0.116 167.4);
 
   --studio-moment-highlight: oklch(0.762 0.109 78.9 / 0.1);
+  --studio-moment-edge: oklch(0.762 0.109 78.9 / 0.55);
   --studio-status-written: oklch(0.747 0.116 167.4);
   --studio-status-planned: oklch(0.52 0.028 255.1);
   --studio-status-flagged: oklch(0.762 0.109 78.9);
@@ -90,6 +91,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-studio-moment-highlight: var(--studio-moment-highlight);
+  --color-studio-moment-edge: var(--studio-moment-edge);
   --color-studio-status-written: var(--studio-status-written);
   --color-studio-status-planned: var(--studio-status-planned);
   --color-studio-status-flagged: var(--studio-status-flagged);

@@ -22,6 +22,8 @@ type AiActionsMenuProps = {
   open: boolean;
   /** Shown for moments only, and only when a manuscript controller exists. */
   onWrite?: (itemId: string) => void;
+  /** Shown for scenes and moments when the writing loop is mounted. */
+  onWriteRestOfScene?: (itemId: string, autoKeep: boolean) => void;
 };
 
 type View = "menu" | "brief";
@@ -35,6 +37,7 @@ export function AiActionsMenu({
   onDelete,
   onOpenChange,
   onWrite,
+  onWriteRestOfScene,
   open,
 }: AiActionsMenuProps) {
   const [view, setView] = useState<View>("menu");
@@ -161,6 +164,30 @@ export function AiActionsMenu({
               >
                 Write
               </button>
+            ) : null}
+            {onWriteRestOfScene && item.kind !== "chapter" ? (
+              <>
+                <button
+                  className={MENU_ITEM_CLASS}
+                  onClick={() => {
+                    handleOpenChange(false);
+                    onWriteRestOfScene(item.id, false);
+                  }}
+                  type="button"
+                >
+                  Write rest of scene
+                </button>
+                <button
+                  className={MENU_ITEM_CLASS}
+                  onClick={() => {
+                    handleOpenChange(false);
+                    onWriteRestOfScene(item.id, true);
+                  }}
+                  type="button"
+                >
+                  Write rest of scene, keep as they come
+                </button>
+              </>
             ) : null}
             {canFleshOut ? (
               <button

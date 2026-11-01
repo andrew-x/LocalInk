@@ -5,6 +5,30 @@ import {
 
 const GENERIC_ERROR_MESSAGE = "Something went wrong. Please try again.";
 
+/** A failed Studio route call. Its message is already sanitized for the author. */
+export class StudioRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StudioRequestError";
+  }
+}
+
+/**
+ * The message to toast for a failed Studio request: a route's own sanitized
+ * message when there is one, otherwise `fallback`. Network and unknown errors
+ * never surface their raw text.
+ */
+export function studioErrorMessage(error: unknown, fallback: string): string {
+  if (
+    (error instanceof StudioRequestError ||
+      error instanceof LocalinkTextStreamError) &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+  return fallback;
+}
+
 async function readRouteErrorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
@@ -36,13 +60,13 @@ export async function postStudioJson<T>(
   });
 
   if (!response.ok) {
-    throw new Error(await readRouteErrorMessage(response));
+    throw new StudioRequestError(await readRouteErrorMessage(response));
   }
 
   try {
     return (await response.json()) as T;
   } catch {
-    throw new Error(GENERIC_ERROR_MESSAGE);
+    throw new StudioRequestError(GENERIC_ERROR_MESSAGE);
   }
 }
 

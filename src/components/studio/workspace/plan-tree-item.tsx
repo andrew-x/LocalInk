@@ -54,6 +54,7 @@ type PlanTreeItemProps = {
   onToggle: (itemId: string) => void;
   status: StudioPlanStatus;
   onWrite?: (itemId: string) => void;
+  onWriteRestOfScene?: (itemId: string, autoKeep: boolean) => void;
 };
 
 export function PlanTreeItem({
@@ -76,6 +77,7 @@ export function PlanTreeItem({
   onSelect,
   onToggle,
   onWrite,
+  onWriteRestOfScene,
   status,
 }: PlanTreeItemProps) {
   const [renaming, setRenaming] = useState(false);
@@ -270,6 +272,7 @@ export function PlanTreeItem({
             onDelete={onDelete}
             onOpenChange={setMenuOpen}
             onWrite={onWrite}
+            onWriteRestOfScene={onWriteRestOfScene}
             open={menuOpen}
           />
         </span>
