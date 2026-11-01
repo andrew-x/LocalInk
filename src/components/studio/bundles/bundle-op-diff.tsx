@@ -8,6 +8,7 @@ import {
   type StudioBundleOpDto,
 } from "@/lib/studio/bundle-contract";
 import type {
+  StudioChangeDto,
   StudioEntryDto,
   StudioPlanItemDto,
   StudioProseDto,
@@ -17,6 +18,8 @@ import { cn } from "@/lib/util";
 import { type WordDiffSegment, wordDiff } from "./word-diff";
 
 type DiffLine = {
+  /** Unique within the op (labels can repeat), safe as a React key. */
+  key: string;
   label: string;
   before: string | null;
   after: string | null;
@@ -29,6 +32,7 @@ type DiffModel = {
 };
 
 type DiffContext = {
+  changes: StudioChangeDto[];
   entries: StudioEntryDto[];
   planItems: StudioPlanItemDto[];
   prose: StudioProseDto[];
@@ -118,10 +122,21 @@ function describeRecordBody(ctx: DiffContext, record: RecordParts): string {
   return `${record.aspect}${about}${adds}: ${record.value}`;
 }
 
+/** Whose record a saved change is; "a record" once it is gone. */
+function recordOwner(ctx: DiffContext, changeId: string): string {
+  const change = ctx.changes.find((c) => c.id === changeId);
+  return change ? entryName(ctx, change.entryId) : "a record";
+}
+
 function buildModel(op: StudioBundleOpDto, ctx: DiffContext): DiffModel {
   const model: DiffModel = { lines: [], note: null, prose: null };
   const line = (label: string, before: string | null, after: string | null) => {
-    model.lines.push({ label, before, after });
+    model.lines.push({
+      key: `${model.lines.length}:${label}`,
+      label,
+      before,
+      after,
+    });
   };
   const live = <T,>(value: T): T | null => (ctx.live ? value : null);
 
@@ -260,32 +275,33 @@ function buildModel(op: StudioBundleOpDto, ctx: DiffContext): DiffModel {
     case "change.update": {
       const before = op.baseline;
       const merged = { ...before, ...op.patch };
+      const who = recordOwner(ctx, op.changeId);
       line(
         "Record",
-        describeRecordBody(ctx, {
+        `${who}, ${describeRecordBody(ctx, {
           aspect: before.aspect,
           mode: before.mode,
           about: before.aboutEntryId,
           value: before.value,
-        }),
-        describeRecordBody(ctx, {
+        })}`,
+        `${who}, ${describeRecordBody(ctx, {
           aspect: merged.aspect,
           mode: merged.mode,
           about: merged.aboutEntryId,
           value: merged.value,
-        }),
+        })}`,
       );
       break;
     }
     case "change.delete":
       line(
         "Removes record",
-        describeRecordBody(ctx, {
+        `${recordOwner(ctx, op.changeId)}, ${describeRecordBody(ctx, {
           aspect: op.baseline.aspect,
           mode: op.baseline.mode,
           about: op.baseline.aboutEntryId,
           value: op.baseline.value,
-        }),
+        })}`,
         null,
       );
       break;
@@ -350,20 +366,29 @@ export function BundleOpDiff({ op, operations, pending }: BundleOpDiffProps) {
   const model = useMemo(
     () =>
       buildModel(op, {
+        changes: state.changes,
         entries: state.entries,
         planItems: state.planItems,
         prose: state.prose,
         operations,
         live: pending,
       }),
-    [op, operations, pending, state.entries, state.planItems, state.prose],
+    [
+      op,
+      operations,
+      pending,
+      state.changes,
+      state.entries,
+      state.planItems,
+      state.prose,
+    ],
   );
 
   return (
     <div className="flex flex-col gap-2 text-caption">
       {model.note ? <p className="text-foreground/90">{model.note}</p> : null}
       {model.lines.map((line) => (
-        <div className="flex flex-col gap-0.5" key={line.label}>
+        <div className="flex flex-col gap-0.5" key={line.key}>
           <span className="font-semibold text-muted-foreground">
             {line.label}
           </span>

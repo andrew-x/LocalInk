@@ -63,7 +63,7 @@ export function BundleReviewCard({
   bundle,
   focusedOpId,
 }: BundleReviewCardProps) {
-  const { state } = useStudioStore();
+  const { state, dispatch } = useStudioStore();
   const { resolve, busy, issuesByOpId, clearIssues } = useResolveBundle();
   const rootRef = useRef<HTMLDivElement>(null);
   const isPending = bundle.status === "pending";
@@ -75,29 +75,46 @@ export function BundleReviewCard({
     () => new Set(pendingOps.map((op) => op.id)),
   );
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [action, setAction] = useState<
+    "accept-selected" | "accept-all" | "reject" | "undo" | null
+  >(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const focusId = focusedOpId ?? state.focusedBundleOpId;
   const focusNonce = state.bundleFocusNonce;
-  // The nonce re-runs this for a repeated focus on the same op.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: focusNonce re-triggers the scroll.
+  const highlightTimer = useRef<number | null>(null);
+  // Focus is handled once: the card that owns the op expands, scrolls to and
+  // highlights it, then clears the store's focus so merges of this bundle and
+  // remounts do not replay it. The nonce re-runs this for a repeated focus.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusNonce re-triggers the effect.
   useEffect(() => {
     if (!focusId || !bundle.operations.some((op) => op.id === focusId)) return;
     setExpanded((current) =>
       current.has(focusId) ? current : new Set(current).add(focusId),
     );
     setHighlightId(focusId);
-    const frame = window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       rootRef.current
         ?.querySelector(`[${BUNDLE_OP_ID_ATTRIBUTE}="${CSS.escape(focusId)}"]`)
         ?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-    const timer = window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timer);
-    };
-  }, [bundle.operations, focusId, focusNonce]);
+    if (highlightTimer.current !== null) {
+      window.clearTimeout(highlightTimer.current);
+    }
+    highlightTimer.current = window.setTimeout(
+      () => setHighlightId(null),
+      HIGHLIGHT_MS,
+    );
+    dispatch({ type: "clearBundleFocus" });
+  }, [bundle.operations, dispatch, focusId, focusNonce]);
+  useEffect(
+    () => () => {
+      if (highlightTimer.current !== null) {
+        window.clearTimeout(highlightTimer.current);
+      }
+    },
+    [],
+  );
 
   const groups = useMemo(
     () =>
@@ -107,6 +124,19 @@ export function BundleReviewCard({
       })).filter((group) => group.ops.length > 0),
     [bundle.operations],
   );
+
+  async function run(
+    which: NonNullable<typeof action>,
+    decision: "accept" | "reject" | "undo",
+    opIds: string[] | null,
+  ) {
+    setAction(which);
+    try {
+      await resolve(bundle.id, decision, opIds);
+    } finally {
+      setAction(null);
+    }
+  }
 
   function toggleSelected(opId: string, checked: boolean) {
     clearIssues();
@@ -189,10 +219,10 @@ export function BundleReviewCard({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             disabled={busy || selectedIds.length === 0}
-            loading={busy}
+            loading={busy && action === "accept-selected"}
             onClick={() =>
-              void resolve(
-                bundle.id,
+              void run(
+                "accept-selected",
                 "accept",
                 selectedIds.length === pendingOps.length ? null : selectedIds,
               )
@@ -204,7 +234,8 @@ export function BundleReviewCard({
           </Button>
           <Button
             disabled={busy}
-            onClick={() => void resolve(bundle.id, "accept", null)}
+            loading={busy && action === "accept-all"}
+            onClick={() => void run("accept-all", "accept", null)}
             size="sm"
             type="button"
             variant="outline"
@@ -213,7 +244,8 @@ export function BundleReviewCard({
           </Button>
           <Button
             disabled={busy}
-            onClick={() => void resolve(bundle.id, "reject", null)}
+            loading={busy && action === "reject"}
+            onClick={() => void run("reject", "reject", null)}
             size="sm"
             type="button"
             variant="ghost"
@@ -225,8 +257,8 @@ export function BundleReviewCard({
         <div>
           <Button
             disabled={busy}
-            loading={busy}
-            onClick={() => void resolve(bundle.id, "undo", null)}
+            loading={busy && action === "undo"}
+            onClick={() => void run("undo", "undo", null)}
             size="sm"
             type="button"
             variant="outline"

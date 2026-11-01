@@ -73,7 +73,8 @@ export type StudioStoreAction =
   | { type: "select"; itemId: string | null }
   | { type: "setReadMode"; value: boolean }
   | { type: "setRightTab"; tab: StudioRightTab }
-  | { type: "focusBundleOp"; opId: string | null }
+  | { type: "focusBundleOp"; opId: string }
+  | { type: "clearBundleFocus" }
   | ({ type: "openBible" } & StudioBibleTarget)
   | { type: "closeBible" };
 
@@ -184,10 +185,14 @@ function studioReducer(
     case "focusBundleOp":
       return {
         ...state,
-        rightTab: action.opId ? "chat" : state.rightTab,
+        rightTab: "chat",
         focusedBundleOpId: action.opId,
         bundleFocusNonce: state.bundleFocusNonce + 1,
       };
+    case "clearBundleFocus":
+      return state.focusedBundleOpId === null
+        ? state
+        : { ...state, focusedBundleOpId: null };
     case "openBible":
       return {
         ...state,

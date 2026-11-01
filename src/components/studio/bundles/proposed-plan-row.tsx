@@ -23,12 +23,16 @@ export function ProposedPlanRow({ depth, item }: ProposedPlanRowProps) {
   return (
     <div className="relative" style={{ paddingLeft: `${depth * 0.875}rem` }}>
       <button
+        aria-disabled="true"
+        aria-level={depth + 1}
+        aria-selected={false}
         aria-label={`Proposed ${item.kind}: ${title}. Review in chat`}
         className={cn(
           "my-0.5 flex min-h-8 w-full cursor-pointer items-center gap-1.5 rounded-md border border-studio-proposed/60 border-dashed px-1.5 text-left text-label-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/40",
         )}
         data-proposed-plan-row={item.tempId}
         onClick={() => dispatch({ type: "focusBundleOp", opId: item.opId })}
+        role="treeitem"
         type="button"
       >
         <span

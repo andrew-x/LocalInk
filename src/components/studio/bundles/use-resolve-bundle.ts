@@ -53,6 +53,9 @@ function affectedMomentIds(
   return [...ids];
 }
 
+/** One resolve at a time across every card (older and latest bundles). */
+let resolveInFlight = false;
+
 export type ResolveBundle = {
   /**
    * Resolves to whether the decision took effect. `opIds: null` means every
@@ -81,7 +84,6 @@ export function useResolveBundle(): ResolveBundle {
   const [issuesByOpId, setIssuesByOpId] = useState<
     Map<string, StudioBundleSelectionIssue[]>
   >(() => new Map());
-  const busyRef = useRef(false);
   const stateRef = useRef(state);
   stateRef.current = state;
   const storyId = state.story.id;
@@ -154,13 +156,13 @@ export function useResolveBundle(): ResolveBundle {
       decision: StudioBundleDecision,
       opIds: string[] | null = null,
     ): Promise<boolean> => {
-      if (busyRef.current) return false;
+      if (resolveInFlight) return false;
       const bundle = stateRef.current.bundles.find((b) => b.id === bundleId);
       if (!bundle) {
         toast.error("These changes are no longer available.");
         return false;
       }
-      busyRef.current = true;
+      resolveInFlight = true;
       setBusy(true);
       setIssuesByOpId(new Map());
       try {
@@ -211,7 +213,7 @@ export function useResolveBundle(): ResolveBundle {
         }
         return true;
       } finally {
-        busyRef.current = false;
+        resolveInFlight = false;
         setBusy(false);
       }
     },

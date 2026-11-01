@@ -82,7 +82,7 @@ export function BundleOpRow({
           <span aria-hidden="true" className="size-3.5 shrink-0" />
         )}
         <button
-          aria-controls={diffId}
+          aria-controls={expanded ? diffId : undefined}
           aria-expanded={expanded}
           className="flex min-w-0 flex-1 items-start gap-1 rounded-sm text-left text-label-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
           onClick={onToggleExpanded}
