@@ -20,6 +20,7 @@ import {
 } from "@/lib/story-generation-models";
 import {
   EMPTY_STUDIO_STYLE,
+  STUDIO_MAX_ENTRY_FIELDS,
   type StudioAspect,
   type StudioChangeDto,
   type StudioChangeMode,
@@ -238,6 +239,20 @@ export function patchStudioEntry(
     : input.stampAuthors === false
       ? patch.fields
       : stampAuthorFields(currentFields, patch.fields);
+  // An author edit may not grow the list past the cap. It is checked against
+  // the stored count rather than as a flat bound, so an entry already over
+  // it can still be edited and trimmed. (Bundle accept pre-checks the cap
+  // itself, and undo restores an exact earlier list.)
+  if (
+    input.stampAuthors !== false &&
+    fields.length > STUDIO_MAX_ENTRY_FIELDS &&
+    fields.length > currentFields.length
+  ) {
+    throw new ActionError(
+      "BAD_REQUEST",
+      `An entry can hold at most ${STUDIO_MAX_ENTRY_FIELDS} fields. Remove one before adding another.`,
+    );
+  }
   const next = {
     name: patch.name ?? current.name,
     summary: patch.summary ?? current.summary,
@@ -734,7 +749,9 @@ export function removeStudioChange(
 
 /**
  * Adds AI-suggested fields to an entry. Author-written fields are never
- * touched (`mergeAiFields`); the entry's revision is the compare-and-swap.
+ * touched and new labels stop at the field cap (`mergeAiFields`); the
+ * entry's revision is the compare-and-swap. `skipped` counts picked fields
+ * the cap kept out.
  */
 export function applySuggestedEntryFields(
   tx: LocalinkTx,
@@ -744,7 +761,7 @@ export function applySuggestedEntryFields(
     expectedRevision: number;
     proposed: StudioProposedField[];
   },
-): StudioEntryDto {
+): { entry: StudioEntryDto; skipped: number } {
   const current = requireEntry(tx, input.storyId, input.entryId);
   if (current.revision !== input.expectedRevision) {
     throw new ActionError(
@@ -753,8 +770,10 @@ export function applySuggestedEntryFields(
     );
   }
   const currentFields = normalizeEntryFields(current.fields, current.type);
-  const fields = mergeAiFields(currentFields, input.proposed);
-  if (isDeepStrictEqual(fields, currentFields)) return toEntryDto(current);
+  const { fields, skipped } = mergeAiFields(currentFields, input.proposed);
+  if (isDeepStrictEqual(fields, currentFields)) {
+    return { entry: toEntryDto(current), skipped };
+  }
   const now = day().toISOString();
   const row = tx
     .update(studioEntries)
@@ -775,5 +794,5 @@ export function applySuggestedEntryFields(
     );
   }
   touchStudioStory(tx, input.storyId, now);
-  return toEntryDto(row);
+  return { entry: toEntryDto(row), skipped };
 }

@@ -4,6 +4,7 @@ import { storyGenerationModelSchema } from "@/lib/story-generation-models";
 import { STUDIO_BUNDLE_MAX_OPS } from "@/lib/studio/bundle-contract";
 import { STUDIO_CHAT_MAX_MESSAGE_CHARS } from "@/lib/studio/chat-contract";
 import {
+  STUDIO_MAX_ENTRY_FIELDS,
   studioAspectSchema,
   studioChangeModeSchema,
   studioCraftSchema,
@@ -95,7 +96,7 @@ export const createStudioEntryActionSchema = z.object({
         backstoryOnly: true,
       }),
     )
-    .max(40)
+    .max(STUDIO_MAX_ENTRY_FIELDS)
     .optional(),
 });
 

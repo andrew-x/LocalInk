@@ -1,8 +1,9 @@
 import { STUDIO_ENTRY_SUGGESTIONS } from "@/lib/studio/bible-templates";
-import type {
-  StudioEntryField,
-  StudioEntryType,
-  StudioFieldValue,
+import {
+  STUDIO_MAX_ENTRY_FIELDS,
+  type StudioEntryField,
+  type StudioEntryType,
+  type StudioFieldValue,
 } from "@/lib/studio/contracts";
 import { generateId } from "@/lib/util";
 
@@ -148,13 +149,17 @@ export function normalizeEntryFields(
 /**
  * Applies AI-proposed fields to an entry's list. Matches by normalized
  * label; author-written fields are never touched; AI fields with the same
- * label take the new value and flags; new labels append. Never removes.
+ * label take the new value and flags; new labels append until the list
+ * holds `STUDIO_MAX_ENTRY_FIELDS` (an AI merge must never push an entry past
+ * the cap, or the author could no longer edit it). Never removes. `skipped`
+ * counts the distinct new labels the cap kept out.
  */
 export function mergeAiFields(
   existing: StudioEntryField[],
   proposed: StudioProposedField[],
-): StudioEntryField[] {
+): { fields: StudioEntryField[]; skipped: number } {
   const merged = existing.map((field) => ({ ...field }));
+  const skipped = new Set<string>();
   for (const item of proposed) {
     const label = cleanFieldLabel(item.label);
     const value = item.value.trim();
@@ -164,6 +169,10 @@ export function mergeAiFields(
       (field) => normalizeFieldLabel(field.label) === normalized,
     );
     if (index === -1) {
+      if (merged.length >= STUDIO_MAX_ENTRY_FIELDS) {
+        skipped.add(normalized);
+        continue;
+      }
       merged.push({
         id: generateId("studio-field"),
         label,
@@ -182,7 +191,7 @@ export function mergeAiFields(
       backstoryOnly: item.backstoryOnly,
     };
   }
-  return merged;
+  return { fields: merged, skipped: skipped.size };
 }
 
 /** One edit to an entry's field list, addressed by label. */

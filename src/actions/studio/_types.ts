@@ -50,3 +50,5 @@ export type {
   StudioChatThreadDetail,
   StudioChatThreadDto,
 } from "@/lib/studio/chat-contract";
+
+export type { StudioSuggestedFieldsApplyResult } from "@/lib/studio/suggest-fields-contract";

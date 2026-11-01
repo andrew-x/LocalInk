@@ -63,12 +63,19 @@ export const studioEntryFieldSchema = z.object({
   backstoryOnly: z.boolean(),
 });
 
-/** The edit schema's cap. Nothing may leave an entry with more fields. */
+/**
+ * The most fields an entry may grow to. Nothing may add a field to an entry
+ * at the cap; a list already past it (from before the cap held everywhere)
+ * may still be edited as long as it does not grow.
+ */
 export const STUDIO_MAX_ENTRY_FIELDS = 40;
 
-export const studioEntryFieldsSchema = z
-  .array(studioEntryFieldSchema)
-  .max(STUDIO_MAX_ENTRY_FIELDS);
+/**
+ * An entry edit's full field list. No count bound here: the cap is checked
+ * against the stored count server-side (`patchStudioEntry`), so an entry
+ * already over it stays editable and can shrink.
+ */
+export const studioEntryFieldsSchema = z.array(studioEntryFieldSchema);
 
 export type StudioStyle = {
   povAndTense: string;

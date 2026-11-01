@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
+import type { StudioSuggestedFieldsApplyResult } from "@/actions/studio/_types";
 import { applyStudioSuggestedFields } from "@/actions/studio/apply-studio-suggested-fields";
 import { updateStudioEntry } from "@/actions/studio/update-studio-entry";
 import {
@@ -85,7 +86,8 @@ const APPLY_FAILED_MESSAGE = "The suggestions could not be added.";
 /**
  * Adds picked suggestions through the same per-entry queue as field edits, so
  * the compare-and-swap always uses the newest revision. Resolves the saved
- * entry, or null after toasting a failure.
+ * entry and how many picks the field cap left out, or null after toasting a
+ * failure.
  */
 export function useApplyEntrySuggestions() {
   const { state, dispatch } = useStudioStore();
@@ -100,7 +102,7 @@ export function useApplyEntrySuggestions() {
       entryId: string,
       generationId: string,
       pickedLabels: string[],
-    ): Promise<StudioEntryDto | null> => {
+    ): Promise<StudioSuggestedFieldsApplyResult | null> => {
       const slot = getSlot(`${storyId}:${entryId}`);
       const task = slot.queue.then(async () => {
         const stored = stateRef.current.entries.find((e) => e.id === entryId);
@@ -115,8 +117,8 @@ export function useApplyEntrySuggestions() {
             expectedRevision: latest.revision,
           });
           if (result?.data) {
-            slot.newest = result.data;
-            dispatch({ type: "merge", entries: [result.data] });
+            slot.newest = result.data.entry;
+            dispatch({ type: "merge", entries: [result.data.entry] });
             return result.data;
           }
           toast.error(actionFailureMessage(result, APPLY_FAILED_MESSAGE));

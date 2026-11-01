@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { StudioEntryDto } from "@/lib/studio/contracts";
 import {
   cleanFieldLabel,
   normalizeFieldLabel,
@@ -44,6 +45,12 @@ export type StagedStudioSuggestedFields = {
 export type StudioSuggestFieldsPreview = {
   generationId: string;
   suggestions: StudioSuggestedField[];
+};
+
+export type StudioSuggestedFieldsApplyResult = {
+  entry: StudioEntryDto;
+  /** Picked fields left out because the entry reached the field cap. */
+  skippedForCap: number;
 };
 
 /** Trims, clips, drops blanks and labels the entry already has, caps at 8. */

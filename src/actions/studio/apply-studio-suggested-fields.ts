@@ -12,30 +12,32 @@ import { normalizeFieldLabel } from "@/lib/studio/entry-fields";
 import type { StagedStudioSuggestedFields } from "@/lib/studio/suggest-fields-contract";
 
 import { applyStudioSuggestedFieldsActionSchema } from "./_schemas";
-import type { StudioEntryDto } from "./_types";
+import type { StudioSuggestedFieldsApplyResult } from "./_types";
 
 export const applyStudioSuggestedFields = publicActionClient
   .metadata({ action: "studio-apply-suggested-fields" })
   .inputSchema(applyStudioSuggestedFieldsActionSchema)
-  .action(async ({ parsedInput }): Promise<StudioEntryDto> => {
-    const binding: StudioStageBinding = {
-      storyId: parsedInput.storyId,
-      kind: "plan",
-      targetId: parsedInput.entryId,
-      generationId: parsedInput.generationId,
-    };
-    const staged = getStudioStage<StagedStudioSuggestedFields>(binding);
-    const picked = new Set(parsedInput.pickedLabels.map(normalizeFieldLabel));
-    const entry = getDb().transaction((tx) =>
-      applySuggestedEntryFields(tx, {
+  .action(
+    async ({ parsedInput }): Promise<StudioSuggestedFieldsApplyResult> => {
+      const binding: StudioStageBinding = {
         storyId: parsedInput.storyId,
-        entryId: parsedInput.entryId,
-        expectedRevision: parsedInput.expectedRevision,
-        proposed: staged.suggestions.filter((suggestion) =>
-          picked.has(normalizeFieldLabel(suggestion.label)),
-        ),
-      }),
-    );
-    dropStudioStage(binding);
-    return entry;
-  });
+        kind: "plan",
+        targetId: parsedInput.entryId,
+        generationId: parsedInput.generationId,
+      };
+      const staged = getStudioStage<StagedStudioSuggestedFields>(binding);
+      const picked = new Set(parsedInput.pickedLabels.map(normalizeFieldLabel));
+      const { entry, skipped } = getDb().transaction((tx) =>
+        applySuggestedEntryFields(tx, {
+          storyId: parsedInput.storyId,
+          entryId: parsedInput.entryId,
+          expectedRevision: parsedInput.expectedRevision,
+          proposed: staged.suggestions.filter((suggestion) =>
+            picked.has(normalizeFieldLabel(suggestion.label)),
+          ),
+        }),
+      );
+      dropStudioStage(binding);
+      return { entry, skippedForCap: skipped };
+    },
+  );

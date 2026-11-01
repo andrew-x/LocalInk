@@ -16,13 +16,27 @@ import {
   studioErrorMessage,
 } from "@/components/studio/studio-fetch";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
-import type { StudioEntryDto } from "@/lib/studio/contracts";
+import {
+  STUDIO_MAX_ENTRY_FIELDS,
+  type StudioEntryDto,
+} from "@/lib/studio/contracts";
 import type { StudioSuggestFieldsPreview } from "@/lib/studio/suggest-fields-contract";
 
 import { NeverSaysPill } from "./bible-field";
 import { useApplyEntrySuggestions } from "./use-patch-entry";
 
 const SUGGEST_FAILED_MESSAGE = "Suggestions could not be made. Try again.";
+
+/** Counts only: field labels and values never go into a toast. */
+function capNotice(skipped: number, picked: number): string {
+  const lead =
+    skipped >= picked
+      ? "None of the picked fields were added"
+      : skipped === 1
+        ? "1 picked field was not added"
+        : `${skipped} picked fields were not added`;
+  return `${lead}: an entry can hold at most ${STUDIO_MAX_ENTRY_FIELDS} fields.`;
+}
 
 /** Asks the model what else is worth tracking, then adds the picked fields. */
 export function SuggestFieldsButton({ entry }: { entry: StudioEntryDto }) {
@@ -90,7 +104,11 @@ export function SuggestFieldsButton({ entry }: { entry: StudioEntryDto }) {
       const saved = await applySuggestions(entry.id, preview.generationId, [
         ...picked,
       ]);
-      if (saved) close();
+      if (!saved) return;
+      if (saved.skippedForCap > 0) {
+        toast.info(capNotice(saved.skippedForCap, picked.size));
+      }
+      close();
     } finally {
       setAdding(false);
     }

@@ -230,8 +230,9 @@ function applyInitial(
     .where(eq(studioStories.id, storyId))
     .run();
 
-  // Bible entries. A name that already exists keeps the existing entry; only
-  // its missing fields are filled.
+  // Bible entries. A name that already exists keeps the existing entry: its
+  // untouched AI fields are refreshed and new labels are added (up to the
+  // field cap) by `mergeAiFields`; author-written fields are never changed.
   const existing = loadEntryRows(tx, storyId);
   const positions = new Map<string, number>();
   for (const row of existing) {
@@ -262,7 +263,7 @@ function applyInitial(
       tempToId.set(entry.tempId, match.id);
       const current = normalizeEntryFields(match.fields, match.type);
       // Author-written fields are never touched; AI fields may be refreshed.
-      const merged = mergeAiFields(current, proposed);
+      const { fields: merged } = mergeAiFields(current, proposed);
       const summary = match.summary.trim()
         ? match.summary
         : clip(entry.summary, MAX_TEXT);
@@ -294,7 +295,7 @@ function applyInitial(
         customTypeLabel: entry.customTypeLabel,
         name,
         summary: clip(entry.summary, MAX_TEXT),
-        fields: mergeAiFields([], proposed),
+        fields: mergeAiFields([], proposed).fields,
         position,
         createdAt: now,
         updatedAt: now,
