@@ -11,6 +11,8 @@ export const createStudioPlanItem = publicActionClient
   .metadata({ action: "studio-create-plan-item" })
   .inputSchema(createStudioPlanItemActionSchema)
   .action(
-    async ({ parsedInput }): Promise<StudioPlanItemDto> =>
+    async ({
+      parsedInput,
+    }): Promise<{ item: StudioPlanItemDto; shifted: StudioPlanItemDto[] }> =>
       getDb().transaction((tx) => createPlanItem(tx, parsedInput)),
   );

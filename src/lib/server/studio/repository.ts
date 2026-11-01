@@ -540,15 +540,6 @@ export function restorePlanSubtree(
     );
   }
 
-  for (const part of chunk(snapshot.items, 50))
-    tx.insert(studioPlanItems).values(part).run();
-  for (const part of chunk(snapshot.prose, 20))
-    tx.insert(studioProse).values(part).run();
-  for (const part of chunk(snapshot.versions, 20))
-    tx.insert(studioProseVersions).values(part).run();
-  for (const part of chunk(snapshot.flags, 50))
-    tx.insert(studioFlags).values(part).run();
-
   // Entries may have been deleted since the snapshot; drop what they anchored.
   const entryIds = new Set(
     tx
@@ -558,6 +549,22 @@ export function restorePlanSubtree(
       .all()
       .map((row) => row.id),
   );
+  const keepExisting = (ids: string[]) => ids.filter((id) => entryIds.has(id));
+  const items = snapshot.items.map((item) => ({
+    ...item,
+    presentEntryIds: keepExisting(item.presentEntryIds),
+    contextPinnedEntryIds: keepExisting(item.contextPinnedEntryIds),
+    contextExcludedEntryIds: keepExisting(item.contextExcludedEntryIds),
+  }));
+  for (const part of chunk(items, 50))
+    tx.insert(studioPlanItems).values(part).run();
+  for (const part of chunk(snapshot.prose, 20))
+    tx.insert(studioProse).values(part).run();
+  for (const part of chunk(snapshot.versions, 20))
+    tx.insert(studioProseVersions).values(part).run();
+  for (const part of chunk(snapshot.flags, 50))
+    tx.insert(studioFlags).values(part).run();
+
   const changes = snapshot.changes
     .filter((change) => entryIds.has(change.entryId))
     .map((change) => ({

@@ -93,7 +93,7 @@ function writeProse(tx: LocalinkTx, input: WriteProseInput): StudioProseRow {
     throw new ActionError("CONFLICT", MOMENT_CONFLICT);
   }
   const origin =
-    input.origin ?? (current.origin === "ai" ? "ai-edited" : "author");
+    input.origin ?? (current.origin === "ai" ? "ai-edited" : current.origin);
   const row = tx
     .update(studioProse)
     .set({

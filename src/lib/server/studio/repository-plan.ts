@@ -93,11 +93,16 @@ export function createPlanItem(
     afterItemId?: string | null;
     title?: string;
   },
-): StudioPlanItemDto {
+): { item: StudioPlanItemDto; shifted: StudioPlanItemDto[] } {
   const now = day().toISOString();
-  const { item } = insertPlanItem(tx, { ...input, now });
+  const { item, shiftedIds } = insertPlanItem(tx, { ...input, now });
   touchStudioStory(tx, input.storyId, now);
-  return toPlanItemDto(item);
+  return {
+    item: toPlanItemDto(item),
+    shifted: selectPlanItemsByIds(tx, input.storyId, shiftedIds).map(
+      toPlanItemDto,
+    ),
+  };
 }
 
 export type StudioPlanItemPatch = Partial<{

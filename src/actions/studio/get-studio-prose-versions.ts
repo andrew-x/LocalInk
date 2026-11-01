@@ -1,6 +1,7 @@
 "use server";
 
 import { runLoggedAction } from "@/lib/action";
+import { ActionError } from "@/lib/action-error";
 import { getDb } from "@/lib/drizzle/db";
 import { listProseVersions } from "@/lib/server/studio/repository-prose";
 
@@ -12,7 +13,11 @@ export async function getStudioProseVersions(input: {
   momentId: string;
 }): Promise<StudioProseVersionListItem[]> {
   return runLoggedAction({ action: "studio-get-prose-versions" }, async () => {
-    const { storyId, momentId } = getStudioProseVersionsSchema.parse(input);
+    const parsed = getStudioProseVersionsSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new ActionError("BAD_REQUEST", "The moment could not be found.");
+    }
+    const { storyId, momentId } = parsed.data;
     return getDb().transaction((tx) =>
       listProseVersions(tx, storyId, momentId),
     );

@@ -136,3 +136,75 @@ export function dropStudioStage(binding: StudioStageBinding): void {
   if (stages.get(binding.generationId)?.binding === bindingKey(binding))
     stages.delete(binding.generationId);
 }
+
+// Undo snapshots live in their own small pool so a delete never competes
+// with, or fails because of, in-flight generations.
+type UndoEntry = {
+  storyId: string;
+  expiresAt: number;
+  bytes: number;
+  snapshot: unknown;
+};
+
+const UNDO_MAX_ENTRIES = 20;
+const undoGlobal = globalThis as typeof globalThis & {
+  __localinkStudioUndo?: Map<string, UndoEntry>;
+};
+undoGlobal.__localinkStudioUndo ??= new Map();
+const undoStages = undoGlobal.__localinkStudioUndo;
+
+function pruneUndo(): void {
+  const now = day().valueOf();
+  for (const [token, entry] of undoStages) {
+    if (entry.expiresAt <= now) undoStages.delete(token);
+  }
+}
+
+function undoUnavailable(): ActionError {
+  return new ActionError(
+    "BAD_REQUEST",
+    "Undo is no longer available for this delete.",
+  );
+}
+
+/** Stores a snapshot and returns its token. Evicts the oldest when full. */
+export function putStudioUndo<T>(storyId: string, snapshot: T): string {
+  pruneUndo();
+  const bytes = new TextEncoder().encode(JSON.stringify(snapshot)).byteLength;
+  if (bytes > MAX_BYTES) {
+    throw new ActionError(
+      "GENERATION_FAILED",
+      "This is too large to delete with undo support. Delete smaller parts instead.",
+    );
+  }
+  const total = () =>
+    [...undoStages.values()].reduce((sum, item) => sum + item.bytes, 0);
+  // Maps iterate in insertion order, so the first key is the oldest.
+  while (
+    undoStages.size > 0 &&
+    (undoStages.size >= UNDO_MAX_ENTRIES || total() + bytes > MAX_BYTES)
+  ) {
+    const oldest = undoStages.keys().next().value;
+    if (oldest === undefined) break;
+    undoStages.delete(oldest);
+  }
+  const token = generateId("studio-undo");
+  undoStages.set(token, {
+    storyId,
+    expiresAt: day().valueOf() + TTL_MS,
+    bytes,
+    snapshot: structuredClone(snapshot),
+  });
+  return token;
+}
+
+export function getStudioUndo<T>(storyId: string, token: string): T {
+  pruneUndo();
+  const entry = undoStages.get(token);
+  if (!entry || entry.storyId !== storyId) throw undoUnavailable();
+  return structuredClone(entry.snapshot) as T;
+}
+
+export function dropStudioUndo(storyId: string, token: string): void {
+  if (undoStages.get(token)?.storyId === storyId) undoStages.delete(token);
+}

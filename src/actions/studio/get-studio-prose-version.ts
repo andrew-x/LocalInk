@@ -1,6 +1,7 @@
 "use server";
 
 import { runLoggedAction } from "@/lib/action";
+import { ActionError } from "@/lib/action-error";
 import { getDb } from "@/lib/drizzle/db";
 import { getProseVersionMarkdown } from "@/lib/server/studio/repository-prose";
 
@@ -11,7 +12,14 @@ export async function getStudioProseVersion(input: {
   versionId: string;
 }): Promise<{ markdown: string }> {
   return runLoggedAction({ action: "studio-get-prose-version" }, async () => {
-    const { storyId, versionId } = getStudioProseVersionSchema.parse(input);
+    const parsed = getStudioProseVersionSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new ActionError(
+        "BAD_REQUEST",
+        "The saved version could not be found.",
+      );
+    }
+    const { storyId, versionId } = parsed.data;
     return getDb().transaction((tx) =>
       getProseVersionMarkdown(tx, storyId, versionId),
     );

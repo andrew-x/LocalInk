@@ -10,6 +10,7 @@ import type { LocalinkTx } from "@/lib/drizzle/db";
 import {
   studioChanges,
   studioEntries,
+  studioPlanItems,
   studioStories,
 } from "@/lib/drizzle/schema";
 import {
@@ -228,7 +229,48 @@ export function removeStudioEntry(
       and(eq(studioEntries.id, entryId), eq(studioEntries.storyId, storyId)),
     )
     .run();
-  touchStudioStory(tx, storyId, day().toISOString());
+  const now = day().toISOString();
+  const without = (ids: string[]) => ids.filter((id) => id !== entryId);
+
+  // Strip the id from every list that referenced it.
+  for (const row of tx
+    .select()
+    .from(studioEntries)
+    .where(eq(studioEntries.storyId, storyId))
+    .all()) {
+    if (!row.relatedEntryIds.includes(entryId)) continue;
+    tx.update(studioEntries)
+      .set({
+        relatedEntryIds: without(row.relatedEntryIds),
+        revision: row.revision + 1,
+        updatedAt: now,
+      })
+      .where(eq(studioEntries.id, row.id))
+      .run();
+  }
+  for (const row of tx
+    .select()
+    .from(studioPlanItems)
+    .where(eq(studioPlanItems.storyId, storyId))
+    .all()) {
+    if (
+      !row.presentEntryIds.includes(entryId) &&
+      !row.contextPinnedEntryIds.includes(entryId) &&
+      !row.contextExcludedEntryIds.includes(entryId)
+    )
+      continue;
+    tx.update(studioPlanItems)
+      .set({
+        presentEntryIds: without(row.presentEntryIds),
+        contextPinnedEntryIds: without(row.contextPinnedEntryIds),
+        contextExcludedEntryIds: without(row.contextExcludedEntryIds),
+        revision: row.revision + 1,
+        updatedAt: now,
+      })
+      .where(eq(studioPlanItems.id, row.id))
+      .run();
+  }
+  touchStudioStory(tx, storyId, now);
 }
 
 export function insertStudioChange(
