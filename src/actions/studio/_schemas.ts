@@ -213,3 +213,10 @@ export const applyStudioPlanActionSchema = z.object({
   targetItemId: id.optional(),
   optionIndex: z.number().int().min(0).max(2).optional(),
 });
+
+export const keepStudioMomentDraftActionSchema = z.object({
+  ...storyIdField,
+  momentId: id,
+  generationId: id,
+  expectedRevision: revisionSchema,
+});

@@ -163,6 +163,51 @@ export function saveMomentProse(
   return toProseDto(row);
 }
 
+/**
+ * Persists a kept AI draft: snapshots the text it replaces, writes the draft
+ * through the revision compare-and-swap, appends the draft as an "ai"
+ * version, and clears the read-back hash so read-back runs next.
+ */
+export function keepMomentDraft(
+  tx: LocalinkTx,
+  input: {
+    storyId: string;
+    momentId: string;
+    markdown: string;
+    expectedRevision: number;
+  },
+): StudioProseDto {
+  const { storyId, momentId, markdown } = input;
+  requirePlanItem(tx, storyId, momentId, "moment");
+  const now = day().toISOString();
+  const current = getProseRow(tx, momentId);
+  // Identical text means a retried Keep whose response was lost.
+  if (current && current.markdown === markdown) return toProseDto(current);
+  // Check the revision before snapshotting so a stale Keep leaves no trace.
+  if ((current?.revision ?? 0) !== input.expectedRevision) {
+    throw new ActionError("CONFLICT", MOMENT_CONFLICT);
+  }
+  appendVersionIfChanged(tx, storyId, momentId, now);
+  writeProse(tx, {
+    storyId,
+    momentId,
+    markdown,
+    expectedRevision: input.expectedRevision,
+    origin: "ai",
+    now,
+    strict: true,
+  });
+  appendVersionIfChanged(tx, storyId, momentId, now);
+  const row = tx
+    .update(studioProse)
+    .set({ readBackSourceHash: "" })
+    .where(eq(studioProse.momentId, momentId))
+    .returning()
+    .get();
+  touchStudioStory(tx, storyId, now);
+  return toProseDto(row);
+}
+
 export function snapshotMomentProse(
   tx: LocalinkTx,
   storyId: string,
