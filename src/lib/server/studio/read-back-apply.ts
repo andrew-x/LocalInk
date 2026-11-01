@@ -193,7 +193,22 @@ export function applyStagedReadBack(
       touchedFlags.set(resolved.id, markFlag(resolved));
     }
   }
-  const stillOpen = openFlags.filter((flag) => !touchedFlags.has(flag.id));
+  // Dismissed flags stay dismissed: they block re-raising just like open ones.
+  const dismissedFlags = tx
+    .select()
+    .from(studioFlags)
+    .where(
+      and(
+        eq(studioFlags.storyId, storyId),
+        eq(studioFlags.planItemId, momentId),
+        eq(studioFlags.status, "dismissed"),
+      ),
+    )
+    .all();
+  const stillOpen = [
+    ...openFlags.filter((flag) => !touchedFlags.has(flag.id)),
+    ...dismissedFlags,
+  ];
 
   // 3. Missing records: only records still pinned to this moment.
   const openMissing = new Set(
@@ -332,7 +347,15 @@ export function applyStagedReadBack(
   if (Object.keys(set).length > 0) {
     const updated = tx
       .update(studioPlanItems)
-      .set({ ...set, revision: moment.revision + 1, updatedAt: now })
+      .set({
+        ...set,
+        // Summary is not editable by the author, so a summary-only refresh
+        // must not invalidate concurrent plan-item saves.
+        ...(Object.keys(set).some((key) => key !== "summary")
+          ? { revision: moment.revision + 1 }
+          : {}),
+        updatedAt: now,
+      })
       .where(eq(studioPlanItems.id, momentId))
       .returning()
       .get();
