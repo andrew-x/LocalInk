@@ -151,13 +151,6 @@ export function Manuscript() {
       className="mx-auto max-w-[70ch] px-8 pt-12 pb-[40vh] font-content"
       ref={containerRef}
     >
-      {layout.blocks.length === 0 ? (
-        <p className="mt-10 text-center font-sans text-caption text-muted-foreground">
-          {layout.chapterCount === 0
-            ? "Add a chapter in the plan to start writing."
-            : "Add a scene to a chapter, or flesh one out, to start writing."}
-        </p>
-      ) : null}
       {layout.blocks.map((block) => {
         switch (block.type) {
           case "chapter":
@@ -231,6 +224,13 @@ export function Manuscript() {
         }
         return null;
       })}
+      {layout.sceneCount === 0 ? (
+        <p className="mt-10 text-center font-sans text-caption text-muted-foreground">
+          {layout.chapterCount === 0
+            ? "Add a chapter in the plan to start writing."
+            : "Add a scene to a chapter, or flesh one out, to start writing."}
+        </p>
+      ) : null}
     </div>
   );
 }

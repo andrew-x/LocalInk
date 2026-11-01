@@ -194,11 +194,21 @@ export function useMomentAutosave({
         // with a newer revision on its own.
         blockedRef.current = true;
         setSaveState("error");
-        if (isMountedRef.current && !saveToastShownRef.current) {
+        // Sonner is global, so a save that fails after its editor unmounted
+        // still tells the author. Retry is offered only while the editor is
+        // mounted, and never for a conflict: the same revision cannot win.
+        if (!saveToastShownRef.current) {
           saveToastShownRef.current = true;
-          toast.error(actionFailureMessage(result, SAVE_FAILED_MESSAGE), {
-            action: { label: "Retry", onClick: () => retryRef.current() },
-          });
+          const canRetry =
+            isMountedRef.current && result?.serverError?.code !== "CONFLICT";
+          toast.error(
+            actionFailureMessage(result, SAVE_FAILED_MESSAGE),
+            canRetry
+              ? {
+                  action: { label: "Retry", onClick: () => retryRef.current() },
+                }
+              : undefined,
+          );
         }
         return false;
       }

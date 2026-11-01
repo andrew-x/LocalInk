@@ -19,8 +19,9 @@ import {
   useRunStudioAction,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
+import { getOrderedMoments } from "@/lib/studio/plan-order";
 
-import { flushMomentEditor } from "./editor-registry";
+import { flushMomentEditor, flushMomentEditors } from "./editor-registry";
 import { readBackStudioMoment } from "./read-back-client";
 import { useDraftStream, type WritingDraft } from "./use-draft-stream";
 import { useSceneMomentPlanner } from "./use-scene-moment-planner";
@@ -89,9 +90,19 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
 
   /** The running stream or flesh-out request. */
   const requestRef = useRef<AbortController | null>(null);
+  // The route builds context from saved prose, so land pending edits up to
+  // and including the target first (the previous moment's 800 ms autosave
+  // may not have fired yet).
+  const flushBefore = useCallback(async (momentId: string) => {
+    const ordered = getOrderedMoments(stateRef.current.planItems);
+    const index = ordered.findIndex((moment) => moment.id === momentId);
+    const upTo = index === -1 ? ordered : ordered.slice(0, index + 1);
+    return flushMomentEditors(upTo.map((moment) => moment.id));
+  }, []);
   const { cancelFrame, getLatestStream, stream } = useDraftStream({
     commitDraft,
     draftRef,
+    flushBefore,
     requestRef,
     storyId,
   });

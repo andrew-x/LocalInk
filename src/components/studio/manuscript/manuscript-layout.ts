@@ -95,8 +95,10 @@ function findContinueTarget(
 }
 
 /**
- * Lays the plan out as one flat list of book blocks. A flat keyed list lets
- * React keep an editor's instance when it moves from "continue" to "written".
+ * Lays the plan out as one flat list of book blocks: every chapter heading,
+ * then breaks, written moments, drafts and the continue area. A flat keyed
+ * list lets React keep an editor's instance when it moves from "continue" to
+ * "written".
  */
 export function buildManuscriptLayout({
   activeMomentId,
@@ -177,7 +179,8 @@ export function buildManuscriptLayout({
       renderedScenes++;
       chapterBlocks.push(...sceneBlocks);
     }
-    if (chapterBlocks.length === 0) return;
+    // Every chapter gets its heading, written or not, so the arc strip's
+    // chapter anchors always exist.
     blocks.push(
       {
         type: "chapter",

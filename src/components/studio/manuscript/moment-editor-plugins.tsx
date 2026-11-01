@@ -13,9 +13,9 @@ import {
   $isRangeSelection,
   $isTextNode,
   BLUR_COMMAND,
+  CLEAR_HISTORY_COMMAND,
   COMMAND_PRIORITY_LOW,
   FOCUS_COMMAND,
-  HISTORY_PUSH_TAG,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_LEFT_COMMAND,
   KEY_ARROW_RIGHT_COMMAND,
@@ -276,7 +276,7 @@ type ExternalProsePluginProps = {
   adoptExternal: (prose: StudioProseDto) => boolean;
 };
 
-/** Loads a newer revision written elsewhere (Keep, split, restore). */
+/** Loads a newer revision written elsewhere (Keep, split, merge, restore). */
 export function ExternalProsePlugin({
   adoptExternal,
   prose,
@@ -285,6 +285,7 @@ export function ExternalProsePlugin({
 
   useEffect(() => {
     if (!prose || !adoptExternal(prose)) return;
+    // Discrete, so history has recorded the load before it is cleared below.
     editor.update(
       () => {
         $convertFromMarkdownString(
@@ -292,8 +293,12 @@ export function ExternalProsePlugin({
           STUDIO_MARKDOWN_TRANSFORMERS,
         );
       },
-      { tag: [STUDIO_EXTERNAL_PROSE_TAG, HISTORY_PUSH_TAG] },
+      { discrete: true, tag: STUDIO_EXTERNAL_PROSE_TAG },
     );
+    // Undo past this point would bring back text the server already replaced
+    // (the pre-split whole, the pre-Keep draft), and autosave would save it
+    // as a duplicate. Versions keep the old text instead.
+    editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
   }, [adoptExternal, editor, prose]);
 
   return null;

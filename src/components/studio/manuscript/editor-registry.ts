@@ -58,6 +58,21 @@ export async function flushMomentEditor(
   return handle.flush();
 }
 
+/**
+ * Flushes every mounted editor among `momentIds`, in parallel. Resolves false
+ * when any of them could not save, so callers never act on stale prose.
+ */
+export async function flushMomentEditors(
+  momentIds: string[],
+): Promise<boolean> {
+  const pending = momentIds.flatMap((id) => {
+    const flush = editors.get(id)?.flush;
+    return flush ? [flush()] : [];
+  });
+  const revisions = await Promise.all(pending);
+  return revisions.every((revision) => revision !== null);
+}
+
 export function retryMomentSave(momentId: string): void {
   editors.get(momentId)?.retry?.();
 }
