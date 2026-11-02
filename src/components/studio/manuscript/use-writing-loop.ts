@@ -16,12 +16,16 @@ import { toast } from "sonner";
 
 import { keepStudioSceneDraft } from "@/actions/studio/keep-studio-scene-draft";
 import { getBundlePreview } from "@/components/studio/bundles/use-bundle-preview";
-import { useResolveBundle } from "@/components/studio/bundles/use-resolve-bundle";
+import {
+  isBundleDecisionRunning,
+  useResolveBundle,
+} from "@/components/studio/bundles/use-resolve-bundle";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import {
   useRunStudioAction,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
+import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 
 import { flushMomentEditor } from "./editor-registry";
 import { readBackStudioMoment } from "./read-back-client";
@@ -43,6 +47,8 @@ const FLUSH_FAILED =
 const READ_BACK_FAILED =
   "Kept, but re-reading failed. Use Re-read in the scene menu.";
 const KEEPING_WAIT = "Wait until the scene is kept.";
+const DECISION_RUNNING =
+  "A suggestion is still being applied. Try Write again in a moment.";
 
 export type WritingLoop = {
   draft: SceneDraft | null;
@@ -70,6 +76,17 @@ export type WritingLoop = {
 };
 
 type KeepOutcome = "kept" | "unread" | "failed";
+
+/** The chat's draft: its pending prose ops that show in the manuscript. */
+function chatDraftOps(
+  bundles: StudioBundleDto[],
+): { bundleId: string; opIds: string[] } | null {
+  const preview = getBundlePreview(bundles);
+  const opIds = [...preview.proseOpsByMomentId.values()].map((op) => op.id);
+  return preview.bundleId && opIds.length > 0
+    ? { bundleId: preview.bundleId, opIds }
+    : null;
+}
 
 /**
  * What the one-draft-at-a-time dialog asks about: starting a Write over the
@@ -116,6 +133,14 @@ function confirmCopy(request: ConfirmRequest) {
 }
 
 const WritingLoopContext = createContext<WritingLoop | null>(null);
+/**
+ * `confirmDiscardDraft` alone, stable for the workspace's lifetime, so the AI
+ * box's chat session can use it without re-rendering on every streamed frame
+ * of the loop's draft.
+ */
+const ConfirmDiscardDraftContext = createContext<
+  WritingLoop["confirmDiscardDraft"] | null
+>(null);
 
 /**
  * One writing loop per workspace, shared by the manuscript and the outline.
@@ -290,27 +315,29 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
   const guardStart = useCallback(
     async (start: () => Promise<void>) => {
       if (keepingRef.current) return;
-      // The chat's draft: its pending prose ops that show in the manuscript.
-      const preview = getBundlePreview(stateRef.current.bundles);
-      const chatOpIds = [...preview.proseOpsByMomentId.values()].map(
-        (op) => op.id,
-      );
-      const chatDraft = preview.bundleId !== null && chatOpIds.length > 0;
-      const loopDraft = draftRef.current !== null;
-      if (!loopDraft && !chatDraft) {
+      if (!draftRef.current && !chatDraftOps(stateRef.current.bundles)) {
         await start();
         return;
       }
-      if (!(await ask({ kind: "write", loopDraft, chatDraft }))) return;
-      if (keepingRef.current) return;
-      if (draftRef.current) discard();
-      if (
-        chatDraft &&
-        preview.bundleId &&
-        !(await resolveBundle(preview.bundleId, "reject", chatOpIds))
-      ) {
-        return;
+      const confirmed = await ask({
+        kind: "write",
+        loopDraft: draftRef.current !== null,
+        chatDraft: chatDraftOps(stateRef.current.bundles) !== null,
+      });
+      if (!confirmed || keepingRef.current) return;
+      // Read again: a reply may have landed while the dialog was open. The
+      // chat's draft goes first, so a refused dismissal keeps the loop's.
+      const chat = chatDraftOps(stateRef.current.bundles);
+      if (chat) {
+        if (isBundleDecisionRunning()) {
+          toast.info(DECISION_RUNNING);
+          return;
+        }
+        if (!(await resolveBundle(chat.bundleId, "reject", chat.opIds))) {
+          return;
+        }
       }
+      if (draftRef.current) discard();
       await start();
     },
     [ask, discard, draftRef, resolveBundle],
@@ -384,18 +411,33 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
     WritingLoopContext.Provider,
     { value },
     createElement(
-      Fragment,
-      null,
-      children,
-      createElement(StudioConfirmDialog, {
-        ...confirmCopy(confirmRequest),
-        destructive: true,
-        onConfirm: () => settleConfirm(true),
-        onOpenChange: handleConfirmOpenChange,
-        open: confirmOpen,
-      }),
+      ConfirmDiscardDraftContext.Provider,
+      { value: confirmDiscardDraft },
+      createElement(
+        Fragment,
+        null,
+        children,
+        createElement(StudioConfirmDialog, {
+          ...confirmCopy(confirmRequest),
+          destructive: true,
+          onConfirm: () => settleConfirm(true),
+          onOpenChange: handleConfirmOpenChange,
+          open: confirmOpen,
+        }),
+      ),
     ),
   );
+}
+
+/** The loop's `confirmDiscardDraft`, without subscribing to its draft. */
+export function useConfirmDiscardDraft(): WritingLoop["confirmDiscardDraft"] {
+  const value = useContext(ConfirmDiscardDraftContext);
+  if (!value) {
+    throw new Error(
+      "useConfirmDiscardDraft must be used inside WritingLoopProvider.",
+    );
+  }
+  return value;
 }
 
 export function useWritingLoop(): WritingLoop {

@@ -515,20 +515,24 @@ export function useChatTurn(options: UseChatTurnOptions) {
   // Leaving the workspace aborts a running turn; its discard still runs.
   useEffect(() => api.unmount, [api]);
 
-  return {
-    status: view.status,
-    draft: view.draft,
-    /** The generationId of the unanswered message being saved or removed. */
-    orphanBusy,
-    send: api.send,
-    stop: api.stop,
-    cancel: api.cancel,
-    retrySave: api.retrySave,
-    discardUnsaved: api.discardUnsaved,
-    saveOrphan: api.saveOrphan,
-    discardOrphan: api.discardOrphan,
-    getStatus: api.getStatus,
-  };
+  // Stable until the view changes, so the chat session can memoize on it.
+  return useMemo(
+    () => ({
+      status: view.status,
+      draft: view.draft,
+      /** The generationId of the unanswered message being saved or removed. */
+      orphanBusy,
+      send: api.send,
+      stop: api.stop,
+      cancel: api.cancel,
+      retrySave: api.retrySave,
+      discardUnsaved: api.discardUnsaved,
+      saveOrphan: api.saveOrphan,
+      discardOrphan: api.discardOrphan,
+      getStatus: api.getStatus,
+    }),
+    [api, orphanBusy, view],
+  );
 }
 
 export type ChatTurnController = ReturnType<typeof useChatTurn>;

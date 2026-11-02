@@ -11,8 +11,12 @@ import {
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { isStudioBundleTempRef } from "@/lib/studio/bundle-contract";
 import type { StudioPlanItemDto, StudioProseDto } from "@/lib/studio/contracts";
+import { getOrderedMoments } from "@/lib/studio/plan-order";
 
-import type { ManuscriptProposedBeat } from "./manuscript-layout";
+import {
+  type ManuscriptProposedBeat,
+  withProposedBeats,
+} from "./manuscript-layout";
 import { DraftBar } from "./scene-draft";
 import type { BeatDraft, SceneDraft } from "./scene-draft-model";
 
@@ -69,6 +73,20 @@ export function chatDraftsOf(
     scene.beats.push(beat);
     scene.opIds.push(op.id);
     byScene.set(sceneId, scene);
+  }
+  // Op order is not plan order: number the beats as the scene reads, with
+  // proposed beats where accept would place them.
+  const ordered = getOrderedMoments(planItems);
+  for (const [sceneId, scene] of byScene) {
+    const ids = withProposedBeats(
+      ordered.filter((moment) => moment.parentId === sceneId).map((m) => m.id),
+      proposedBeats.filter((beat) => beat.sceneId === sceneId),
+    );
+    const at = (momentId: string) => {
+      const index = ids.indexOf(momentId);
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    };
+    scene.beats.sort((a, b) => at(a.momentId) - at(b.momentId));
   }
   return { bundleId: preview.bundleId, byMomentId, proposedBeats, byScene };
 }

@@ -35,7 +35,7 @@ import {
   type ChatTurnDraft,
   useChatTurn,
 } from "@/components/studio/chat/use-chat-turn";
-import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
+import { useConfirmDiscardDraft } from "@/components/studio/manuscript/use-writing-loop";
 import {
   useRunStudioAction,
   useStudioStore,
@@ -132,7 +132,9 @@ const ChatSendContext = createContext<ChatSend | null>(null);
 export function ChatSessionProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useStudioStore();
   const run = useRunStudioAction();
-  const loop = useWritingLoop();
+  // Only the stable guard: the loop's own context changes with every
+  // streamed frame of its draft.
+  const confirmDiscardDraft = useConfirmDiscardDraft();
   const storyId = state.story.id;
   const planVisible = !state.readMode;
 
@@ -401,7 +403,6 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     lookingAtRef.current = lookingAtItemId;
   }, [lookingAtItemId]);
 
-  const { confirmDiscardDraft } = loop;
   const { send: sendTurn } = turn;
   /** One draft at a time: an unkept writing-loop draft is discarded first. */
   const sendMessage = useCallback(
@@ -421,15 +422,19 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     [confirmDiscardDraft, sendTurn],
   );
 
-  const onSubmit = handleSubmit(async ({ content }) => {
-    composerHadFocusRef.current =
-      document.activeElement === textareaRef.current;
-    const result = await sendMessage(content, true);
-    if (result && !result.ok) {
-      setError("root.serverError", { message: result.message });
-      toast.error(result.message);
-    }
-  });
+  const onSubmit = useMemo(
+    () =>
+      handleSubmit(async ({ content }) => {
+        composerHadFocusRef.current =
+          document.activeElement === textareaRef.current;
+        const result = await sendMessage(content, true);
+        if (result && !result.ok) {
+          setError("root.serverError", { message: result.message });
+          toast.error(result.message);
+        }
+      }),
+    [handleSubmit, sendMessage, setError],
+  );
 
   const send = useCallback<ChatSend>(
     async (content) => {
@@ -497,34 +502,62 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     [selectedId],
   );
 
-  const session: ChatSession = {
-    threads,
-    threadsStatus,
-    activeThreadId,
-    lockedThreadId,
-    openThread,
-    deleteThread,
-    retryLoadThreads,
-    messages,
-    draft,
-    threadLoad,
-    retryLoadThread,
-    bundleById,
-    turn,
-    turnRunning,
-    blockedReason,
-    form,
-    textareaRef,
-    onSubmit,
-    insertPrompt,
-    lookingAtItemId,
-    dismissLookingAt,
-    conversationOpen,
-    setConversationOpen,
-    highlight,
-    showOpInConversation,
-    clearHighlight,
-  };
+  const session = useMemo<ChatSession>(
+    () => ({
+      threads,
+      threadsStatus,
+      activeThreadId,
+      lockedThreadId,
+      openThread,
+      deleteThread,
+      retryLoadThreads,
+      messages,
+      draft,
+      threadLoad,
+      retryLoadThread,
+      bundleById,
+      turn,
+      turnRunning,
+      blockedReason,
+      form,
+      textareaRef,
+      onSubmit,
+      insertPrompt,
+      lookingAtItemId,
+      dismissLookingAt,
+      conversationOpen,
+      setConversationOpen,
+      highlight,
+      showOpInConversation,
+      clearHighlight,
+    }),
+    [
+      activeThreadId,
+      blockedReason,
+      bundleById,
+      clearHighlight,
+      conversationOpen,
+      deleteThread,
+      dismissLookingAt,
+      draft,
+      form,
+      highlight,
+      insertPrompt,
+      lockedThreadId,
+      lookingAtItemId,
+      messages,
+      onSubmit,
+      openThread,
+      retryLoadThread,
+      retryLoadThreads,
+      showOpInConversation,
+      threadLoad,
+      threads,
+      threadsStatus,
+      turn,
+      turnRunning,
+    ],
+  );
 
   return createElement(
     ChatSendContext.Provider,

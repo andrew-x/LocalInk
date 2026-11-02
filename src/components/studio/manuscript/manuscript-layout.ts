@@ -78,7 +78,7 @@ function sceneEntries(planItems: StudioPlanItemDto[]): {
 }
 
 /** Beat ids in order, with proposed beats inserted after their `afterId`. */
-function withProposedBeats(
+export function withProposedBeats(
   ids: string[],
   proposed: readonly ManuscriptProposedBeat[],
 ): string[] {

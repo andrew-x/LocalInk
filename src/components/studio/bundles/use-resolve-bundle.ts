@@ -17,10 +17,13 @@ import {
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
 import {
+  expandStudioBundleAccept,
   resolveStudioBundleRef,
   type StudioBundleDecision,
   type StudioBundleDto,
   type StudioBundleIssueKind,
+  type StudioBundleOpDto,
+  type StudioBundleResolution,
   type StudioBundleSelectionIssue,
 } from "@/lib/studio/bundle-contract";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
@@ -31,6 +34,64 @@ const RELOAD_FAILED =
   "This was already resolved, but the story could not be reloaded. Refresh the page.";
 const READ_BACK_FAILED =
   "The changes were applied, but a rewritten moment could not be re-read. Try Re-read in the scene's ⋯ menu.";
+const TRACKING_FAILED =
+  "Some tracking updates couldn't be applied — see the conversation.";
+
+/** The plan item a tracking op is pinned to (saved or temp id), or null. */
+function trackingTarget(op: StudioBundleOpDto): string | null {
+  if (op.kind === "change.create") return op.planItemRef;
+  if (op.kind === "change.update" || op.kind === "change.delete") {
+    return op.baseline.planItemId;
+  }
+  return null;
+}
+
+/**
+ * The plan item a visible op is about: a plan create (its temp id) or
+ * update, or a prose write's moment. Moves and deletes tie no tracking: a
+ * move does not change what happens there, and accepting a delete already
+ * dismisses what was pinned inside it.
+ */
+function anchorTarget(op: StudioBundleOpDto): string | null {
+  if (op.kind === "plan.create") return op.tempId;
+  if (op.kind === "plan.update") return op.itemId;
+  if (op.kind === "prose.write") return op.momentRef;
+  return null;
+}
+
+/**
+ * Pending tracking ops (change records) tied to the given ops: pinned to the
+ * item one of them creates, edits, or writes prose for. Refs compare after
+ * resolving temp ids through accepted creates. They ride along with that
+ * op's ✓ and ✕; tracking ops tied to nothing stay in the conversation list.
+ */
+export function tiedTrackingOps(
+  operations: StudioBundleOpDto[],
+  opIds: Iterable<string>,
+): StudioBundleOpDto[] {
+  const anchors = new Set(opIds);
+  const resolve = (ref: string) =>
+    resolveStudioBundleRef(operations, ref) ?? ref;
+  const targets = new Set<string>();
+  for (const op of operations) {
+    const target = anchors.has(op.id) ? anchorTarget(op) : null;
+    if (target === null) continue;
+    targets.add(target);
+    targets.add(resolve(target));
+  }
+  if (targets.size === 0) return [];
+  return operations.filter((op) => {
+    if (op.status !== "pending") return false;
+    const target = trackingTarget(op);
+    return (
+      target !== null && (targets.has(target) || targets.has(resolve(target)))
+    );
+  });
+}
+
+type DecisionOutcome =
+  | { resolution: StudioBundleResolution }
+  | { failure: string; serverError: boolean };
 
 /** Saved moments at or under `rootId`. */
 function subtreeMomentIds(
@@ -137,6 +198,11 @@ function subscribe(listener: () => void) {
 
 const getShared = () => shared;
 
+/** A decision is running right now (for callers outside React render). */
+export function isBundleDecisionRunning(): boolean {
+  return shared.busy;
+}
+
 const NO_ISSUES: StudioBundleSelectionIssue[] = [];
 
 export type ResolveBundle = {
@@ -160,7 +226,9 @@ export type ResolveBundle = {
  * Accepts, rejects, or undoes a bundle. Flushes affected moment editors first
  * (so unsaved typing is caught by the baseline check rather than overwritten),
  * merges the returned patch (mounted editors load newer prose themselves and
- * clear their undo history), then force-reads-back accepted prose.
+ * clear their undo history), accepts the tracking tied to what was accepted
+ * (`acceptTiedTracking`), then force-reads-back accepted prose, so read-back
+ * already sees those records.
  */
 export function useResolveBundle(): ResolveBundle {
   const { state, dispatch } = useStudioStore();
@@ -252,6 +320,88 @@ export function useResolveBundle(): ResolveBundle {
     [dispatch, storyId],
   );
 
+  const requestDecision = useCallback(
+    async (
+      bundleId: string,
+      decision: StudioBundleDecision,
+      opIds: string[] | null,
+    ): Promise<DecisionOutcome> => {
+      try {
+        const result = await resolveStudioBundle({
+          storyId,
+          bundleId,
+          decision,
+          opIds,
+        });
+        if (result?.data) return { resolution: result.data };
+        return {
+          failure: actionFailureMessage(result, STUDIO_ACTION_FALLBACK_MESSAGE),
+          serverError: Boolean(result?.serverError),
+        };
+      } catch {
+        return { failure: STUDIO_ACTION_FALLBACK_MESSAGE, serverError: false };
+      }
+    },
+    [storyId],
+  );
+
+  const mergeResolution = useCallback(
+    (resolution: StudioBundleResolution) => {
+      const { removed, ...patch } = resolution.workspacePatch;
+      dispatch({
+        type: "merge",
+        ...patch,
+        bundles: [resolution.bundle],
+        removed,
+      });
+    },
+    [dispatch],
+  );
+
+  /**
+   * The second phase of an accept: the pending tracking ops tied to what the
+   * first phase accepted. A separate request, so a conflicting tracking op
+   * can never block the suggestion the author approved. Ops that would pull
+   * in another unreviewed create (a new entry, say) stay in the list.
+   */
+  const acceptTiedTracking = useCallback(
+    async (
+      bundleId: string,
+      previous: StudioBundleDto,
+      latest: StudioBundleDto,
+      requested: string[],
+    ): Promise<StudioBundleDto> => {
+      const before = new Map(
+        previous.operations.map((op) => [op.id, op.status]),
+      );
+      const asked = new Set(requested);
+      const accepted = latest.operations
+        .filter(
+          (op) =>
+            op.status === "accepted" &&
+            (asked.has(op.id) || before.get(op.id) !== "accepted"),
+        )
+        .map((op) => op.id);
+      const tied = tiedTrackingOps(latest.operations, accepted)
+        .filter(
+          (op) =>
+            expandStudioBundleAccept(latest.operations, [op.id]).size === 1,
+        )
+        .map((op) => op.id);
+      if (tied.length === 0) return latest;
+      const outcome = await requestDecision(bundleId, "accept", tied);
+      if (!("resolution" in outcome)) {
+        toast.error(TRACKING_FAILED);
+        if (outcome.serverError) await markIssues(bundleId, tied);
+        return latest;
+      }
+      if (outcome.resolution.replayed) return latest;
+      mergeResolution(outcome.resolution);
+      return outcome.resolution.bundle;
+    },
+    [markIssues, mergeResolution, requestDecision],
+  );
+
   const resolve = useCallback(
     async (
       bundleId: string,
@@ -278,54 +428,59 @@ export function useResolveBundle(): ResolveBundle {
         }
 
         const selection = decision === "undo" ? null : opIds;
-        let result: Awaited<ReturnType<typeof resolveStudioBundle>>;
-        try {
-          result = await resolveStudioBundle({
-            storyId,
-            bundleId,
-            decision,
-            opIds: selection,
-          });
-        } catch {
-          toast.error(STUDIO_ACTION_FALLBACK_MESSAGE);
-          return false;
-        }
-        const resolution = result?.data;
-        if (!resolution) {
-          toast.error(
-            actionFailureMessage(result, STUDIO_ACTION_FALLBACK_MESSAGE),
-          );
-          if (decision === "accept" && result?.serverError) {
+        // Dismissing a suggestion also dismisses the tracking tied to it, in
+        // the same request: dismissals cannot conflict.
+        const requested =
+          decision === "reject" && selection
+            ? [
+                ...new Set([
+                  ...selection,
+                  ...tiedTrackingOps(bundle.operations, selection).map(
+                    (op) => op.id,
+                  ),
+                ]),
+              ]
+            : selection;
+        const outcome = await requestDecision(bundleId, decision, requested);
+        if (!("resolution" in outcome)) {
+          toast.error(outcome.failure);
+          if (decision === "accept" && outcome.serverError) {
             await markIssues(bundleId, selection);
           }
           return false;
         }
-
+        const { resolution } = outcome;
         if (resolution.replayed) {
           // The first response may have been lost before its read-back ran.
           await reloadWorkspace();
-          if (decision === "accept") {
-            await readBackAccepted(resolution.bundle, bundle);
-          }
-          return true;
+        } else {
+          mergeResolution(resolution);
         }
-        const { removed, ...patch } = resolution.workspacePatch;
-        dispatch({
-          type: "merge",
-          ...patch,
-          bundles: [resolution.bundle],
-          removed,
-        });
 
         if (decision === "accept") {
-          await readBackAccepted(resolution.bundle, bundle);
+          const latest = selection
+            ? await acceptTiedTracking(
+                bundleId,
+                bundle,
+                resolution.bundle,
+                selection,
+              )
+            : resolution.bundle;
+          await readBackAccepted(latest, bundle);
         }
         return true;
       } finally {
         updateShared({ busy: false });
       }
     },
-    [dispatch, markIssues, readBackAccepted, reloadWorkspace, storyId],
+    [
+      acceptTiedTracking,
+      markIssues,
+      mergeResolution,
+      readBackAccepted,
+      reloadWorkspace,
+      requestDecision,
+    ],
   );
 
   return { resolve, busy, issuesFor, issueCount };
