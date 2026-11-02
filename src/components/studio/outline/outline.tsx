@@ -269,7 +269,7 @@ function OutlineBody() {
   }
 
   function handleFocus(event: FocusEvent<HTMLDivElement>) {
-    trackFocus(true);
+    trackFocus(event.target instanceof Element ? event.target : null);
     const lineId =
       event.target instanceof HTMLElement
         ? event.target.getAttribute(OUTLINE_LINE_ATTRIBUTE)
@@ -350,7 +350,7 @@ function OutlineBody() {
         onDragStart={handleDragStart}
         onDrop={handleDrop}
         onFocus={handleFocus}
-        onBlur={() => trackFocus(false)}
+        onBlur={() => trackFocus(null)}
         onKeyDown={handleKeyDown}
         ref={rootRef}
         role="tree"

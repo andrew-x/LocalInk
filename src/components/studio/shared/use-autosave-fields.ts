@@ -27,7 +27,8 @@ type Options<K extends string> = {
  * Local drafts for a few text fields with an 800 ms debounced save. A field
  * the author has edited keeps its local value until a save lands, so the
  * store never overwrites what is being typed, and a failed save keeps it.
- * Pending edits are flushed on blur and on unmount.
+ * Pending edits are flushed on blur and on unmount. `flush` resolves true
+ * when nothing is left unsaved.
  */
 export function useAutosaveFields<K extends string>({
   onDirtyChange,
@@ -62,23 +63,26 @@ export function useAutosaveFields<K extends string>({
     setValues(next);
   }, [serverKey]);
 
-  const flush = useCallback(async (final = false) => {
+  const flush = useCallback(async (final = false): Promise<boolean> => {
     if (timer.current !== null) {
       window.clearTimeout(timer.current);
       timer.current = null;
     }
-    if (dirty.current.size === 0) return;
+    if (dirty.current.size === 0) return true;
     const sent: Partial<Record<K, string>> = {};
     for (const key of dirty.current) sent[key] = valuesRef.current[key];
     const saved = await saveRef.current(sent, final);
-    if (saved === false) return;
+    if (saved === false) return false;
     const keep = new Set<K>(saved === true ? [] : saved);
     for (const key of Object.keys(sent) as K[]) {
       if (keep.has(key)) continue;
       if (valuesRef.current[key] === sent[key]) dirty.current.delete(key);
     }
-    if (dirty.current.size === 0) onDirtyChangeRef.current?.(false);
-    // A save that landed may leave the store behind newer typing; nothing to do.
+    // A save that landed may leave the store behind newer typing; that
+    // typing stays dirty and saves next.
+    if (dirty.current.size > 0) return false;
+    onDirtyChangeRef.current?.(false);
+    return true;
   }, []);
 
   const flushRef = useRef(flush);

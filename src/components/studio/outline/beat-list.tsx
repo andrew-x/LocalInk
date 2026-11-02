@@ -1,6 +1,12 @@
 "use client";
 
-import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
@@ -50,6 +56,7 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
     null,
   );
   const [removing, setRemoving] = useState(false);
+  const addingAtEnd = useRef(false);
 
   useEffect(() => {
     if (!focusId || !beats.some((beat) => beat.id === focusId)) return;
@@ -69,9 +76,20 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
     if (neighbor) requestAnimationFrame(() => focusBeat(neighbor.id));
   }
 
-  function requestRemove(beat: StudioPlanItemDto) {
+  async function requestRemove(beat: StudioPlanItemDto) {
     if (proseByMoment.get(beat.id)?.markdown.trim()) setPendingRemove(beat);
-    else void removeBeat(beat);
+    else await removeBeat(beat);
+  }
+
+  async function addAtEnd() {
+    // A double click must not add two beats.
+    if (addingAtEnd.current) return;
+    addingAtEnd.current = true;
+    try {
+      await addAfter(beats.at(-1) ?? null);
+    } finally {
+      addingAtEnd.current = false;
+    }
   }
 
   function step(beat: StudioPlanItemDto, delta: -1 | 1): boolean {
@@ -110,7 +128,7 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
             beat={beat}
             key={beat.id}
             number={index + 1}
-            onEnter={() => void addAfter(beat)}
+            onEnter={() => addAfter(beat)}
             onMove={(delta) => moveBeat(beat, delta)}
             onRemove={() => requestRemove(beat)}
             onStep={(delta) => step(beat, delta)}
@@ -119,7 +137,7 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
         <li>
           <button
             className="w-full rounded-sm py-0.5 pl-3.5 text-left text-label-sm font-normal text-muted-foreground/70 italic outline-none hover:text-muted-foreground focus-visible:bg-muted/40"
-            onClick={() => void addAfter(beats.at(-1) ?? null)}
+            onClick={() => void addAtEnd()}
             type="button"
           >
             Add a beat…
@@ -152,9 +170,9 @@ function BeatLine({
 }: {
   beat: StudioPlanItemDto;
   number: number;
-  onEnter: () => void;
+  onEnter: () => Promise<void>;
   onMove: (delta: -1 | 1) => void;
-  onRemove: () => void;
+  onRemove: () => Promise<void>;
   onStep: (delta: -1 | 1) => boolean;
 }) {
   const { statuses } = useOutlineView();
@@ -179,8 +197,20 @@ function BeatLine({
     save,
     serverValues: { whatHappens: beat.whatHappens },
   });
+  /** An Enter or Backspace still adding or removing; repeats are ignored. */
+  const busy = useRef(false);
 
-  async function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  async function once(task: () => Promise<void>) {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      await task();
+    } finally {
+      busy.current = false;
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.nativeEvent.isComposing) return;
     const field = event.currentTarget;
     const atStart = field.selectionStart === 0 && field.selectionEnd === 0;
@@ -189,12 +219,21 @@ function BeatLine({
       field.selectionEnd === field.value.length;
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      // The new beat's save queue is separate; land this one first.
-      await flush(true);
-      onEnter();
+      if (event.repeat) return;
+      void once(async () => {
+        // The new beat's save queue is separate; land this one first.
+        await flush(true);
+        await onEnter();
+      });
     } else if (event.key === "Backspace" && field.value === "") {
       event.preventDefault();
-      onRemove();
+      if (event.repeat) return;
+      void once(async () => {
+        // Settle the cleared text first. Once the beat is gone, a late save
+        // would target a missing item. Typing since then cancels the removal.
+        if (!(await flush(true)) || field.value !== "") return;
+        await onRemove();
+      });
     } else if (event.altKey && event.key === "ArrowUp") {
       event.preventDefault();
       onMove(-1);
@@ -231,7 +270,7 @@ function BeatLine({
         maxLength={20_000}
         onBlur={() => void flush(true)}
         onChange={(event) => setValue("whatHappens", event.target.value)}
-        onKeyDown={(event) => void handleKeyDown(event)}
+        onKeyDown={handleKeyDown}
         placeholder="What happens in this beat"
         value={values.whatHappens}
       />

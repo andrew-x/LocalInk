@@ -42,7 +42,7 @@ export type OutlineOpen = {
 
 type OutlineOpenContextValue = OutlineOpen & {
   reportEdits: (key: string, dirty: boolean) => void;
-  trackFocus: (inside: boolean) => void;
+  trackFocus: (target: Element | null) => void;
 };
 
 const OutlineOpenContext = createContext<OutlineOpenContextValue | null>(null);
@@ -81,15 +81,17 @@ function initialOpen(
 }
 
 /**
- * Focus is in the outline, or in a menu or dialog the outline opened. Those
- * are portaled outside its DOM, so `withinTree` comes from React focus events,
- * which bubble through portals. Focus that fell back to the page body (its
- * element was removed) no longer counts.
+ * Focus is in the outline, or in a menu or dialog the outline opened, judged
+ * from the live DOM. Those menus are portaled outside the outline's DOM, so
+ * `outlineFocus` is the last element a React focus event (which bubbles
+ * through portals) reported from the outline's tree. It only counts while it
+ * still holds focus: a removed element fires no blur, but focus has moved on.
  */
-function focusIsInOutline(withinTree: boolean): boolean {
+function focusIsInOutline(outlineFocus: Element | null): boolean {
   const active = document.activeElement;
   if (!active || active === document.body) return false;
-  return withinTree || active.closest(`[${OUTLINE_ROOT_ATTRIBUTE}]`) !== null;
+  if (active.closest(`[${OUTLINE_ROOT_ATTRIBUTE}]`)) return true;
+  return Boolean(outlineFocus?.isConnected && outlineFocus.contains(active));
 }
 
 /**
@@ -115,21 +117,21 @@ export function OutlineOpenProvider({ children }: { children: ReactNode }) {
     itemsRef.current = planItems;
   }, [planItems]);
   const dirtyEditors = useRef(new Set<string>());
-  const focusWithin = useRef(false);
+  const outlineFocus = useRef<Element | null>(null);
 
   const reportEdits = useCallback((key: string, dirty: boolean) => {
     if (dirty) dirtyEditors.current.add(key);
     else dirtyEditors.current.delete(key);
   }, []);
 
-  // Blur fires before the next focus, so moving within the outline ends true.
-  const trackFocus = useCallback((inside: boolean) => {
-    focusWithin.current = inside;
+  // Blur fires before the next focus, so moving within the outline ends set.
+  const trackFocus = useCallback((target: Element | null) => {
+    outlineFocus.current = target;
   }, []);
 
   const follow = useCallback((itemId: string) => {
     if (
-      focusIsInOutline(focusWithin.current) ||
+      focusIsInOutline(outlineFocus.current) ||
       dirtyEditors.current.size > 0
     ) {
       return;
@@ -275,7 +277,10 @@ export function useOutlineEditReporter(): (dirty: boolean) => void {
   );
 }
 
-/** The outline root's focus and blur, including from its portaled menus. */
-export function useOutlineFocusTracker(): (inside: boolean) => void {
+/**
+ * The outline root reports the element its React focus events came from
+ * (including portaled menus), and null on blur.
+ */
+export function useOutlineFocusTracker(): (target: Element | null) => void {
   return useOutlineOpenContext().trackFocus;
 }
