@@ -1,12 +1,8 @@
 "use client";
 
-import {
-  $convertFromMarkdownString,
-  $convertSelectionToMarkdownString,
-} from "@lexical/markdown";
+import { $convertFromMarkdownString } from "@lexical/markdown";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
-  $createRangeSelection,
   $getRoot,
   $getSelection,
   $isElementNode,
@@ -37,45 +33,6 @@ import { STUDIO_MARKDOWN_TRANSFORMERS } from "./studio-markdown";
 
 /** Tags an update that loads prose written elsewhere, so autosave skips it. */
 export const STUDIO_EXTERNAL_PROSE_TAG = "studio-external-prose";
-
-type RawPoint = { key: string; offset: number; type: "text" | "element" };
-
-function $rangeToMarkdown(anchor: RawPoint, focus: RawPoint): string {
-  const range = $createRangeSelection();
-  range.anchor.set(anchor.key, anchor.offset, anchor.type);
-  range.focus.set(focus.key, focus.offset, focus.type);
-  return $convertSelectionToMarkdownString(
-    STUDIO_MARKDOWN_TRANSFORMERS,
-    range,
-  ).trim();
-}
-
-/** Markdown before and after the start of the current selection. */
-export function $splitMarkdownAtSelection(): {
-  before: string;
-  after: string;
-} | null {
-  const selection = $getSelection();
-  if (!$isRangeSelection(selection)) return null;
-  const start = selection.isBackward() ? selection.focus : selection.anchor;
-  const point: RawPoint = {
-    key: start.key,
-    offset: start.offset,
-    type: start.type,
-  };
-  const root = $getRoot();
-  return {
-    before: $rangeToMarkdown(
-      { key: root.getKey(), offset: 0, type: "element" },
-      point,
-    ),
-    after: $rangeToMarkdown(point, {
-      key: root.getKey(),
-      offset: root.getChildrenSize(),
-      type: "element",
-    }),
-  };
-}
 
 function $isPointAtEdge(point: PointType, edge: "start" | "end"): boolean {
   const root = $getRoot();
@@ -260,8 +217,6 @@ export function MomentHandlePlugin({
     const handle: MomentEditorHandle = {
       focusStart: () => focusEdge("start"),
       focusEnd: () => focusEdge("end"),
-      getMarkdownSplitAtSelection: () =>
-        editor.getEditorState().read($splitMarkdownAtSelection),
       flush,
       retry,
     };
@@ -276,7 +231,7 @@ type ExternalProsePluginProps = {
   adoptExternal: (prose: StudioProseDto) => boolean;
 };
 
-/** Loads a newer revision written elsewhere (Keep, split, merge, restore). */
+/** Loads a newer revision written elsewhere (Keep, restore a version). */
 export function ExternalProsePlugin({
   adoptExternal,
   prose,
@@ -296,7 +251,7 @@ export function ExternalProsePlugin({
       { discrete: true, tag: STUDIO_EXTERNAL_PROSE_TAG },
     );
     // Undo past this point would bring back text the server already replaced
-    // (the pre-split whole, the pre-Keep draft), and autosave would save it
+    // (the pre-Keep text, the version before a restore), and autosave would save it
     // as a duplicate. Versions keep the old text instead.
     editor.dispatchCommand(CLEAR_HISTORY_COMMAND, undefined);
   }, [adoptExternal, editor, prose]);

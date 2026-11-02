@@ -146,7 +146,9 @@ export function StudioTopBar() {
         <span>{wordCount.toLocaleString()} words</span>
         {chapterProgress.total > 0 ? (
           <span>
-            Ch {chapterProgress.number ?? ""} of {chapterProgress.total}
+            {chapterProgress.number === null
+              ? `${chapterProgress.total} ${chapterProgress.total === 1 ? "chapter" : "chapters"}`
+              : `Ch ${chapterProgress.number} of ${chapterProgress.total}`}
           </span>
         ) : null}
       </div>

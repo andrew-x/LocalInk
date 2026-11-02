@@ -18,7 +18,6 @@ import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
  */
 
 export const STUDIO_CHAT_MAX_MESSAGE_CHARS = 4000;
-export const STUDIO_CHAT_MAX_PINNED_ENTRIES = 20;
 
 export type StudioChatRole = "user" | "assistant";
 
@@ -96,10 +95,9 @@ export type StudioChatDiscardResult = {
 
 const id = z.string().trim().min(1).max(128);
 
-/** What the author is looking at and has pinned; hints, not instructions. */
+/** What the author is looking at; a hint, not an instruction. */
 export const studioChatContextSchema = z.object({
   lookingAtItemId: id.nullable(),
-  pinnedEntryIds: z.array(id).max(STUDIO_CHAT_MAX_PINNED_ENTRIES),
 });
 
 export type StudioChatContext = z.infer<typeof studioChatContextSchema>;

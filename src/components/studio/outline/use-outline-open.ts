@@ -95,7 +95,8 @@ function focusIsInOutline(outlineFocus: Element | null): boolean {
 }
 
 /**
- * Which chapter and scene card the outline has open. It follows the reading
+ * Which chapter and scene card the outline has open, provided above the plan
+ * pane so the AI box can read it too. It follows the reading
  * position and selections made elsewhere (manuscript, Characters), but only
  * while the author is not working in the outline: focus is outside it (and
  * its menus and dialogs) and no outline editor holds unsaved text. Following
@@ -259,6 +260,15 @@ export function useOutlineOpen(): OutlineOpen {
     close,
     collapse,
   };
+}
+
+/**
+ * The item the outline has open: its scene card, else its expanded chapter,
+ * else null. The AI box sends it as "Looking at".
+ */
+export function useOutlineOpenItemId(): string | null {
+  const { openChapterId, openSceneId } = useOutlineOpenContext();
+  return openSceneId ?? openChapterId;
 }
 
 /**

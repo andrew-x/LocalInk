@@ -26,8 +26,8 @@ import { StudioContextTooLargeError } from "./prompt-kit";
  * budget is the model's context window minus an output reserve and a tool
  * framing reserve, measured in UTF-8 bytes (a conservative stand-in for
  * tokens). Before every model call, whole oldest turns are dropped first,
- * then the outline, then pinned entries (the context in the system prompt);
- * the current user message is never cut. If it still does not fit, the turn fails with a clear error. What is
+ * then the outline (the context in the system prompt); the current user
+ * message is never cut. If it still does not fit, the turn fails with a clear error. What is
  * left is the room tool results may use in that step; a read that would
  * not fit returns `{ error }` instead.
  */
@@ -85,7 +85,6 @@ export function createStudioChatGeneration({
   const parts: StudioChatContextParts = {
     omittedHistory: false,
     outline: true,
-    pinned: true,
   };
   const systemByParts = new Map<string, string>();
   const system = () => {
@@ -113,7 +112,6 @@ export function createStudioChatGeneration({
       parts.omittedHistory = true;
     }
     if (count(fitted) > inputBudget && parts.outline) parts.outline = false;
-    if (count(fitted) > inputBudget && parts.pinned) parts.pinned = false;
     if (count(fitted) > inputBudget) {
       throw new StudioContextTooLargeError(
         "This chat no longer fits the chat model's context. Start a new chat, shorten the message, or choose a model with a larger context window.",

@@ -34,11 +34,7 @@ import { buildPlanTree, type StudioPlanNode } from "@/lib/studio/plan-order";
 import { ChapterBlock } from "./chapter-block";
 import { focusSceneCard } from "./scene-card";
 import { StoryLine } from "./story-line";
-import {
-  OutlineOpenProvider,
-  useOutlineFocusTracker,
-  useOutlineOpen,
-} from "./use-outline-open";
+import { useOutlineFocusTracker, useOutlineOpen } from "./use-outline-open";
 import {
   computeOutlineData,
   OUTLINE_LINE_ATTRIBUTE,
@@ -81,17 +77,10 @@ function siblingsOf(
 
 /**
  * The compact outline: the premise line, then every chapter and scene as one
- * line that opens in place. One scene card is open at a time.
+ * line that opens in place. One scene card is open at a time (the workspace
+ * provides which, through OutlineOpenProvider).
  */
 export function Outline() {
-  return (
-    <OutlineOpenProvider>
-      <OutlineBody />
-    </OutlineOpenProvider>
-  );
-}
-
-function OutlineBody() {
   const { state } = useStudioStore();
   const loop = useWritingLoop();
   const storyPlan = useStoryFleshOut();

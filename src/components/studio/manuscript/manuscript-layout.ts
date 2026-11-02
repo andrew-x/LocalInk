@@ -132,17 +132,6 @@ function upNextFor(
 }
 
 /**
- * The first scene after the last written moment (plan order) that still has
- * an unwritten or empty beat set; the first scene when nothing is written.
- */
-export function findUpNext(
-  planItems: StudioPlanItemDto[],
-  proseById: Map<string, StudioProseDto>,
-): { sceneId: string } | null {
-  return upNextFor(sceneEntries(planItems).scenes, proseById);
-}
-
-/**
  * Lays out only what has been written, as one flat list of book blocks:
  * chapter openers, scene breaks, written moments and drafts. A chapter or
  * scene with neither prose nor a draft never appears. A beat with a draft

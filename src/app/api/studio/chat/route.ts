@@ -78,23 +78,18 @@ export async function POST(request: Request): Promise<Response> {
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
     const turn = loadStudioChatTurn(input);
-    // The hints may name an item or entry deleted since; skip those.
+    // The hint may name an item deleted since; skip it then.
     const itemIds = new Set(workspace.planItems.map((item) => item.id));
-    const entryIds = new Set(workspace.entries.map((entry) => entry.id));
     const context: StudioChatContext = {
       lookingAtItemId:
         input.context.lookingAtItemId !== null &&
         itemIds.has(input.context.lookingAtItemId)
           ? input.context.lookingAtItemId
           : null,
-      pinnedEntryIds: [...new Set(input.context.pinnedEntryIds)].filter((id) =>
-        entryIds.has(id),
-      ),
     };
     log.start({
       model: workspace.story.chatModel,
       historyMessages: turn.messages.length - 1,
-      pinnedEntries: context.pinnedEntryIds.length,
       lookingAt: context.lookingAtItemId !== null,
     });
 

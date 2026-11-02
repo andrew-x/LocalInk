@@ -7,6 +7,7 @@ import { CharactersPanel } from "@/components/studio/characters/characters-panel
 import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import { WritingLoopProvider } from "@/components/studio/manuscript/use-writing-loop";
 import { Outline } from "@/components/studio/outline/outline";
+import { OutlineOpenProvider } from "@/components/studio/outline/use-outline-open";
 import type { StudioWorkspace as StudioWorkspaceData } from "@/lib/studio/contracts";
 
 import { PlanPane } from "./plan-pane";
@@ -58,10 +59,13 @@ export function StudioWorkspace({
       <WritingLoopProvider>
         <StoryFleshOutProvider>
           <PlanAiProvider>
-            {/* The AI conversation; the manuscript's chat draft sends through it. */}
-            <ChatSessionProvider>
-              <WorkspaceLayout />
-            </ChatSessionProvider>
+            {/* The outline's open item is the AI box's "Looking at". */}
+            <OutlineOpenProvider>
+              {/* The AI conversation; the manuscript's chat draft sends through it. */}
+              <ChatSessionProvider>
+                <WorkspaceLayout />
+              </ChatSessionProvider>
+            </OutlineOpenProvider>
           </PlanAiProvider>
         </StoryFleshOutProvider>
       </WritingLoopProvider>

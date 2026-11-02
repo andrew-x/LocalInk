@@ -53,8 +53,9 @@ export type BundlePreview = {
   proseOpsByMomentId: Map<string, StudioBundleOpDto>;
   /**
    * Pending ops with no place in the outline, Characters, or manuscript:
-   * story settings, tracking records, and prose for beats of a scene that is
-   * itself still proposed. They show in the conversation panel only.
+   * story settings, tracking records, prose for beats of a scene that is
+   * itself still proposed, and plan edits with nothing left to show. They
+   * show in the conversation panel only.
    */
   otherOps: StudioBundleOpDto[];
 };
@@ -68,6 +69,15 @@ const EMPTY: BundlePreview = {
   proseOpsByMomentId: new Map(),
   otherOps: [],
 };
+
+/** The plan.update patch keys accept still applies (tension is ignored). */
+const PLAN_UPDATE_KEYS = [
+  "title",
+  "whatHappens",
+  "howToWrite",
+  "craft",
+  "presentEntryIds",
+] as const satisfies readonly (keyof StudioBundleOpDtoOf<"plan.update">["patch"])[];
 
 function push<T>(map: Map<string, T[]>, key: string, value: T) {
   const list = map.get(key);
@@ -140,6 +150,14 @@ export function buildBundlePreview(bundles: StudioBundleDto[]): BundlePreview {
         });
         break;
       case "plan.update":
+        // A legacy op whose patch held only `tension` has nothing to show
+        // or apply in place; the conversation list still offers it.
+        if (PLAN_UPDATE_KEYS.some((key) => op.patch[key] !== undefined)) {
+          push(preview.planOpsByItemId, op.itemId, op);
+        } else {
+          preview.otherOps.push(op);
+        }
+        break;
       case "plan.move":
       case "plan.delete":
         push(preview.planOpsByItemId, op.itemId, op);

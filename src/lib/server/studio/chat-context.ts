@@ -14,18 +14,16 @@ import type {
 import {
   buildPlanTree,
   getAncestors,
-  getPlanIndex,
   type StudioPlanNode,
 } from "@/lib/studio/plan-order";
-import { computeStateGoingIn } from "@/lib/studio/state";
 
 import { clip } from "./bundle-draft";
-import { xmlEntryBlock, xmlField, xmlGroup } from "./prompt-kit";
+import { xmlField, xmlGroup } from "./prompt-kit";
 
 /**
  * Prompt text for the Studio agent chat: the system prompt, the story
- * context block (overview, outline, what the author is looking at, pinned
- * entries), and the thread history. Genre-neutral: the story's own
+ * context block (overview, outline, what the author is looking at), and
+ * the thread history. Genre-neutral: the story's own
  * instructions and style carry its voice.
  */
 
@@ -80,9 +78,8 @@ const STUDIO_CHAT_CONTEXT_PREFIX =
 export type StudioChatContextParts = {
   /** Set once older turns were left out to fit the model's context. */
   omittedHistory: boolean;
-  /** After old turns, the outline goes first under pressure, then pins. */
+  /** After old turns, the outline goes under pressure. */
   outline: boolean;
-  pinned: boolean;
 };
 
 function outlineText(workspace: StudioWorkspace): string {
@@ -140,9 +137,9 @@ function lookingAtBlock(
 }
 
 /**
- * The story context appended to the system prompt. The looking-at item and
- * pinned entries are hints the author can remove; unknown ids (an item
- * deleted since) are skipped.
+ * The story context appended to the system prompt. The looking-at item is a
+ * hint the author can remove; an unknown id (an item deleted since) is
+ * skipped.
  */
 export function buildStudioChatContextBlock(
   workspace: StudioWorkspace,
@@ -181,40 +178,6 @@ export function buildStudioChatContextBlock(
     blocks.push("<outline>Left out to save space; use get_outline.</outline>");
   }
   if (lookingAt) blocks.push(lookingAtBlock(workspace, lookingAt));
-  const pinnedIds = new Set(context.pinnedEntryIds);
-  const pinned = workspace.entries.filter((entry) => pinnedIds.has(entry.id));
-  if (pinned.length > 0 && parts.pinned) {
-    const names = new Map(
-      workspace.entries.map((entry) => [entry.id, entry.name]),
-    );
-    const states =
-      lookingAt && getPlanIndex(workspace.planItems).has(lookingAt.id)
-        ? computeStateGoingIn(
-            {
-              entries: workspace.entries,
-              changes: workspace.changes,
-              planItems: workspace.planItems,
-            },
-            lookingAt.id,
-          )
-        : undefined;
-    blocks.push(
-      xmlGroup(
-        "pinned_entries",
-        pinned.map((entry) =>
-          xmlEntryBlock(states?.get(entry.id) ?? { entry, aspects: [] }, {
-            includeBackstoryOnly: true,
-            names,
-          }),
-        ),
-        { state: states ? "going into the looked-at item" : undefined },
-      ),
-    );
-  } else if (pinned.length > 0) {
-    blocks.push(
-      `<pinned_entries ids="${pinned.map((entry) => entry.id).join(",")}">Left out to save space; use get_entry.</pinned_entries>`,
-    );
-  }
   if (parts.omittedHistory) {
     blocks.push(
       "<history_note>Earlier messages in this chat were left out to fit the model's context.</history_note>",

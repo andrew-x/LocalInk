@@ -471,7 +471,7 @@ export function loadStudioChatThread(
  * Deletes a thread and its messages. The pending ops of its bundles are
  * rejected first, in the same transaction, through the bundle reject path
  * (op statuses and updatedAt stay consistent; the rows are kept): once the
- * thread is gone there is no review card left to accept them from (Ruling
+ * thread is gone there is no conversation left to review them from (Ruling
  * A25). Accepted ops stay undoable from the workspace. Idempotent: a
  * missing thread deletes and rejects nothing.
  */

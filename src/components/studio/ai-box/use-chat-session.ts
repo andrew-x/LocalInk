@@ -36,6 +36,7 @@ import {
   useChatTurn,
 } from "@/components/studio/chat/use-chat-turn";
 import { useConfirmDiscardDraft } from "@/components/studio/manuscript/use-writing-loop";
+import { useOutlineOpenItemId } from "@/components/studio/outline/use-outline-open";
 import {
   useRunStudioAction,
   useStudioStore,
@@ -391,13 +392,10 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     [dispatch, openThread, run, storyId],
   );
 
-  const selectedId = state.selectedItemId;
+  // The outline's open scene or chapter (it reads deleted ids as closed).
+  const openItemId = useOutlineOpenItemId();
   const lookingAtItemId =
-    selectedId &&
-    selectedId !== dismissedLookingAt &&
-    state.planItems.some((item) => item.id === selectedId)
-      ? selectedId
-      : null;
+    openItemId && openItemId !== dismissedLookingAt ? openItemId : null;
   const lookingAtRef = useRef(lookingAtItemId);
   useEffect(() => {
     lookingAtRef.current = lookingAtItemId;
@@ -414,7 +412,6 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       fromComposerRef.current = fromComposer;
       const result = await sendTurn(content, activeThreadRef.current, {
         lookingAtItemId: lookingAtRef.current,
-        pinnedEntryIds: [],
       });
       if (!result.ok) fromComposerRef.current = false;
       return result;
@@ -498,8 +495,8 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     if (activeThreadRef.current) void loadThread(activeThreadRef.current);
   }, [loadThread]);
   const dismissLookingAt = useCallback(
-    () => setDismissedLookingAt(selectedId),
-    [selectedId],
+    () => setDismissedLookingAt(openItemId),
+    [openItemId],
   );
 
   const session = useMemo<ChatSession>(

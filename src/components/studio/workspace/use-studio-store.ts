@@ -258,7 +258,7 @@ function studioReducer(
     case "focusBundleOp":
       return {
         ...state,
-        // Suggestions show in the plan pane, which Read mode hides.
+        // Suggestions show in the plan pane, which Hide plan hides.
         readMode: false,
         focusedBundleOp: { bundleId: action.bundleId, opId: action.opId },
         bundleFocusNonce: state.bundleFocusNonce + 1,
@@ -322,15 +322,6 @@ export function useFocusBundleOp(): (target: StudioBundleOpFocus) => void {
     ({ bundleId, opId }: StudioBundleOpFocus) =>
       dispatch({ type: "focusBundleOp", bundleId, opId }),
     [dispatch],
-  );
-}
-
-export function useSelectedItem(): StudioPlanItemDto | null {
-  const { state } = useStudioStore();
-  return useMemo(
-    () =>
-      state.planItems.find((item) => item.id === state.selectedItemId) ?? null,
-    [state.planItems, state.selectedItemId],
   );
 }
 

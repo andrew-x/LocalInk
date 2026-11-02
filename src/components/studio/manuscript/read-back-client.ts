@@ -30,7 +30,7 @@ export function actionFailureMessage(
  * or null when read-back was skipped or found the prose had moved on (the
  * apply action discards a stale result by source hash). Once the apply action
  * has been sent its result is always returned: the server already committed.
- * Shared by settle work, Keep, split, restore, and the scene menu's Re-read.
+ * Shared by settle work, Keep, restore, and the scene menu's Re-read.
  */
 export async function readBackStudioMoment({
   storyId,

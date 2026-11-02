@@ -13,7 +13,6 @@ export type MomentSaveState = "saved" | "pending" | "saving" | "error";
 export type MomentEditorHandle = {
   focusStart(): void;
   focusEnd(): void;
-  getMarkdownSplitAtSelection(): { before: string; after: string } | null;
   /**
    * Saves pending edits. Resolves to the acknowledged prose revision, or null
    * when the moment could not be saved (its text stays in the editor).
@@ -36,10 +35,6 @@ export function registerMomentEditor(
   return () => {
     if (editors.get(momentId) === handle) editors.delete(momentId);
   };
-}
-
-export function getMomentEditor(momentId: string): MomentEditorHandle | null {
-  return editors.get(momentId) ?? null;
 }
 
 /**
