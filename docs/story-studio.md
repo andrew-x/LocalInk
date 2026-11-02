@@ -53,6 +53,7 @@ Each moment has its own editor and its own compare-and-swap autosave. This gives
 
 - Before drafting, the loop flushes every editor up to and including the target (`flushMomentEditors`). The route builds context from saved prose, and the previous moment's debounced autosave may not have fired.
 - After any external load (keep draft, restore version) the editor's undo history is cleared. Otherwise undo would resurrect text the server already replaced, and autosave would then save it again as a duplicate. Version history is the way back.
+- A failed save pauses that editor: it never retries with a newer revision on its own, so later edits to the beat are not saved until Retry. Because the text then exists only in the editor, the top bar counts paused beats with Retry, and closing or reloading the tab asks first while any beat is unsaved.
 
 ## Read-back
 

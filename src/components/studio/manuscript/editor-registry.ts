@@ -76,6 +76,22 @@ export function retryMomentSave(momentId: string): void {
 }
 
 /**
+ * Retries every failed save among `momentIds` and scrolls the first of those
+ * editors (in document order) into view, so the author sees which text it is.
+ */
+export function retryMomentSaves(momentIds: readonly string[]): void {
+  for (const id of momentIds) retryMomentSave(id);
+  if (typeof document === "undefined") return;
+  const ids = new Set(momentIds);
+  const first = Array.from(
+    document.querySelectorAll<HTMLElement>(`[${STUDIO_EDITOR_ATTRIBUTE}]`),
+  ).find((element) =>
+    ids.has(element.getAttribute(STUDIO_EDITOR_ATTRIBUTE) ?? ""),
+  );
+  first?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+/**
  * Moves focus to the nearest mounted editor before or after `momentId` in
  * document order. Focus happens on the next tick so a caller inside a Lexical
  * command never nests another editor's update. Returns whether one exists.
@@ -107,10 +123,37 @@ export function focusNeighbor(
 
 // Save states per moment, for UI that reports whether prose is saved.
 
+export type UnsavedMoments = {
+  /** Moments whose save failed: their text exists only in the editor. */
+  blockedIds: readonly string[];
+  /** Any moment has edits not saved yet (failed, waiting, or saving). */
+  hasUnsaved: boolean;
+};
+
+const NOTHING_UNSAVED: UnsavedMoments = { blockedIds: [], hasUnsaved: false };
+
 const saveStates = new Map<string, MomentSaveState>();
 const saveStateListeners = new Set<() => void>();
+// Rebuilt only when it changes, so subscribers re-render on transitions.
+let unsavedSnapshot = NOTHING_UNSAVED;
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
 
 function notifySaveStates() {
+  const blockedIds: string[] = [];
+  let hasUnsaved = false;
+  for (const [momentId, state] of saveStates) {
+    if (state === "error") blockedIds.push(momentId);
+    if (state !== "saved") hasUnsaved = true;
+  }
+  if (
+    hasUnsaved !== unsavedSnapshot.hasUnsaved ||
+    !sameIds(blockedIds, unsavedSnapshot.blockedIds)
+  ) {
+    unsavedSnapshot = hasUnsaved ? { blockedIds, hasUnsaved } : NOTHING_UNSAVED;
+  }
   for (const listener of saveStateListeners) listener();
 }
 
@@ -132,13 +175,11 @@ function subscribeSaveStates(listener: () => void) {
   };
 }
 
-/** The save state of a mounted moment editor, or null when none is mounted. */
-export function useMomentSaveState(
-  momentId: string | null,
-): MomentSaveState | null {
+/** Which mounted moment editors hold text that is not saved. */
+export function useUnsavedMoments(): UnsavedMoments {
   return useSyncExternalStore(
     subscribeSaveStates,
-    () => (momentId ? (saveStates.get(momentId) ?? null) : null),
-    () => null,
+    () => unsavedSnapshot,
+    () => NOTHING_UNSAVED,
   );
 }

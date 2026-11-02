@@ -11,9 +11,52 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { updateStudioStory } from "@/actions/studio/update-studio-story";
 import { Button } from "@/components/common/button";
+import {
+  retryMomentSaves,
+  useUnsavedMoments,
+} from "@/components/studio/manuscript/editor-registry";
 import { StorySettingsDialog } from "@/components/studio/settings/story-settings-dialog";
 
 import { useRunStudioAction, useStudioStore } from "./use-studio-store";
+
+/**
+ * Failed prose saves, outside the prose: each blocked beat keeps its text in
+ * its editor and saves nothing more until Retry, so the count stays until it
+ * clears. While any beat is unsaved, closing or reloading the tab asks first.
+ */
+function UnsavedProse() {
+  const { blockedIds, hasUnsaved } = useUnsavedMoments();
+
+  useEffect(() => {
+    if (!hasUnsaved) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Legacy browsers only show the prompt when this is set.
+      event.returnValue = true;
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [hasUnsaved]);
+
+  if (blockedIds.length === 0) return null;
+  const count = blockedIds.length;
+  return (
+    <span className="flex items-center gap-1 text-destructive" role="status">
+      {count === 1 ? "1 beat" : `${count} beats`} not saved
+      <Button
+        className="h-6 px-1.5 text-caption"
+        onClick={() => retryMomentSaves(blockedIds)}
+        size="sm"
+        tooltip="The text is still in the manuscript. Retry saving it."
+        tooltipSide="bottom"
+        type="button"
+        variant="ghost"
+      >
+        Retry
+      </Button>
+    </span>
+  );
+}
 
 export function StudioTopBar() {
   const { state, dispatch } = useStudioStore();
@@ -98,14 +141,15 @@ export function StudioTopBar() {
         value={titleDraft}
       />
 
-      <p className="ml-auto flex shrink-0 items-center gap-3 text-caption text-muted-foreground tabular-nums">
+      <div className="ml-auto flex shrink-0 items-center gap-3 text-caption text-muted-foreground tabular-nums">
+        <UnsavedProse />
         <span>{wordCount.toLocaleString()} words</span>
         {chapterProgress.total > 0 ? (
           <span>
             Ch {chapterProgress.number ?? ""} of {chapterProgress.total}
           </span>
         ) : null}
-      </p>
+      </div>
 
       <Button
         aria-pressed={state.readMode}
