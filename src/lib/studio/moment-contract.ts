@@ -2,6 +2,9 @@ import { z } from "zod";
 
 export const STUDIO_MOMENT_GENERATION_ID_HEADER = "X-Studio-Generation-Id";
 
+/** The route's 409 code when a preceding beat's staged draft is gone. */
+export const STUDIO_DRAFT_EXPIRED_CODE = "DRAFT_EXPIRED";
+
 const id = z.string().trim().min(1).max(128);
 
 export const studioMomentProseRequestSchema = z.object({

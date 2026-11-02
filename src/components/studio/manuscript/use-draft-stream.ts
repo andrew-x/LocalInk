@@ -7,7 +7,11 @@ import {
   streamStudioText,
   studioErrorMessage,
 } from "@/components/studio/studio-fetch";
-import type { StudioMomentProseRequest } from "@/lib/studio/moment-contract";
+import { LocalinkTextStreamError } from "@/lib/ai-text-stream";
+import {
+  STUDIO_DRAFT_EXPIRED_CODE,
+  type StudioMomentProseRequest,
+} from "@/lib/studio/moment-contract";
 import { generateId } from "@/lib/util";
 
 const DRAFT_FAILED = "The draft could not be written. Please try again.";
@@ -29,6 +33,8 @@ export type DraftStreamResult = {
   status: "ready" | "error";
   /** Aborted while still current. A partial draft is never staged. */
   stopped?: boolean;
+  /** Refused because a preceding beat's staged draft is gone (409). */
+  expired?: boolean;
 };
 
 type UseDraftStreamOptions = {
@@ -128,14 +134,18 @@ export function useDraftStream({
         if (!isCurrent()) return null;
         cancelFrame();
         const stopped = controller.signal.aborted;
-        // A stop is silent. Anything else, including an expired earlier beat
-        // (409 DRAFT_EXPIRED), toasts the route's sanitized message.
+        const expired =
+          error instanceof LocalinkTextStreamError &&
+          error.code === STUDIO_DRAFT_EXPIRED_CODE;
+        // A stop is silent. Anything else, including an expired earlier beat,
+        // toasts the route's sanitized message.
         if (!stopped) toast.error(studioErrorMessage(error, DRAFT_FAILED));
         return {
           generationId,
           text,
           status: "error",
           ...(stopped ? { stopped } : {}),
+          ...(expired ? { expired } : {}),
         };
       } finally {
         if (requestRef.current === controller) requestRef.current = null;

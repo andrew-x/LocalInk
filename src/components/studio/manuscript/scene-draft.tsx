@@ -145,8 +145,8 @@ export function DraftBeat({
       </div>
       {failed ? (
         <p className="mt-1 font-sans text-caption text-muted-foreground">
-          This beat didn&apos;t finish, so it can&apos;t be kept. Redo it to
-          continue.
+          This beat can&apos;t be kept as it is (it didn&apos;t finish or is no
+          longer available). Redo it to continue.
         </p>
       ) : null}
       {redo}
@@ -162,8 +162,13 @@ function barMessage(draft: SceneDraft, title: string): ReactNode {
     case "stopped":
       return "Stopped. Redo the unfinished beat, or try again.";
     case "error":
-      return "Part of this draft didn't finish. Redo it, or try again.";
+      return "Part of this draft can't be kept yet. Redo it, or try again.";
     case "ready": {
+      // The refusal could be an expiry, a conflict or a hiccup; Try again
+      // fixes the first, Keep again the others.
+      if (draft.keepRefused) {
+        return "Keep didn't go through. If the draft expired, Try again redraws the scene.";
+      }
       const words = draft.beats.reduce(
         (total, beat) => total + countWords(beat.text),
         0,

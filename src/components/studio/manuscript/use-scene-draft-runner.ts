@@ -14,6 +14,7 @@ import { getOrderedMoments } from "@/lib/studio/plan-order";
 
 import { flushMomentEditors } from "./editor-registry";
 import {
+  type BeatDraft,
   isSceneDraftRunning,
   orderedDraftBeats,
   precedingDraftsFor,
@@ -28,6 +29,7 @@ import {
 } from "./use-scene-moment-planner";
 
 const NOTHING_LEFT = "Everything in this scene is already written.";
+const NOTHING_TO_REWRITE = "There's nothing to rewrite in this scene.";
 const UNSAVED_BEFORE =
   "Your latest edits could not be saved, so the draft was not started. The AI would have read older text.";
 
@@ -35,6 +37,8 @@ type BeatRun = {
   momentId: string;
   attempt: DraftStreamOptions["attempt"];
   note: string | null;
+  /** The beat before a redo cleared it, put back if the redo cannot start. */
+  previous?: BeatDraft;
 };
 
 function cleanNote(note: string | undefined): string | null {
@@ -122,17 +126,20 @@ export function useSceneDraftRunner({
         if (!current.beats.some((beat) => beat.momentId === run.momentId)) {
           continue;
         }
+        const before =
+          run.previous ??
+          current.beats.find((beat) => beat.momentId === run.momentId);
         const precedingDrafts = precedingDraftsFor(
           current,
           run.momentId,
           stateRef.current.planItems,
         );
         commitDraft(
-          withBeat({ ...current, status: "streaming" }, run.momentId, {
-            status: "streaming",
-            text: "",
-            generationId: null,
-          }),
+          withBeat(
+            { ...current, status: "streaming", keepRefused: false },
+            run.momentId,
+            { status: "streaming", text: "", generationId: null },
+          ),
         );
         const result = await stream(run.momentId, {
           attempt: run.attempt,
@@ -149,6 +156,26 @@ export function useSceneDraftRunner({
             }),
           );
           continue;
+        }
+        if (result.expired) {
+          // An earlier beat's staged draft is gone (restart or TTL). Mark the
+          // beats it was drafted against for a redo and put this one back as
+          // it was, instead of blanking it.
+          const stale = new Set(precedingDrafts.map((entry) => entry.momentId));
+          updateDraft((latest) => ({
+            ...latest,
+            status: "error",
+            beats: latest.beats.map((beat) => {
+              if (stale.has(beat.momentId)) {
+                return { ...beat, status: "error", generationId: null };
+              }
+              if (beat.momentId === run.momentId) {
+                return before ?? { ...beat, status: "queued", text: "" };
+              }
+              return beat;
+            }),
+          }));
+          return;
         }
         // Halt: later beats stay queued until a redo or Try again.
         updateDraft((latest) => ({
@@ -192,7 +219,10 @@ export function useSceneDraftRunner({
 
       let beats = momentsOfScene(items, sceneId);
       if (beats.length === 0) {
-        if (momentIds) return;
+        if (momentIds) {
+          toast.error(NOTHING_TO_REWRITE);
+          return;
+        }
         commitDraft({ sceneId, beats: [], status: "planning" });
         const planned = await planSceneMoments(sceneId);
         if (!isActive()) return;
@@ -212,7 +242,7 @@ export function useSceneDraftRunner({
         ? beats.filter((beat) => momentIds.includes(beat.id))
         : beats.filter((beat) => !written(beat.id));
       if (targets.length === 0) {
-        if (!momentIds) toast.error(NOTHING_LEFT);
+        toast.error(momentIds ? NOTHING_TO_REWRITE : NOTHING_LEFT);
         clearOwnDraft();
         return;
       }
@@ -282,7 +312,12 @@ export function useSceneDraftRunner({
         ),
       );
       await runBeats(token, [
-        { momentId, attempt: "again", note: cleanNote(note) },
+        {
+          momentId,
+          attempt: "again",
+          note: cleanNote(note),
+          previous: ordered[index],
+        },
         ...unfinished.map(
           (beat): BeatRun => ({
             momentId: beat.momentId,

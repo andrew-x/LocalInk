@@ -15,6 +15,11 @@ export type SceneDraft = {
   sceneId: string;
   beats: BeatDraft[];
   status: "planning" | "streaming" | "ready" | "stopped" | "error";
+  /**
+   * The server refused the last Keep (an expired stage, a stale revision, or
+   * a transient failure; the client cannot tell which). Cleared by any new stream.
+   */
+  keepRefused?: boolean;
 };
 
 /** Keep needs every beat staged: a stopped, failed or queued beat has nothing to keep. */

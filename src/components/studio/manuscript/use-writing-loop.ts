@@ -152,7 +152,13 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
         }),
         KEEP_FAILED,
       );
-      if (!kept) return "failed";
+      if (!kept) {
+        const latest = draftRef.current;
+        if (latest?.sceneId === current.sceneId) {
+          commitDraft({ ...latest, keepRefused: true });
+        }
+        return "failed";
+      }
       dispatch({ type: "merge", prose: kept });
       if (draftRef.current?.sceneId === current.sceneId) commitDraft(null);
 

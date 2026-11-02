@@ -14,8 +14,9 @@ import {
 import { keepStudioSceneDraftActionSchema } from "./_schemas";
 import type { StudioProseDto } from "./_types";
 
+// Usually a restart dropped every staged beat, so point at the one-click redraw.
 const EXPIRED_MESSAGE =
-  "Part of this draft expired. Redo that part, then keep the scene.";
+  "Part of this draft is no longer available. Use Try again to redraw the scene.";
 
 /**
  * Keeps every drafted beat of a scene, or none. All staged drafts are read

@@ -29,25 +29,34 @@ export function studioErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-/** A refused Studio route's sanitized `{ message }`, or a generic message. */
-export async function readRouteErrorMessage(
+/** A refused Studio route's `{ code, message }`; the message is sanitized or generic. */
+async function readRouteError(
   response: Response,
-): Promise<string> {
+): Promise<{ code: string | null; message: string }> {
   try {
     const body: unknown = await response.json();
-    if (
-      body &&
-      typeof body === "object" &&
-      "message" in body &&
-      typeof body.message === "string" &&
-      body.message.trim()
-    ) {
-      return body.message;
+    if (body && typeof body === "object") {
+      const code =
+        "code" in body && typeof body.code === "string" ? body.code : null;
+      const message =
+        "message" in body &&
+        typeof body.message === "string" &&
+        body.message.trim()
+          ? body.message
+          : GENERIC_ERROR_MESSAGE;
+      return { code, message };
     }
   } catch {
     // Fall through to the generic message.
   }
-  return GENERIC_ERROR_MESSAGE;
+  return { code: null, message: GENERIC_ERROR_MESSAGE };
+}
+
+/** A refused Studio route's sanitized `{ message }`, or a generic message. */
+export async function readRouteErrorMessage(
+  response: Response,
+): Promise<string> {
+  return (await readRouteError(response)).message;
 }
 
 export async function postStudioJson<T>(
@@ -88,11 +97,10 @@ export async function streamStudioText(
     signal,
   });
 
+  // The route's code (e.g. DRAFT_EXPIRED) rides along so callers can react to it.
   if (!response.ok) {
-    throw new LocalinkTextStreamError(
-      "STUDIO_REQUEST_FAILED",
-      await readRouteErrorMessage(response),
-    );
+    const { code, message } = await readRouteError(response);
+    throw new LocalinkTextStreamError(code ?? "STUDIO_REQUEST_FAILED", message);
   }
 
   await readLocalinkTextStream(response, {
