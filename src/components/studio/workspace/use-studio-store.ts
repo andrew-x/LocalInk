@@ -28,7 +28,7 @@ import { computePlanStatuses } from "./plan-status";
 export type StudioPlanTab = "outline" | "characters";
 
 /**
- * A review-card op. Op ids are unique only within their bundle (every turn
+ * One op of a proposal. Op ids are unique only within their bundle (every turn
  * numbers from op-1), so focus always names the bundle too.
  */
 export type StudioBundleOpFocus = { bundleId: string; opId: string };
@@ -45,15 +45,15 @@ export type StudioStoreState = StudioWorkspace & {
   readMode: boolean;
   /**
    * The plan pane's tab. Chat state itself (threads, messages, the turn)
-   * lives in the chat panel, not here: streamed tokens would otherwise
-   * re-render the whole workspace.
+   * lives in the chat session provider, not here: streamed tokens would
+   * otherwise re-render the whole workspace.
    */
   planTab: StudioPlanTab;
   /** The moment the manuscript is showing (reading sync), or null. */
   readingItemId: string | null;
   /** The entry the Characters tab has open, or null. */
   openEntryId: string | null;
-  /** The bundle op the chat review card should scroll to and highlight. */
+  /** The bundle op the AI box should show where it lands (then clears). */
   focusedBundleOp: StudioBundleOpFocus | null;
   /** Bumped by every focusBundleOp, so refocusing the same op re-highlights. */
   bundleFocusNonce: number;
@@ -221,7 +221,7 @@ function studioReducer(
     case "focusBundleOp":
       return {
         ...state,
-        // The review card lives in the plan pane, which Read mode hides.
+        // Suggestions show in the plan pane, which Read mode hides.
         readMode: false,
         focusedBundleOp: { bundleId: action.bundleId, opId: action.opId },
         bundleFocusNonce: state.bundleFocusNonce + 1,
@@ -276,7 +276,8 @@ export function useStudioStore(): StudioStoreValue {
 }
 
 /**
- * Shows this bundle's review-card op in the chat. Manuscript markers call it.
+ * Shows where one op of a proposal lands: its outline line, entry, manuscript
+ * draft, or its row in the conversation. The AI box routes it.
  */
 export function useFocusBundleOp(): (target: StudioBundleOpFocus) => void {
   const { dispatch } = useStudioStore();

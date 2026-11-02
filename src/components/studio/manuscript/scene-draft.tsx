@@ -63,10 +63,13 @@ type DraftBeatProps = {
   /** Redo is offered once nothing is streaming. */
   canRedo: boolean;
   onRedo: (note: string) => void;
+  /** A DOM id, so the AI box can scroll to a suggested beat. */
+  anchorId?: string;
 };
 
 /** One drafted beat in place: its text, a queued placeholder, or a failed partial. */
 export function DraftBeat({
+  anchorId,
   beat,
   canRedo,
   isSceneStart,
@@ -79,6 +82,7 @@ export function DraftBeat({
       <p
         className="font-sans text-caption text-muted-foreground italic"
         data-moment-id={beat.momentId}
+        id={anchorId}
       >
         …beat {number} of {total}
       </p>
@@ -113,6 +117,7 @@ export function DraftBeat({
           "transition-colors hover:bg-studio-proposed/8 motion-reduce:transition-none",
       )}
       data-moment-id={beat.momentId}
+      id={anchorId}
     >
       <div
         className={cn(
@@ -193,13 +198,22 @@ type DraftBarProps = {
   onKeep: () => void;
   onTryAgain: (note: string) => void;
   onDiscard: () => void;
+  /** Another decision is running: every button waits. */
+  busy?: boolean;
+  /** Why the last Keep was refused, shown under the message. */
+  notice?: ReactNode;
 };
 
-/** The one decision under a scene draft: Keep scene, Try again (with a note), Discard. */
+/**
+ * The one decision under a scene draft: Keep scene, Try again (with a note),
+ * Discard. The writing loop's draft and the chat's suggested draft share it.
+ */
 export function DraftBar({
+  busy = false,
   canKeep,
   draft,
   isKeeping,
+  notice,
   onDiscard,
   onKeep,
   onTryAgain,
@@ -207,6 +221,7 @@ export function DraftBar({
   title,
 }: DraftBarProps) {
   const running = draft.status === "planning" || draft.status === "streaming";
+  const waiting = isKeeping || busy;
   const replaces = draft.beats.some((beat) => beat.replacesProse);
   return (
     <div className="mt-3 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-studio-proposed/40 bg-card py-2 pr-2 pl-3 font-sans text-caption text-muted-foreground">
@@ -218,9 +233,14 @@ export function DraftBar({
             Keep replaces the current text; it stays in versions.
           </span>
         ) : null}
+        {notice ? (
+          <span className="block text-destructive" role="alert">
+            {notice}
+          </span>
+        ) : null}
       </output>
       <Button
-        disabled={isKeeping}
+        disabled={waiting}
         onClick={onDiscard}
         size="sm"
         type="button"
@@ -229,7 +249,7 @@ export function DraftBar({
         Discard
       </Button>
       <NotePopover
-        disabled={running || isKeeping}
+        disabled={running || waiting}
         onSubmit={onTryAgain}
         submitLabel="Try again"
         triggerVariant="secondary"
@@ -237,7 +257,7 @@ export function DraftBar({
         Try again
       </NotePopover>
       <Button
-        disabled={!canKeep || isKeeping}
+        disabled={!canKeep || waiting}
         loading={isKeeping}
         onClick={onKeep}
         size="sm"

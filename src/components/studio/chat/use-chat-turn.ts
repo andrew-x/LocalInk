@@ -201,7 +201,7 @@ export function useChatTurn(options: UseChatTurnOptions) {
         toast.error(SAVE_FAILED);
       }
       if (!saved) return null;
-      // Drives the in-place previews and the Chat tab dot.
+      // Drives the in-place suggestions and the AI box's suggestion bar.
       if (saved.bundle) dispatch({ type: "merge", bundles: [saved.bundle] });
       optionsRef.current.onSaved(saved);
       return saved;

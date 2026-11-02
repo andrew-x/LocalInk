@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { checkStudioBundleSelection } from "@/actions/studio/check-studio-bundle-selection";
@@ -20,6 +20,7 @@ import {
   resolveStudioBundleRef,
   type StudioBundleDecision,
   type StudioBundleDto,
+  type StudioBundleIssueKind,
   type StudioBundleSelectionIssue,
 } from "@/lib/studio/bundle-contract";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
@@ -88,8 +89,55 @@ function affectedMomentIds(
   return [...ids];
 }
 
-/** One resolve at a time across every card (older and latest bundles). */
-let resolveInFlight = false;
+const ISSUE_TEXT: Record<StudioBundleIssueKind, string> = {
+  conflict:
+    "The story changed since this was suggested, so it can't be applied. Dismiss it, or ask the AI again.",
+  "missing-dependency":
+    "Needs another suggestion that can't be applied with it.",
+  "dependency-dismissed":
+    "Needs a suggestion that was dismissed or undone, so it can't be applied.",
+  dismissed: "Already dismissed or undone.",
+  "too-many-fields":
+    "Would leave this entry with more details than are allowed.",
+  invalid: "Can't be applied as suggested.",
+};
+
+/** Sanitized, user-facing text for why an op could not be accepted. */
+export function bundleIssueText(issue: StudioBundleSelectionIssue): string {
+  return ISSUE_TEXT[issue.kind];
+}
+
+type ResolveShared = {
+  /** A decision is running; there is one at a time across the workspace. */
+  busy: boolean;
+  /** The ops the last refused accept named, by op id, for one bundle. */
+  issues: {
+    bundleId: string;
+    byOpId: ReadonlyMap<string, StudioBundleSelectionIssue[]>;
+  } | null;
+};
+
+// Shared by every caller (outline lines, entry cards, the manuscript draft,
+// the AI box bar and the conversation list), so a refused accept marks the
+// op wherever it shows and every ✓/✕ waits for the decision in flight.
+let shared: ResolveShared = { busy: false, issues: null };
+const listeners = new Set<() => void>();
+
+function updateShared(patch: Partial<ResolveShared>) {
+  shared = { ...shared, ...patch };
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+const getShared = () => shared;
+
+const NO_ISSUES: StudioBundleSelectionIssue[] = [];
 
 export type ResolveBundle = {
   /**
@@ -102,9 +150,10 @@ export type ResolveBundle = {
     opIds?: string[] | null,
   ): Promise<boolean>;
   busy: boolean;
-  /** Ops the last failed accept named, by op id, with why. */
-  issuesByOpId: Map<string, StudioBundleSelectionIssue[]>;
-  clearIssues(): void;
+  /** Why the last refused accept could not apply this op, if it named it. */
+  issuesFor(bundleId: string, opId: string): StudioBundleSelectionIssue[];
+  /** How many ops the last refused accept of this bundle named. */
+  issueCount(bundleId: string): number;
 };
 
 /**
@@ -115,17 +164,27 @@ export type ResolveBundle = {
  */
 export function useResolveBundle(): ResolveBundle {
   const { state, dispatch } = useStudioStore();
-  const [busy, setBusy] = useState(false);
-  const [issuesByOpId, setIssuesByOpId] = useState<
-    Map<string, StudioBundleSelectionIssue[]>
-  >(() => new Map());
+  const { busy, issues } = useSyncExternalStore(
+    subscribe,
+    getShared,
+    getShared,
+  );
   const stateRef = useRef(state);
   stateRef.current = state;
   const storyId = state.story.id;
 
-  const clearIssues = useCallback(() => {
-    setIssuesByOpId((current) => (current.size === 0 ? current : new Map()));
-  }, []);
+  const issuesFor = useCallback(
+    (bundleId: string, opId: string) =>
+      issues?.bundleId === bundleId
+        ? (issues.byOpId.get(opId) ?? NO_ISSUES)
+        : NO_ISSUES,
+    [issues],
+  );
+  const issueCount = useCallback(
+    (bundleId: string) =>
+      issues?.bundleId === bundleId ? issues.byOpId.size : 0,
+    [issues],
+  );
 
   const markIssues = useCallback(
     async (bundleId: string, opIds: string[] | null) => {
@@ -139,7 +198,7 @@ export function useResolveBundle(): ResolveBundle {
         for (const issue of check.issues) {
           next.set(issue.opId, [...(next.get(issue.opId) ?? []), issue]);
         }
-        setIssuesByOpId(next);
+        updateShared({ issues: { bundleId, byOpId: next } });
       } catch {
         // The sanitized toast for the failed accept is already showing.
       }
@@ -199,15 +258,13 @@ export function useResolveBundle(): ResolveBundle {
       decision: StudioBundleDecision,
       opIds: string[] | null = null,
     ): Promise<boolean> => {
-      if (resolveInFlight) return false;
+      if (shared.busy) return false;
       const bundle = stateRef.current.bundles.find((b) => b.id === bundleId);
       if (!bundle) {
         toast.error("These changes are no longer available.");
         return false;
       }
-      resolveInFlight = true;
-      setBusy(true);
-      setIssuesByOpId(new Map());
+      updateShared({ busy: true, issues: null });
       try {
         const momentIds = affectedMomentIds(
           bundle,
@@ -265,12 +322,11 @@ export function useResolveBundle(): ResolveBundle {
         }
         return true;
       } finally {
-        resolveInFlight = false;
-        setBusy(false);
+        updateShared({ busy: false });
       }
     },
     [dispatch, markIssues, readBackAccepted, reloadWorkspace, storyId],
   );
 
-  return { resolve, busy, issuesByOpId, clearIssues };
+  return { resolve, busy, issuesFor, issueCount };
 }

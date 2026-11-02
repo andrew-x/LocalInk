@@ -6,8 +6,21 @@ import type { BeatDraft } from "./scene-draft-model";
 type Placement = { sceneId: string; chapterId: string; sceneStart: boolean };
 
 export type ManuscriptDraftBeat = {
-  moment: StudioPlanItemDto;
+  /** A saved moment, or a proposed beat's temp id (chat drafts only). */
+  momentId: string;
   draft: BeatDraft;
+};
+
+/** Whose draft a block shows: the writing loop's, or the AI box's suggestion. */
+export type ManuscriptDraftSource = "loop" | "chat";
+
+/** A beat the chat proposed in a saved scene, placed like accept would. */
+export type ManuscriptProposedBeat = {
+  /** The beat's temp id. */
+  id: string;
+  sceneId: string;
+  /** The beat it follows (saved or temp id), or null to append. */
+  afterId: string | null;
 };
 
 export type ManuscriptBlock =
@@ -17,8 +30,12 @@ export type ManuscriptBlock =
   | ({
       /** Consecutive draft beats of one scene, shown in place of their prose. */
       type: "draft";
+      source: ManuscriptDraftSource;
       beats: ManuscriptDraftBeat[];
-      /** The scene's last draft run: the Keep / Try again / Discard bar follows it. */
+      /**
+       * The scene's last run of this source's draft: its Keep / Try again /
+       * Discard bar follows it.
+       */
       endsDraft: boolean;
     } & Placement);
 
@@ -58,6 +75,20 @@ function sceneEntries(planItems: StudioPlanItemDto[]): {
       })),
   );
   return { chapters, scenes };
+}
+
+/** Beat ids in order, with proposed beats inserted after their `afterId`. */
+function withProposedBeats(
+  ids: string[],
+  proposed: readonly ManuscriptProposedBeat[],
+): string[] {
+  const ordered = [...ids];
+  for (const beat of proposed) {
+    const index = beat.afterId === null ? -1 : ordered.indexOf(beat.afterId);
+    if (index < 0) ordered.push(beat.id);
+    else ordered.splice(index + 1, 0, beat.id);
+  }
+  return ordered;
 }
 
 function hasProse(
@@ -115,18 +146,26 @@ export function findUpNext(
  * Lays out only what has been written, as one flat list of book blocks:
  * chapter openers, scene breaks, written moments and drafts. A chapter or
  * scene with neither prose nor a draft never appears. A beat with a draft
- * shows the draft in place of its prose until Keep. A flat keyed list lets
- * React keep an editor's instance when its position shifts.
+ * shows the draft in place of its prose until Keep. The writing loop's draft
+ * wins over the chat's suggested one for the same beat; the chat's can also
+ * include beats it proposes. A flat keyed list lets React keep an editor's
+ * instance when its position shifts.
  */
 export function buildManuscriptLayout({
   activeMomentId = null,
+  chatDraftByMomentId = new Map(),
   draftByMomentId,
   planItems,
+  proposedBeats = [],
   proseById,
 }: {
   planItems: StudioPlanItemDto[];
   proseById: Map<string, StudioProseDto>;
   draftByMomentId: ReadonlyMap<string, BeatDraft>;
+  /** The chat's suggested prose, by saved moment or proposed beat id. */
+  chatDraftByMomentId?: ReadonlyMap<string, BeatDraft>;
+  /** Proposed beats in saved scenes, for placing their chat drafts. */
+  proposedBeats?: readonly ManuscriptProposedBeat[];
   /** The focused editor stays mounted even when its prose is emptied. */
   activeMomentId?: string | null;
 }): ManuscriptLayout {
@@ -147,20 +186,30 @@ export function buildManuscriptLayout({
       const sceneId = entry.scene.id;
       const placement = { sceneId, chapterId: chapter.id, sceneStart: false };
       const sceneBlocks: ManuscriptBlock[] = [];
-      for (const node of entry.moments) {
-        const moment = stripNode(node);
-        const draft = draftByMomentId.get(moment.id);
+      const moments = new Map(
+        entry.moments.map((node) => [node.id, stripNode(node)]),
+      );
+      const beatIds = withProposedBeats(
+        [...moments.keys()],
+        proposedBeats.filter((beat) => beat.sceneId === sceneId),
+      );
+      for (const momentId of beatIds) {
+        const moment = moments.get(momentId);
+        const loopDraft = moment ? draftByMomentId.get(momentId) : undefined;
+        const draft = loopDraft ?? chatDraftByMomentId.get(momentId);
+        const source: ManuscriptDraftSource = loopDraft ? "loop" : "chat";
         const last = sceneBlocks.at(-1);
-        if (draft && last?.type === "draft") {
-          last.beats.push({ moment, draft });
+        if (draft && last?.type === "draft" && last.source === source) {
+          last.beats.push({ momentId, draft });
         } else if (draft) {
           sceneBlocks.push({
             type: "draft",
-            beats: [{ moment, draft }],
+            source,
+            beats: [{ momentId, draft }],
             endsDraft: false,
             ...placement,
           });
-        } else if (isRendered(moment)) {
+        } else if (moment && isRendered(moment)) {
           sceneBlocks.push({ type: "moment", moment, ...placement });
         }
       }
@@ -169,8 +218,12 @@ export function buildManuscriptLayout({
       if (first.type === "moment" || first.type === "draft") {
         first.sceneStart = true;
       }
-      const lastDraft = sceneBlocks.findLast((block) => block.type === "draft");
-      if (lastDraft?.type === "draft") lastDraft.endsDraft = true;
+      for (const source of ["loop", "chat"] as const) {
+        const lastDraft = sceneBlocks.findLast(
+          (block) => block.type === "draft" && block.source === source,
+        );
+        if (lastDraft?.type === "draft") lastDraft.endsDraft = true;
+      }
       if (renderedScenes > 0) {
         chapterBlocks.push({ type: "break", sceneId, chapterId: chapter.id });
       }

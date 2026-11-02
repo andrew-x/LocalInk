@@ -8,6 +8,12 @@ import {
   useState,
 } from "react";
 
+import {
+  ItemSuggestions,
+  placeProposed,
+  SuggestionLine,
+  useOutlineSuggestions,
+} from "@/components/studio/ai-box/outline-suggestions";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { usePatchPlanItem } from "@/components/studio/shared/use-patch-plan-item";
@@ -49,6 +55,7 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
   const { state } = useStudioStore();
   const proseByMoment = useProseByMomentId();
   const { add, move, remove } = usePlanTreeActions();
+  const { proposedUnder } = useOutlineSuggestions();
   const beats = scene.children;
   /** A beat just created here; it takes focus once it renders. */
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -123,17 +130,27 @@ export function BeatList({ scene }: { scene: StudioPlanNode }) {
   return (
     <>
       <ol aria-label="Beats" className="flex flex-col">
-        {beats.map((beat, index) => (
-          <BeatLine
-            beat={beat}
-            key={beat.id}
-            number={index + 1}
-            onEnter={() => addAfter(beat)}
-            onMove={(delta) => moveBeat(beat, delta)}
-            onRemove={() => requestRemove(beat)}
-            onStep={(delta) => step(beat, delta)}
-          />
-        ))}
+        {placeProposed(beats, proposedUnder(scene.id)).map((line) => {
+          if (line.type === "proposed") {
+            return (
+              <li key={line.item.opId}>
+                <SuggestionLine item={line.item} />
+              </li>
+            );
+          }
+          const beat = line.item;
+          return (
+            <BeatLine
+              beat={beat}
+              key={beat.id}
+              number={beats.indexOf(beat) + 1}
+              onEnter={() => addAfter(beat)}
+              onMove={(delta) => moveBeat(beat, delta)}
+              onRemove={() => requestRemove(beat)}
+              onStep={(delta) => step(beat, delta)}
+            />
+          );
+        })}
         <li>
           <button
             className="w-full rounded-sm py-0.5 pl-3.5 text-left text-label-sm font-normal text-muted-foreground/70 italic outline-none hover:text-muted-foreground focus-visible:bg-muted/40"
@@ -248,32 +265,37 @@ function BeatLine({
   }
 
   return (
-    <li className="relative flex items-start gap-2">
-      <span
-        aria-hidden="true"
-        className={cn(
-          "mt-[0.4rem] ml-0.5 shrink-0 rounded-full",
-          status === "written" && "size-1 bg-studio-status-written",
-          status === "planned" && "size-1 bg-studio-status-planned",
-          status === "flagged" && "size-1 bg-studio-status-flagged",
-          status === "drafting" &&
-            "-ml-px size-[6px] border-[1.5px] border-studio-status-written",
-        )}
-      />
-      <PlainText
-        className={cn(
-          status === "planned" ? "text-muted-foreground" : "text-foreground/90",
-          "focus-visible:text-foreground",
-        )}
-        id={beatFieldId(beat.id)}
-        label={`Beat ${number}`}
-        maxLength={20_000}
-        onBlur={() => void flush(true)}
-        onChange={(event) => setValue("whatHappens", event.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="What happens in this beat"
-        value={values.whatHappens}
-      />
+    <li className="relative">
+      <div className="flex items-start gap-2">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "mt-[0.4rem] ml-0.5 shrink-0 rounded-full",
+            status === "written" && "size-1 bg-studio-status-written",
+            status === "planned" && "size-1 bg-studio-status-planned",
+            status === "flagged" && "size-1 bg-studio-status-flagged",
+            status === "drafting" &&
+              "-ml-px size-[6px] border-[1.5px] border-studio-status-written",
+          )}
+        />
+        <PlainText
+          className={cn(
+            status === "planned"
+              ? "text-muted-foreground"
+              : "text-foreground/90",
+            "focus-visible:text-foreground",
+          )}
+          id={beatFieldId(beat.id)}
+          label={`Beat ${number}`}
+          maxLength={20_000}
+          onBlur={() => void flush(true)}
+          onChange={(event) => setValue("whatHappens", event.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="What happens in this beat"
+          value={values.whatHappens}
+        />
+      </div>
+      <ItemSuggestions item={beat} />
     </li>
   );
 }

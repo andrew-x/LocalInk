@@ -1,104 +1,196 @@
 "use client";
 
-import { useMemo } from "react";
-
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import {
   isStudioBundleTempRef,
+  resolveStudioBundleRef,
   type StudioBundleDto,
   type StudioBundleOpDto,
 } from "@/lib/studio/bundle-contract";
 import type { StudioPlanKind } from "@/lib/studio/contracts";
 
-/** A plan.create op, shaped for rendering as a proposed tree row. */
+export type StudioBundleOpDtoOf<K extends StudioBundleOpDto["kind"]> = Extract<
+  StudioBundleOpDto,
+  { kind: K }
+>;
+
+/** A pending plan.create op, shaped for rendering as a proposed outline line. */
 export type ProposedPlanItem = {
-  /** The pending bundle the op belongs to (op ids repeat across bundles). */
+  /** The bundle the op belongs to (op ids repeat across bundles). */
   bundleId: string;
+  op: StudioBundleOpDtoOf<"plan.create">;
   opId: string;
-  /** The op's temp id; it doubles as the row's key and collapse id. */
+  /** The op's temp id; proposed children name it as their parent. */
   tempId: string;
   label: string;
   kind: StudioPlanKind;
   title: string;
   whatHappens: string;
-  /** A saved plan item id, a temp id of another proposed item, or null (chapter). */
+  /**
+   * A saved plan item id (a temp ref whose create was accepted resolves to
+   * the created item), the temp id of another still-pending create, or null
+   * for a chapter.
+   */
   parentRef: string | null;
-  /** The sibling it follows (saved or temp id), or null to append. */
+  /** The sibling it follows, resolved the same way, or null to append. */
   afterRef: string | null;
 };
 
 export type BundlePreview = {
-  /** The most recent pending bundle; only that one previews in place. */
-  pending: StudioBundleDto | null;
+  /** The most recent bundle with pending ops; only its ops preview in place. */
+  bundleId: string | null;
+  /** Pending plan.update / plan.move / plan.delete ops by their saved item. */
+  planOpsByItemId: Map<string, StudioBundleOpDto[]>;
   proposedPlanItems: ProposedPlanItem[];
-  /** Saved plan items that a pending op edits, moves, deletes, or writes in. */
-  changedItemIds: Set<string>;
-  /** Saved moment id to its pending prose op. */
-  proseOpByMomentId: Map<string, StudioBundleOpDto>;
-  opsForItem(itemId: string): StudioBundleOpDto[];
+  /** Pending entry.update / entry.delete ops by their saved entry. */
+  entryOpsByEntryId: Map<string, StudioBundleOpDto[]>;
+  proposedEntries: StudioBundleOpDtoOf<"entry.create">[];
+  /**
+   * Pending prose ops shown as the chat's scene draft, keyed by the saved
+   * moment, or by a proposed beat's temp id when that beat sits in a saved
+   * scene (the manuscript places it among the scene's beats).
+   */
+  proseOpsByMomentId: Map<string, StudioBundleOpDto>;
+  /**
+   * Pending ops with no place in the outline, Characters, or manuscript:
+   * story settings, tracking records, and prose for beats of a scene that is
+   * itself still proposed. They show in the conversation panel only.
+   */
+  otherOps: StudioBundleOpDto[];
 };
 
-/** The saved plan items a pending op touches (temp refs excluded). */
-function touchedItemIds(op: StudioBundleOpDto): string[] {
-  switch (op.kind) {
-    case "plan.update":
-    case "plan.move":
-    case "plan.delete":
-      return [op.itemId];
-    case "prose.write":
-      return [op.momentRef];
-    case "change.create":
-      return [op.planItemRef];
-    case "change.update":
-    case "change.delete":
-      return [op.baseline.planItemId];
-    default:
-      return [];
-  }
+const EMPTY: BundlePreview = {
+  bundleId: null,
+  planOpsByItemId: new Map(),
+  proposedPlanItems: [],
+  entryOpsByEntryId: new Map(),
+  proposedEntries: [],
+  proseOpsByMomentId: new Map(),
+  otherOps: [],
+};
+
+function push<T>(map: Map<string, T[]>, key: string, value: T) {
+  const list = map.get(key);
+  if (list) list.push(value);
+  else map.set(key, [value]);
 }
 
-/** Derived from the most recent pending bundle only. */
-export function useBundlePreview(): BundlePreview {
-  const { state } = useStudioStore();
-  const bundles = state.bundles;
-  return useMemo(() => {
-    const pending =
-      [...bundles].reverse().find((bundle) => bundle.status === "pending") ??
-      null;
-    const proposedPlanItems: ProposedPlanItem[] = [];
-    const opsByItem = new Map<string, StudioBundleOpDto[]>();
-    const proseOpByMomentId = new Map<string, StudioBundleOpDto>();
-    for (const op of pending?.operations ?? []) {
-      if (op.status !== "pending") continue;
-      if (pending && op.kind === "plan.create") {
-        proposedPlanItems.push({
-          bundleId: pending.id,
+/** The most recent bundle (by creation) that still has pending ops. */
+export function latestPendingBundle(
+  bundles: StudioBundleDto[],
+): StudioBundleDto | null {
+  let latest: StudioBundleDto | null = null;
+  for (const bundle of bundles) {
+    if (!bundle.operations.some((op) => op.status === "pending")) continue;
+    if (
+      !latest ||
+      bundle.createdAt > latest.createdAt ||
+      (bundle.createdAt === latest.createdAt && bundle.id > latest.id)
+    ) {
+      latest = bundle;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Where each pending op of the latest pending bundle shows. Temp refs
+ * resolve through creates already accepted (their `createdId`), so a beat
+ * proposed under a scene the author accepted a moment ago lands in that
+ * scene.
+ */
+export function buildBundlePreview(bundles: StudioBundleDto[]): BundlePreview {
+  const bundle = latestPendingBundle(bundles);
+  if (!bundle) return EMPTY;
+  const { operations } = bundle;
+  const resolve = (ref: string | null) =>
+    ref === null ? null : (resolveStudioBundleRef(operations, ref) ?? ref);
+
+  const preview: BundlePreview = {
+    bundleId: bundle.id,
+    planOpsByItemId: new Map(),
+    proposedPlanItems: [],
+    entryOpsByEntryId: new Map(),
+    proposedEntries: [],
+    proseOpsByMomentId: new Map(),
+    otherOps: [],
+  };
+  const pendingCreates = new Map<string, StudioBundleOpDtoOf<"plan.create">>();
+  for (const op of operations) {
+    if (op.status === "pending" && op.kind === "plan.create") {
+      pendingCreates.set(op.tempId, op);
+    }
+  }
+
+  for (const op of operations) {
+    if (op.status !== "pending") continue;
+    switch (op.kind) {
+      case "plan.create":
+        preview.proposedPlanItems.push({
+          bundleId: bundle.id,
+          op,
           opId: op.id,
           tempId: op.tempId,
           label: op.label,
           kind: op.item.kind,
           title: op.item.title,
           whatHappens: op.item.whatHappens,
-          parentRef: op.item.parentRef,
-          afterRef: op.item.afterRef,
+          parentRef: resolve(op.item.parentRef),
+          afterRef: resolve(op.item.afterRef),
         });
+        break;
+      case "plan.update":
+      case "plan.move":
+      case "plan.delete":
+        push(preview.planOpsByItemId, op.itemId, op);
+        break;
+      case "entry.create":
+        preview.proposedEntries.push(op);
+        break;
+      case "entry.update":
+      case "entry.delete":
+        push(preview.entryOpsByEntryId, op.entryId, op);
+        break;
+      case "prose.write": {
+        const momentId = resolve(op.momentRef);
+        if (momentId && !isStudioBundleTempRef(momentId)) {
+          preview.proseOpsByMomentId.set(momentId, op);
+          break;
+        }
+        // A proposed beat: placed in the manuscript only when its scene is
+        // saved, since the manuscript lays out saved scenes.
+        const beat = momentId ? pendingCreates.get(momentId) : undefined;
+        const sceneId = beat ? resolve(beat.item.parentRef) : null;
+        if (beat && sceneId && !isStudioBundleTempRef(sceneId)) {
+          preview.proseOpsByMomentId.set(beat.tempId, op);
+        } else {
+          preview.otherOps.push(op);
+        }
+        break;
       }
-      if (op.kind === "prose.write" && !isStudioBundleTempRef(op.momentRef)) {
-        proseOpByMomentId.set(op.momentRef, op);
-      }
-      for (const itemId of touchedItemIds(op)) {
-        if (isStudioBundleTempRef(itemId)) continue;
-        const list = opsByItem.get(itemId) ?? [];
-        list.push(op);
-        opsByItem.set(itemId, list);
-      }
+      default:
+        preview.otherOps.push(op);
     }
-    return {
-      pending,
-      proposedPlanItems,
-      changedItemIds: new Set(opsByItem.keys()),
-      proseOpByMomentId,
-      opsForItem: (itemId: string) => opsByItem.get(itemId) ?? [],
-    };
-  }, [bundles]);
+  }
+  return preview;
+}
+
+// One preview per bundles array: every outline line, entry and manuscript
+// block reads it, and the store replaces the array whenever a bundle changes.
+const previewCache = new WeakMap<StudioBundleDto[], BundlePreview>();
+
+/** `buildBundlePreview`, computed once per store bundles array. */
+export function getBundlePreview(bundles: StudioBundleDto[]): BundlePreview {
+  let preview = previewCache.get(bundles);
+  if (!preview) {
+    preview = buildBundlePreview(bundles);
+    previewCache.set(bundles, preview);
+  }
+  return preview;
+}
+
+/** Derived from the most recent bundle with pending ops, pending ops only. */
+export function useBundlePreview(): BundlePreview {
+  const { state } = useStudioStore();
+  return getBundlePreview(state.bundles);
 }

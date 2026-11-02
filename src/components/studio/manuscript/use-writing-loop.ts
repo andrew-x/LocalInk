@@ -15,6 +15,8 @@ import {
 import { toast } from "sonner";
 
 import { keepStudioSceneDraft } from "@/actions/studio/keep-studio-scene-draft";
+import { getBundlePreview } from "@/components/studio/bundles/use-bundle-preview";
+import { useResolveBundle } from "@/components/studio/bundles/use-resolve-bundle";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import {
   useRunStudioAction,
@@ -40,6 +42,7 @@ const FLUSH_FAILED =
   "Your edits to this scene could not be saved, so the draft was not kept.";
 const READ_BACK_FAILED =
   "Kept, but re-reading failed. Use Re-read in the scene menu.";
+const KEEPING_WAIT = "Wait until the scene is kept.";
 
 export type WritingLoop = {
   draft: SceneDraft | null;
@@ -57,9 +60,60 @@ export type WritingLoop = {
   keepScene: () => Promise<void>;
   stop: () => void;
   discard: () => void;
+  /**
+   * One draft at a time, from the AI box's side: before a chat message is
+   * sent, asks to discard an unkept draft. Resolves true when there is none
+   * or it was discarded, false when the author cancelled (or a Keep is
+   * still running), in which case nothing is sent.
+   */
+  confirmDiscardDraft: () => Promise<boolean>;
 };
 
 type KeepOutcome = "kept" | "unread" | "failed";
+
+/**
+ * What the one-draft-at-a-time dialog asks about: starting a Write over the
+ * loop's draft and/or the chat's suggested draft, or sending a chat message
+ * over the loop's draft.
+ */
+type ConfirmRequest = {
+  kind: "write" | "send";
+  loopDraft: boolean;
+  chatDraft: boolean;
+};
+
+function confirmCopy(request: ConfirmRequest) {
+  if (request.kind === "send") {
+    return {
+      title: "Discard the current draft?",
+      description:
+        "Only one draft can be open at a time, and the AI may suggest a new one. The current draft hasn't been kept, so it will be thrown away.",
+      confirmLabel: "Discard and send",
+    };
+  }
+  if (request.loopDraft && request.chatDraft) {
+    return {
+      title: "Discard the current drafts?",
+      description:
+        "Only one draft can be open at a time. The draft that hasn't been kept is thrown away, and the draft the AI suggested is dismissed.",
+      confirmLabel: "Discard and write",
+    };
+  }
+  if (request.chatDraft) {
+    return {
+      title: "Dismiss the AI's draft?",
+      description:
+        "Only one draft can be open at a time, so the draft the AI suggested will be dismissed.",
+      confirmLabel: "Dismiss and write",
+    };
+  }
+  return {
+    title: "Discard the current draft?",
+    description:
+      "Only one draft can be open at a time. The current draft hasn't been kept, so it will be thrown away.",
+    confirmLabel: "Discard and write",
+  };
+}
 
 const WritingLoopContext = createContext<WritingLoop | null>(null);
 
@@ -199,34 +253,84 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
     if (outcome !== "failed") settleKept(outcome);
   }, [draftRef, keepAndReadBack, settleKept]);
 
-  // One draft at a time: starting another write while one is on screen asks
-  // to discard it first.
+  // One draft at a time: starting a Write while the loop's draft or the
+  // chat's suggested draft is on screen asks first, then discards the one
+  // and dismisses the other. Sending a chat message asks the same about the
+  // loop's draft (confirmDiscardDraft).
+  const { resolve: resolveBundle } = useResolveBundle();
+  // The request outlives `confirmOpen`, so the copy holds while it closes.
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest>({
+    kind: "write",
+    loopDraft: true,
+    chatDraft: false,
+  });
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const pendingStartRef = useRef<(() => Promise<void>) | null>(null);
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const ask = useCallback((request: ConfirmRequest) => {
+    confirmResolveRef.current?.(false);
+    return new Promise<boolean>((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmRequest(request);
+      setConfirmOpen(true);
+    });
+  }, []);
+  const settleConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setConfirmOpen(false);
+    resolve?.(ok);
+  }, []);
+  const handleConfirmOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) settleConfirm(false);
+    },
+    [settleConfirm],
+  );
+
   const guardStart = useCallback(
     async (start: () => Promise<void>) => {
       if (keepingRef.current) return;
-      if (!draftRef.current) {
+      // The chat's draft: its pending prose ops that show in the manuscript.
+      const preview = getBundlePreview(stateRef.current.bundles);
+      const chatOpIds = [...preview.proseOpsByMomentId.values()].map(
+        (op) => op.id,
+      );
+      const chatDraft = preview.bundleId !== null && chatOpIds.length > 0;
+      const loopDraft = draftRef.current !== null;
+      if (!loopDraft && !chatDraft) {
         await start();
         return;
       }
-      pendingStartRef.current = start;
-      setConfirmOpen(true);
+      if (!(await ask({ kind: "write", loopDraft, chatDraft }))) return;
+      if (keepingRef.current) return;
+      if (draftRef.current) discard();
+      if (
+        chatDraft &&
+        preview.bundleId &&
+        !(await resolveBundle(preview.bundleId, "reject", chatOpIds))
+      ) {
+        return;
+      }
+      await start();
     },
-    [draftRef],
+    [ask, discard, draftRef, resolveBundle],
   );
-  const confirmDiscard = useCallback(() => {
-    const start = pendingStartRef.current;
-    pendingStartRef.current = null;
-    setConfirmOpen(false);
+
+  const confirmDiscardDraft = useCallback(async () => {
+    if (keepingRef.current) {
+      toast.info(KEEPING_WAIT);
+      return false;
+    }
+    if (!draftRef.current) return true;
+    const ok = await ask({ kind: "send", loopDraft: true, chatDraft: false });
+    if (!ok) return false;
+    if (keepingRef.current) {
+      toast.info(KEEPING_WAIT);
+      return false;
+    }
     discard();
-    if (start) void start();
-  }, [discard]);
-  const handleConfirmOpenChange = useCallback((open: boolean) => {
-    if (open) return;
-    pendingStartRef.current = null;
-    setConfirmOpen(false);
-  }, []);
+    return true;
+  }, [ask, discard, draftRef]);
 
   const writeScene = useCallback(
     (sceneId: string, opts?: { momentIds?: string[] }) =>
@@ -259,8 +363,10 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
       keepScene,
       stop,
       discard,
+      confirmDiscardDraft,
     }),
     [
+      confirmDiscardDraft,
       discard,
       draft,
       isKeeping,
@@ -282,14 +388,11 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
       null,
       children,
       createElement(StudioConfirmDialog, {
-        confirmLabel: "Discard and write",
-        description:
-          "Only one draft can be open at a time. The current draft hasn't been kept, so it will be thrown away.",
+        ...confirmCopy(confirmRequest),
         destructive: true,
-        onConfirm: confirmDiscard,
+        onConfirm: () => settleConfirm(true),
         onOpenChange: handleConfirmOpenChange,
         open: confirmOpen,
-        title: "Discard the current draft?",
       }),
     ),
   );

@@ -11,6 +11,11 @@ import {
 } from "react";
 
 import { Button } from "@/components/common/button";
+import {
+  placeProposed,
+  SuggestionLine,
+  useOutlineSuggestions,
+} from "@/components/studio/ai-box/outline-suggestions";
 import { isSceneDraftRunning } from "@/components/studio/manuscript/scene-draft-model";
 import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import {
@@ -95,6 +100,7 @@ function OutlineBody() {
   const { close, collapse, openChapter, openChapterId, openSceneId } =
     useOutlineOpen();
   const trackFocus = useOutlineFocusTracker();
+  const { proposedUnder } = useOutlineSuggestions();
   const rootRef = useRef<HTMLDivElement>(null);
   const [activeLineId, setActiveLineId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -391,9 +397,13 @@ function OutlineBody() {
             {emptyChapters === 1 ? "chapter" : "chapters"}
           </button>
         ) : null}
-        {chapters.map((chapter) => (
-          <ChapterBlock chapter={chapter} key={chapter.id} />
-        ))}
+        {placeProposed(chapters, proposedUnder(null)).map((line) =>
+          line.type === "saved" ? (
+            <ChapterBlock chapter={line.item} key={line.item.id} />
+          ) : (
+            <SuggestionLine item={line.item} key={line.item.opId} />
+          ),
+        )}
         {chapters.length === 0 ? (
           <p className="px-2 py-3 font-normal text-caption text-muted-foreground">
             No chapters yet. Add one to start planning.

@@ -24,8 +24,9 @@ type ChatComposerProps = {
 };
 
 /**
- * The message box. Enter sends, Shift+Enter adds a line. While a turn runs
- * it is disabled and Send becomes Stop.
+ * The AI box's message line. It grows with its text; Enter sends,
+ * Shift+Enter adds a line. While a turn runs it is disabled and Send
+ * becomes Stop.
  */
 export function ChatComposer({
   form,
@@ -47,15 +48,22 @@ export function ChatComposer({
   const working = status === "saving" || status === "stopping";
   const disabled = busy || blockedReason !== null;
   const errorId = "studio-chat-composer-error";
+  const length = content?.length ?? 0;
 
   return (
     <form className="flex flex-col gap-1" noValidate onSubmit={onSubmit}>
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 rounded-lg border border-input bg-card/80 py-1 pr-1 pl-2.5 transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/35">
+        <span
+          aria-hidden="true"
+          className="shrink-0 select-none pb-[0.3125rem] text-studio-proposed"
+        >
+          ✦
+        </span>
         <Textarea
           aria-describedby={error ? errorId : undefined}
           aria-invalid={Boolean(fieldError)}
-          aria-label="Message the story assistant"
-          className="max-h-48 min-h-16 resize-none overflow-y-auto"
+          aria-label="Message the AI"
+          className="max-h-40 min-h-7 flex-1 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-0 py-1 text-label-sm shadow-none focus-visible:border-0 focus-visible:bg-transparent focus-visible:ring-0 aria-invalid:ring-0"
           disabled={disabled}
           onKeyDown={(event) => {
             if (
@@ -70,34 +78,31 @@ export function ChatComposer({
               }
             }
           }}
-          placeholder={
-            blockedReason ??
-            "Brainstorm, ask about the story, or ask for changes"
-          }
+          placeholder={blockedReason ?? "Ask the AI to plan, change, or write…"}
           ref={(element) => {
             registerRef(element);
             if (typeof textareaRef === "function") textareaRef(element);
             else if (textareaRef) textareaRef.current = element;
           }}
-          rows={2}
+          rows={1}
           {...field}
         />
         {canStop ? (
           <Button
             aria-label="Stop the reply"
-            className="size-8 shrink-0"
+            className="size-7 shrink-0"
             onClick={onStop}
             size="icon"
             tooltip="Stop"
             type="button"
             variant="outline"
           >
-            <Square aria-hidden="true" className="size-3.5 fill-current" />
+            <Square aria-hidden="true" className="size-3 fill-current" />
           </Button>
         ) : (
           <Button
             aria-label="Send message"
-            className="size-8 shrink-0"
+            className="size-7 shrink-0"
             disabled={disabled || !content?.trim()}
             loading={working}
             size="icon"
@@ -107,21 +112,23 @@ export function ChatComposer({
           </Button>
         )}
       </div>
-      <div className="flex min-h-4 items-start justify-between gap-2">
-        {error ? (
-          <p className="text-caption text-destructive" id={errorId}>
-            {error}
-          </p>
-        ) : (
-          <span />
-        )}
-        {(content?.length ?? 0) > COUNTER_FROM ? (
-          <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
-            {(content?.length ?? 0).toLocaleString("en-US")} /{" "}
-            {STUDIO_CHAT_MAX_MESSAGE_CHARS.toLocaleString("en-US")}
-          </span>
-        ) : null}
-      </div>
+      {error || length > COUNTER_FROM ? (
+        <div className="flex items-start justify-between gap-2 px-0.5">
+          {error ? (
+            <p className="text-caption text-destructive" id={errorId}>
+              {error}
+            </p>
+          ) : (
+            <span />
+          )}
+          {length > COUNTER_FROM ? (
+            <span className="shrink-0 text-caption text-muted-foreground tabular-nums">
+              {length.toLocaleString("en-US")} /{" "}
+              {STUDIO_CHAT_MAX_MESSAGE_CHARS.toLocaleString("en-US")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </form>
   );
 }

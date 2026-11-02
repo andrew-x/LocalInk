@@ -4,6 +4,13 @@ import { Plus, X } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button } from "@/components/common/button";
+import {
+  ItemSuggestions,
+  placeProposed,
+  SuggestionLine,
+  useOutlineSuggestions,
+} from "@/components/studio/ai-box/outline-suggestions";
+import { SuggestionsTag } from "@/components/studio/ai-box/suggestion-controls";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
@@ -110,6 +117,7 @@ export function ChapterBlock({ chapter }: { chapter: StudioPlanNode }) {
     useOutlineOpen();
   const planAi = usePlanAi();
   const { add, remove } = usePlanTreeActions();
+  const { insideCount, proposedUnder } = useOutlineSuggestions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -213,34 +221,43 @@ export function ChapterBlock({ chapter }: { chapter: StudioPlanNode }) {
           <>
             <PlanningTag item={chapter} noun="scenes" />
             <CheckTag count={view.openFlags.get(chapter.id) ?? 0} />
+            <SuggestionsTag count={isOpen ? 0 : insideCount(chapter.id)} />
           </>
         }
         wordCount={view.wordCounts.get(chapter.id)}
       />
+      <ItemSuggestions className="pl-[1.625rem]" item={chapter} />
       {isOpen ? (
         // biome-ignore lint/a11y/useSemanticElements: a tree item's children group
         <div className="flex flex-col pl-[1.625rem]" role="group">
           <ChapterDescription chapter={chapter} />
-          {scenes.map((scene) =>
-            openSceneId === scene.id ? (
+          {placeProposed(scenes, proposedUnder(chapter.id)).map((line) => {
+            if (line.type === "proposed") {
+              return <SuggestionLine item={line.item} key={line.item.opId} />;
+            }
+            const scene = line.item;
+            return openSceneId === scene.id ? (
               <SceneCard key={scene.id} scene={scene} />
             ) : (
-              <OutlineLine
-                isOpen={false}
-                isReading={view.readingIds.has(scene.id)}
-                item={scene}
-                key={scene.id}
-                onOpen={() => openSceneCard(scene)}
-                status={view.statuses.get(scene.id) ?? "planned"}
-                tags={
-                  <>
-                    <PlanningTag item={scene} noun="beats" />
-                    <CheckTag count={view.openFlags.get(scene.id) ?? 0} />
-                  </>
-                }
-              />
-            ),
-          )}
+              <div key={scene.id}>
+                <OutlineLine
+                  isOpen={false}
+                  isReading={view.readingIds.has(scene.id)}
+                  item={scene}
+                  onOpen={() => openSceneCard(scene)}
+                  status={view.statuses.get(scene.id) ?? "planned"}
+                  tags={
+                    <>
+                      <PlanningTag item={scene} noun="beats" />
+                      <CheckTag count={view.openFlags.get(scene.id) ?? 0} />
+                      <SuggestionsTag count={insideCount(scene.id)} />
+                    </>
+                  }
+                />
+                <ItemSuggestions item={scene} />
+              </div>
+            );
+          })}
           <button
             className="flex h-7 items-center gap-1.5 rounded-md px-2 text-left font-normal text-label-sm text-muted-foreground/70 outline-none hover:bg-foreground/5 hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
             onClick={() => void addScene()}

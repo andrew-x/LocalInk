@@ -1,7 +1,9 @@
 "use client";
 
+import { AiBox } from "@/components/studio/ai-box/ai-box";
+import { ConversationPanel } from "@/components/studio/ai-box/conversation-panel";
+import { ChatSessionProvider } from "@/components/studio/ai-box/use-chat-session";
 import { CharactersPanel } from "@/components/studio/characters/characters-panel";
-import { ChatPanel } from "@/components/studio/chat/chat-panel";
 import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import { WritingLoopProvider } from "@/components/studio/manuscript/use-writing-loop";
 import { Outline } from "@/components/studio/outline/outline";
@@ -23,10 +25,9 @@ function WorkspaceLayout() {
   const { state } = useStudioStore();
   const { readMode } = state;
 
-  // "Review in chat" focuses a bundle op; the chat lives in the plan pane,
-  // which Read mode hides. focusBundleOp already clears Read mode.
-  // The plan pane stays mounted in Read mode (hidden) so the outline's open
-  // cards and the chat's running turn survive toggling.
+  // The plan pane stays mounted while hidden, so the outline's open cards
+  // and the AI box survive toggling; focusBundleOp shows it again. The chat
+  // session lives above the layout, so a running turn never depends on it.
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StudioTopBar />
@@ -34,8 +35,9 @@ function WorkspaceLayout() {
         left={<Manuscript />}
         right={
           <PlanPane
+            aiBox={<AiBox />}
             characters={<CharactersPanel />}
-            chat={<ChatPanel active={!readMode} />}
+            conversation={<ConversationPanel />}
             outline={<Outline />}
           />
         }
@@ -56,7 +58,10 @@ export function StudioWorkspace({
       <WritingLoopProvider>
         <StoryFleshOutProvider>
           <PlanAiProvider>
-            <WorkspaceLayout />
+            {/* The AI conversation; the manuscript's chat draft sends through it. */}
+            <ChatSessionProvider>
+              <WorkspaceLayout />
+            </ChatSessionProvider>
           </PlanAiProvider>
         </StoryFleshOutProvider>
       </WritingLoopProvider>

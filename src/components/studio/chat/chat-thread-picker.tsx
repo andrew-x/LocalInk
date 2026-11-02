@@ -34,7 +34,7 @@ type ChatThreadPickerProps = {
   onDelete: (threadId: string) => Promise<boolean>;
 };
 
-/** The thread list: switch, start a new chat, or delete one. */
+/** The history menu: switch conversations, start a new one, or delete one. */
 export function ChatThreadPicker({
   threads,
   status,
@@ -51,8 +51,8 @@ export function ChatThreadPicker({
   const [deleting, setDeleting] = useState(false);
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const triggerLabel = activeThreadId
-    ? (activeThread?.title.trim() ?? "") || "Chat"
-    : "New chat";
+    ? (activeThread?.title.trim() ?? "") || "Conversation"
+    : "New conversation";
 
   async function confirmDelete() {
     if (!pendingDelete) return;
@@ -69,7 +69,7 @@ export function ChatThreadPicker({
       <Popover onOpenChange={setOpen} open={open}>
         <PopoverTrigger asChild>
           <Button
-            aria-label={`Chats. Current: ${triggerLabel}`}
+            aria-label={`Conversation history. Current: ${triggerLabel}`}
             className="min-w-0 flex-1 justify-start gap-1.5 px-2"
             size="sm"
             type="button"
@@ -90,17 +90,17 @@ export function ChatThreadPicker({
             type="button"
           >
             <Plus aria-hidden="true" className="size-3.5" />
-            New chat
+            New conversation
           </button>
           <div className="my-1 border-border/60 border-t" />
           {status === "loading" && threads.length === 0 ? (
             <p className="px-2 py-1.5 text-caption text-muted-foreground">
-              Loading chats…
+              Loading conversations…
             </p>
           ) : status === "error" && threads.length === 0 ? (
             <div className="flex items-center justify-between gap-2 px-2 py-1">
               <span className="text-caption text-muted-foreground">
-                Chats could not be loaded.
+                Conversations could not be loaded.
               </span>
               <Button
                 onClick={onRetryLoad}
@@ -113,13 +113,13 @@ export function ChatThreadPicker({
             </div>
           ) : threads.length === 0 ? (
             <p className="px-2 py-1.5 text-caption text-muted-foreground">
-              No chats yet.
+              No conversations yet.
             </p>
           ) : (
             <ul className="flex max-h-72 flex-col overflow-y-auto">
               {threads.map((thread) => {
                 const isActive = thread.id === activeThreadId;
-                const title = thread.title.trim() || "Chat";
+                const title = thread.title.trim() || "Conversation";
                 return (
                   <li className="flex items-center gap-1" key={thread.id}>
                     <button
@@ -142,7 +142,7 @@ export function ChatThreadPicker({
                       </span>
                     </button>
                     <Button
-                      aria-label={`Delete chat: ${title}`}
+                      aria-label={`Delete conversation: ${title}`}
                       className="size-7 shrink-0"
                       disabled={thread.id === lockedThreadId}
                       onClick={() => {
@@ -163,8 +163,8 @@ export function ChatThreadPicker({
         </PopoverContent>
       </Popover>
       <StudioConfirmDialog
-        confirmLabel="Delete chat"
-        description="Its messages are deleted, and any proposed changes in this chat that are still waiting for review are discarded. Changes you already accepted stay, but can no longer be undone from chat."
+        confirmLabel="Delete conversation"
+        description="Its messages are deleted, and any of its suggestions still waiting are dismissed. Suggestions you already accepted stay, but can no longer be undone from here."
         destructive
         loading={deleting}
         onConfirm={() => void confirmDelete()}
@@ -172,7 +172,7 @@ export function ChatThreadPicker({
           if (!next) setPendingDelete(null);
         }}
         open={pendingDelete !== null}
-        title="Delete this chat?"
+        title="Delete this conversation?"
       />
     </>
   );

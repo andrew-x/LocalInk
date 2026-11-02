@@ -329,7 +329,7 @@ export function precheckBundleAccept(
     const more = pairs.length > 4 ? ` and ${pairs.length - 4} more` : "";
     throw new ActionError(
       "BAD_REQUEST",
-      `Some selected changes depend on changes that are not selected: ${pairs.slice(0, 4).join("; ")}${more}. Select those too, or deselect these.`,
+      `Some selected changes depend on changes that are not selected: ${pairs.slice(0, 4).join("; ")}${more}. Accept those too, or dismiss these.`,
     );
   }
   const orphaned = ofKind("dependency-dismissed");
@@ -343,21 +343,21 @@ export function precheckBundleAccept(
   if (conflicts.length > 0) {
     throw new ActionError(
       "CONFLICT",
-      `The story changed after these were proposed: ${named(conflicts)}. Deselect them to accept the rest.`,
+      `The story changed after these were proposed: ${named(conflicts)}. Dismiss them to accept the rest.`,
     );
   }
   const tooManyFields = ofKind("too-many-fields");
   if (tooManyFields.length > 0) {
     throw new ActionError(
       "BAD_REQUEST",
-      `${named(tooManyFields)} would leave an entry with more than ${STUDIO_MAX_ENTRY_FIELDS} fields. Deselect them to accept the rest.`,
+      `${named(tooManyFields)} would leave an entry with more than ${STUDIO_MAX_ENTRY_FIELDS} fields. Dismiss them to accept the rest.`,
     );
   }
   const invalid = ofKind("invalid");
   if (invalid.length > 0) {
     throw new ActionError(
       "BAD_REQUEST",
-      `These changes can't be applied as proposed: ${named(invalid)}. Deselect them to accept the rest.`,
+      `These changes can't be applied as proposed: ${named(invalid)}. Dismiss them to accept the rest.`,
     );
   }
 }

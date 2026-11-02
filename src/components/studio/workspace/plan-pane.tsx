@@ -14,15 +14,24 @@ const PLAN_TABS: { id: StudioPlanTab; label: string }[] = [
 type PlanPaneProps = {
   outline: ReactNode;
   characters: ReactNode;
-  /** The docked chat; always mounted so a running turn is never aborted. */
-  chat: ReactNode;
+  /** The AI box, docked under both tabs. */
+  aiBox: ReactNode;
+  /** The conversation overlay; it positions itself over the tab panels. */
+  conversation: ReactNode;
 };
 
 /**
- * Outline | Characters & places tabs over the plan, with the chat docked at
- * the bottom. Both tab panels stay mounted (hidden) so their state survives.
+ * Outline | Characters & places tabs over the plan, with the AI box docked
+ * at the bottom and the conversation opening over the tabs. Both tab panels
+ * stay mounted (hidden) so their state survives, and the whole pane stays
+ * mounted while the plan is hidden.
  */
-export function PlanPane({ outline, characters, chat }: PlanPaneProps) {
+export function PlanPane({
+  outline,
+  characters,
+  aiBox,
+  conversation,
+}: PlanPaneProps) {
   const { state, dispatch } = useStudioStore();
   const idBase = useId();
   const tabRefs = useRef(new Map<StudioPlanTab, HTMLButtonElement>());
@@ -64,7 +73,7 @@ export function PlanPane({ outline, characters, chat }: PlanPaneProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-[55] flex-col">
+      <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           aria-label="Plan"
           className="flex min-h-10 shrink-0 items-stretch gap-1 border-border/80 border-b px-2"
@@ -123,10 +132,9 @@ export function PlanPane({ outline, characters, chat }: PlanPaneProps) {
         >
           {characters}
         </div>
+        {conversation}
       </div>
-      <div className="flex min-h-0 flex-[45] flex-col border-border/80 border-t">
-        {chat}
-      </div>
+      {aiBox}
     </div>
   );
 }

@@ -17,7 +17,7 @@ import type {
   StudioChatStep,
 } from "@/actions/studio/_types";
 import { Button } from "@/components/common/button";
-import { BundleReviewCard } from "@/components/studio/bundles/bundle-review-card";
+import { BundleOpsList } from "@/components/studio/ai-box/bundle-ops-list";
 import { cn } from "@/lib/util";
 
 import type { ChatTurnDraft, ChatTurnStatus } from "./use-chat-turn";
@@ -155,7 +155,7 @@ const DRAFT_STATUS: Partial<Record<ChatTurnStatus, string>> = {
 };
 
 type ChatMessageListProps = {
-  /** The chat tab is showing; scrolling waits until it is. */
+  /** The conversation is showing; scrolling waits until it is. */
   active: boolean;
   threadId: string | null;
   messages: StudioChatMessageDto[];
@@ -218,7 +218,7 @@ export function ChatMessageList({
   const contentKey = `${messages.length}:${draft?.text.length ?? -1}:${
     draft?.steps.length ?? -1
   }:${status}:${loading}`;
-  // Runs before a review card's own focus scroll (that one waits a frame).
+  // Runs before an op list's own focus scroll (that one waits a frame).
   // biome-ignore lint/correctness/useExhaustiveDependencies: contentKey is the trigger.
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -235,7 +235,7 @@ export function ChatMessageList({
 
   function renderBundle(bundleId: string | null) {
     const bundle = bundleId ? bundleById.get(bundleId) : undefined;
-    return bundle ? <BundleReviewCard bundle={bundle} /> : null;
+    return bundle ? <BundleOpsList bundle={bundle} /> : null;
   }
 
   const isEmpty = messages.length === 0 && !draft;
@@ -243,18 +243,18 @@ export function ChatMessageList({
   return (
     <section
       aria-busy={loading}
-      aria-label="Chat messages"
+      aria-label="Messages"
       className="min-h-0 flex-1 overflow-y-auto"
       onScroll={handleScroll}
       ref={scrollRef}
     >
       <div className="flex flex-col gap-4 p-4">
         {loading ? (
-          <StatusLine>Loading chat…</StatusLine>
+          <StatusLine>Loading the conversation…</StatusLine>
         ) : loadFailed ? (
           <div className="flex flex-col items-start gap-2">
             <p className="text-caption text-muted-foreground">
-              This chat could not be loaded.
+              This conversation could not be loaded.
             </p>
             <Button
               onClick={onRetryLoad}

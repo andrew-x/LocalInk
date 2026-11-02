@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { type KeyboardEvent, useCallback } from "react";
 
 import { Button } from "@/components/common/button";
+import { ItemSuggestions } from "@/components/studio/ai-box/outline-suggestions";
 import { isSceneDraftRunning } from "@/components/studio/manuscript/scene-draft-model";
 import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
@@ -156,6 +157,7 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: the card body belongs to the scene's tree item */}
       <div className="mt-0.5 flex flex-col gap-1.5 pl-[15px]" role="group">
+        <ItemSuggestions item={scene} />
         <PlainText
           className="text-foreground/90"
           id={sceneFieldId(scene.id, "whatHappens")}

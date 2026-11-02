@@ -11,6 +11,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/common/popover";
+import {
+  type EntryGroup,
+  ProposedEntryLine,
+  useEntrySuggestionCount,
+  useProposedEntries,
+} from "@/components/studio/ai-box/entry-suggestions";
+import { SuggestionsTag } from "@/components/studio/ai-box/suggestion-controls";
 import { MENU_ITEM_CLASS } from "@/components/studio/outline/scene-menu";
 import {
   useRunStudioAction,
@@ -149,6 +156,7 @@ function AddOtherMenu({
 }
 
 type GroupProps = {
+  group: EntryGroup;
   title: string;
   entries: StudioEntryDto[];
   sceneCounts: Map<string, number>;
@@ -160,10 +168,19 @@ type GroupProps = {
   add: React.ReactNode;
 };
 
+/** A closed entry line, tagged with its pending suggestions. */
+function TaggedEntryLine(
+  props: Omit<ComponentProps<typeof EntryLine>, "tags">,
+) {
+  const count = useEntrySuggestionCount(props.entry.id);
+  return <EntryLine {...props} tags={<SuggestionsTag count={count} />} />;
+}
+
 function Group({
   add,
   entries,
   focusNameId,
+  group,
   onDeleted,
   onToggle,
   openEntryId,
@@ -171,6 +188,8 @@ function Group({
   showKind,
   title,
 }: GroupProps) {
+  // New entries the AI suggests sit at the top of their group.
+  const proposed = useProposedEntries(group);
   return (
     <section aria-label={title} className="flex flex-col">
       <div className="flex items-center gap-2 px-2 pt-3 pb-1">
@@ -179,7 +198,10 @@ function Group({
         </h3>
         <div className="ml-auto">{add}</div>
       </div>
-      {entries.length === 0 ? (
+      {proposed.map((op) => (
+        <ProposedEntryLine key={op.id} op={op} />
+      ))}
+      {entries.length === 0 && proposed.length === 0 ? (
         <p className="px-2 py-1 text-label-sm text-muted-foreground/80">
           Nothing here yet.
         </p>
@@ -194,7 +216,7 @@ function Group({
             onDeleted={onDeleted}
           />
         ) : (
-          <EntryLine
+          <TaggedEntryLine
             entry={entry}
             key={entry.id}
             onOpen={() => onToggle(entry.id)}
@@ -288,6 +310,7 @@ export function CharactersPanel() {
           />
         }
         entries={groups.characters}
+        group="characters"
         title="Characters"
       />
       <Group
@@ -296,6 +319,7 @@ export function CharactersPanel() {
           <AddButton label="Add a place" onClick={() => void create("place")} />
         }
         entries={groups.places}
+        group="places"
         title="Places"
       />
       <Group
@@ -306,6 +330,7 @@ export function CharactersPanel() {
           />
         }
         entries={groups.other}
+        group="other"
         showKind
         title="Other"
       />

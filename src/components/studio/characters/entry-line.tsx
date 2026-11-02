@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { STUDIO_ENTRY_SUGGESTIONS } from "@/lib/studio/bible-templates";
 import type { StudioEntryDto, StudioPlanItemDto } from "@/lib/studio/contracts";
 import { cn } from "@/lib/util";
@@ -40,6 +42,8 @@ type EntryLineProps = {
   /** Show the entry's kind, for the mixed "Other" group. */
   showKind?: boolean;
   onOpen: () => void;
+  /** Small pills, such as "1 suggestion". */
+  tags?: ReactNode;
 };
 
 /** One line: avatar initial, name, the start of the paragraph, "N scenes". */
@@ -48,6 +52,7 @@ export function EntryLine({
   onOpen,
   sceneCount,
   showKind = false,
+  tags,
 }: EntryLineProps) {
   const name = entry.name.trim() || "Untitled";
   return (
@@ -87,6 +92,7 @@ export function EntryLine({
           {sceneCountLabel(sceneCount)}
         </span>
       ) : null}
+      {tags}
     </button>
   );
 }

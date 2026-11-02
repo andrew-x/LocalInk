@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
+import { EntryOpSuggestions } from "@/components/studio/ai-box/entry-suggestions";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
 import { PlainText } from "@/components/studio/outline/plain-text";
 import {
@@ -188,6 +189,8 @@ export function EntryCard({
           {sceneCount > 0 ? ` · in ${sceneCountLabel(sceneCount)}` : ""}
         </p>
       </div>
+
+      <EntryOpSuggestions entry={entry} />
 
       <div className="flex flex-col gap-1 px-1.5">
         <p
