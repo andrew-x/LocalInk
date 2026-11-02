@@ -46,6 +46,7 @@ Writing a scene drafts its beats in order and holds them as a draft over the man
 - Each beat after the first is drafted against the earlier beats' unkept text. The client sends only the preceding beats' generation ids, never text; the route rebuilds the overlay from staging (same rule as the AI boundary). A missing stage returns 409 `DRAFT_EXPIRED` rather than drafting against a stale tail.
 - `keepStudioSceneDraft` reads every stage first, then keeps all beats in one transaction, so a missing stage or one stale revision leaves the scene untouched. Stages are dropped only after commit, so a failed keep can be retried.
 - Staging is volatile, so after a server restart every stage is gone. Redoing one beat cannot recover that (its earlier beats are missing too); only Try again, which redraws the scene, does. The UI wording points at Try again for that reason.
+- Deleting a beat, or moving it out of the scene, drops only that beat from the draft. Each beat records which unkept beats it was drafted against (`basedOn`); a ready beat drafted against a dropped one is marked for a redo, so Keep waits until it is redone. A stream running on (or against) a dropped beat stops and the chain carries on with its remaining beats, unless an earlier beat now needs a redo, in which case it halts as Stop does.
 
 ## Manuscript: one Lexical editor per moment
 

@@ -9,6 +9,11 @@ export type BeatDraft = {
   status: "queued" | "streaming" | "ready" | "error";
   /** The beat already has prose; Keep replaces it (the old text stays in versions). */
   replacesProse: boolean;
+  /**
+   * The earlier unkept beats (moment ids) this beat was drafted against, set
+   * when it starts streaming. Dropping one of them makes this beat stale.
+   */
+  basedOn?: string[];
 };
 
 export type SceneDraft = {
@@ -103,15 +108,86 @@ export function withBeatsQueued(
   };
 }
 
-/** A draft whose scene or beats were deleted (or moved away) can never be kept. */
-export function isSceneDraftOrphaned(
+/**
+ * The draft's beats whose plan item was deleted or moved out of its scene, or
+ * "scene" when the scene itself is gone (then nothing can be kept).
+ */
+export function orphanedDraftBeats(
   draft: SceneDraft,
   planItems: StudioPlanItemDto[],
-): boolean {
+): ReadonlySet<string> | "scene" {
   const byId = new Map(planItems.map((item) => [item.id, item]));
-  if (byId.get(draft.sceneId)?.kind !== "scene") return true;
-  return draft.beats.some((beat) => {
-    const item = byId.get(beat.momentId);
-    return item?.kind !== "moment" || item.parentId !== draft.sceneId;
+  if (byId.get(draft.sceneId)?.kind !== "scene") return "scene";
+  return new Set(
+    draft.beats
+      .filter((beat) => {
+        const item = byId.get(beat.momentId);
+        return item?.kind !== "moment" || item.parentId !== draft.sceneId;
+      })
+      .map((beat) => beat.momentId),
+  );
+}
+
+export type DroppedDraftBeats = {
+  /** The draft without the dropped beats; stale ready beats need a redo. */
+  draft: SceneDraft;
+  /** The streaming beat was dropped, or was drafted against a dropped beat. */
+  streamAffected: boolean;
+  /** A ready beat was drafted against a dropped beat and now needs a redo. */
+  invalidated: boolean;
+};
+
+/**
+ * Removes `dropped` beats from the draft. A ready beat drafted against one
+ * of them is marked as needing a redo (error, nothing staged to keep), so
+ * Keep waits until it is redone. The draft's status is left to the caller.
+ */
+export function dropDraftBeats(
+  draft: SceneDraft,
+  dropped: ReadonlySet<string>,
+): DroppedDraftBeats {
+  let streamAffected = false;
+  let invalidated = false;
+  const beats = draft.beats.flatMap((beat): BeatDraft[] => {
+    if (dropped.has(beat.momentId)) {
+      if (beat.status === "streaming") streamAffected = true;
+      return [];
+    }
+    if (!beat.basedOn?.some((id) => dropped.has(id))) return [beat];
+    if (beat.status === "streaming") {
+      streamAffected = true;
+      return [beat];
+    }
+    if (beat.status === "ready") {
+      invalidated = true;
+      return [{ ...beat, status: "error", generationId: null }];
+    }
+    return [beat];
   });
+  return { draft: { ...draft, beats }, streamAffected, invalidated };
+}
+
+/**
+ * Settles a draft that is not running after beats left it. It is ready only
+ * when every beat is (Keep's rule); otherwise it stays stopped or failed. When
+ * the beat that failed was the one dropped, the first queued beat takes its
+ * place, so its Redo picks the chain up from there.
+ */
+export function settleDraft(
+  draft: SceneDraft,
+  planItems: StudioPlanItemDto[],
+): SceneDraft {
+  if (draft.beats.every((beat) => beat.status === "ready")) {
+    return { ...draft, status: "ready" };
+  }
+  const status = draft.status === "ready" ? "error" : draft.status;
+  if (draft.beats.some((beat) => beat.status === "error")) {
+    return { ...draft, status };
+  }
+  const firstQueued = orderedDraftBeats(draft, planItems).find(
+    (beat) => beat.status === "queued",
+  );
+  return firstQueued
+    ? withBeat({ ...draft, status }, firstQueued.momentId, { status: "error" })
+    : { ...draft, status };
 }

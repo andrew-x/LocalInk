@@ -15,10 +15,12 @@ import { getOrderedMoments } from "@/lib/studio/plan-order";
 import { flushMomentEditors } from "./editor-registry";
 import {
   type BeatDraft,
+  dropDraftBeats,
   isSceneDraftRunning,
   orderedDraftBeats,
   precedingDraftsFor,
   type SceneDraft,
+  settleDraft,
   withBeat,
   withBeatsQueued,
 } from "./scene-draft-model";
@@ -76,6 +78,12 @@ export function useSceneDraftRunner({
   /** The running stream or flesh-out request. */
   const requestRef = useRef<AbortController | null>(null);
   const runRef = useRef(0);
+  /** The running chain's beats and how far it got, so it can pick up again. */
+  const chainRef = useRef<{
+    token: number;
+    runs: BeatRun[];
+    index: number;
+  } | null>(null);
 
   // The route builds context from saved prose, so land pending edits up to
   // and including the target first (an earlier moment's 800 ms autosave may
@@ -120,9 +128,12 @@ export function useSceneDraftRunner({
   const runBeats = useCallback(
     async (token: number, runs: BeatRun[]) => {
       const isActive = () => runRef.current === token;
-      for (const run of runs) {
+      const chain = { token, runs, index: 0 };
+      chainRef.current = chain;
+      for (const [index, run] of runs.entries()) {
         const current = draftRef.current;
         if (!isActive() || !current) return;
+        chain.index = index;
         if (!current.beats.some((beat) => beat.momentId === run.momentId)) {
           continue;
         }
@@ -138,7 +149,12 @@ export function useSceneDraftRunner({
           withBeat(
             { ...current, status: "streaming", keepRefused: false },
             run.momentId,
-            { status: "streaming", text: "", generationId: null },
+            {
+              status: "streaming",
+              text: "",
+              generationId: null,
+              basedOn: precedingDrafts.map((entry) => entry.momentId),
+            },
           ),
         );
         const result = await stream(run.momentId, {
@@ -274,6 +290,7 @@ export function useSceneDraftRunner({
           text: "",
           status: "queued",
           replacesProse: written(beat.id),
+          basedOn: [],
         })),
       });
       await runBeats(
@@ -373,6 +390,65 @@ export function useSceneDraftRunner({
     commitDraft(null);
   }, [abortRequest, commitDraft, keepingRef]);
 
+  /**
+   * Drops beats whose plan item was deleted or moved out of the scene, never
+   * the whole draft (the caller discards a draft left with no beats). Ready
+   * beats drafted against a dropped one need a redo. When the streaming beat
+   * was dropped or drafted against one, its stream stops: the chain picks up
+   * with its remaining beats, unless an earlier ready beat now needs a redo,
+   * in which case it halts like Stop and the author redoes from there.
+   */
+  const dropBeats = useCallback(
+    (dropped: ReadonlySet<string>) => {
+      const current = draftRef.current;
+      if (keepingRef.current || !current || dropped.size === 0) return;
+      const {
+        draft: next,
+        invalidated,
+        streamAffected,
+      } = dropDraftBeats(current, dropped);
+      if (!isSceneDraftRunning(current)) {
+        commitDraft(settleDraft(next, stateRef.current.planItems));
+        return;
+      }
+      if (!streamAffected && !invalidated) {
+        // The chain skips beats that left the draft and settles at its end.
+        commitDraft(next);
+        return;
+      }
+      const chain =
+        chainRef.current?.token === runRef.current ? chainRef.current : null;
+      abortRequest();
+      if (invalidated) {
+        commitDraft({
+          ...next,
+          status: "error",
+          beats: next.beats.map((beat) =>
+            beat.status === "streaming"
+              ? { ...beat, status: "error", generationId: null }
+              : beat,
+          ),
+        });
+        return;
+      }
+      const unfinished = new Set(
+        next.beats
+          .filter((beat) => beat.status !== "ready")
+          .map((beat) => beat.momentId),
+      );
+      const runs = (chain?.runs.slice(chain.index) ?? [])
+        .filter((run) => unfinished.has(run.momentId))
+        // A restore point from before the drop could bring back a stale beat.
+        .map((run): BeatRun => ({ ...run, previous: undefined }));
+      const token = ++runRef.current;
+      commitDraft(
+        withBeatsQueued(next, new Set(runs.map((run) => run.momentId))),
+      );
+      void runBeats(token, runs);
+    },
+    [abortRequest, commitDraft, keepingRef, runBeats, stateRef],
+  );
+
   /** Planning has nothing to show, so Stop drops it; a stream keeps its partial beat. */
   const stop = useCallback(() => {
     const current = draftRef.current;
@@ -406,6 +482,7 @@ export function useSceneDraftRunner({
     draft,
     draftRef,
     commitDraft,
+    dropBeats,
     startScene,
     redoBeat,
     tryAgain,

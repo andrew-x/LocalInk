@@ -30,10 +30,13 @@ import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 import { flushMomentEditor } from "./editor-registry";
 import { readBackStudioMoment } from "./read-back-client";
 import {
+  dropDraftBeats,
   isSceneDraftKeepable,
-  isSceneDraftOrphaned,
+  isSceneDraftRunning,
   orderedDraftBeats,
+  orphanedDraftBeats,
   type SceneDraft,
+  settleDraft,
 } from "./scene-draft-model";
 import { useChapterQueue, type WritingQueue } from "./use-chapter-queue";
 import { useSceneDraftRunner } from "./use-scene-draft-runner";
@@ -49,6 +52,11 @@ const READ_BACK_FAILED =
 const KEEPING_WAIT = "Wait until the scene is kept.";
 const DECISION_RUNNING =
   "A suggestion is still being applied. Try Write again in a moment.";
+const DISCARDED = "Draft discarded.";
+const RESTORE_BLOCKED =
+  "Another draft is open, so the discarded one can't come back.";
+const RESTORE_GONE =
+  "The discarded draft's scene or beats are gone, so it can't come back.";
 
 export type WritingLoop = {
   draft: SceneDraft | null;
@@ -65,6 +73,7 @@ export type WritingLoop = {
   tryAgain: (note?: string) => Promise<void>;
   keepScene: () => Promise<void>;
   stop: () => void;
+  /** Drops the draft; a toast offers Undo, which brings it back as it was. */
   discard: () => void;
   /**
    * One draft at a time, from the AI box's side: before a chat message is
@@ -165,6 +174,7 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
     discard: discardDraft,
     draft,
     draftRef,
+    dropBeats,
     redoBeat,
     startScene,
     stop: stopDraft,
@@ -188,6 +198,54 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
     endQueue();
     discardDraft();
   }, [discardDraft, endQueue]);
+
+  // Staged beats live 6 hours, so an undone draft can usually still be kept;
+  // if Keep finds a stage gone, the bar's Try again guidance applies.
+  const restoreDraft = useCallback(
+    (snapshot: SceneDraft) => {
+      if (
+        keepingRef.current ||
+        draftRef.current ||
+        chatDraftOps(stateRef.current.bundles)
+      ) {
+        toast.info(RESTORE_BLOCKED);
+        return;
+      }
+      const orphaned = orphanedDraftBeats(snapshot, stateRef.current.planItems);
+      if (orphaned === "scene" || orphaned.size === snapshot.beats.length) {
+        toast.error(RESTORE_GONE);
+        return;
+      }
+      const { draft: restored } = dropDraftBeats(snapshot, orphaned);
+      commitDraft(settleDraft(restored, stateRef.current.planItems));
+    },
+    [commitDraft, draftRef],
+  );
+
+  /** The bar's Discard, with Undo. */
+  const discardWithUndo = useCallback(() => {
+    const current = draftRef.current;
+    if (keepingRef.current || !current) return;
+    discard();
+    // Planning has nothing on screen to bring back.
+    if (current.status === "planning") return;
+    // Like Stop, a beat cut off mid-stream comes back unfinished.
+    const snapshot: SceneDraft = isSceneDraftRunning(current)
+      ? {
+          ...current,
+          status: "stopped",
+          beats: current.beats.map((beat) =>
+            beat.status === "streaming"
+              ? { ...beat, status: "error", generationId: null }
+              : beat,
+          ),
+        }
+      : current;
+    toast(DISCARDED, {
+      action: { label: "Undo", onClick: () => restoreDraft(snapshot) },
+      duration: 10_000,
+    });
+  }, [discard, draftRef, restoreDraft]);
 
   const keepAndReadBack = useCallback(
     async (current: SceneDraft): Promise<KeepOutcome> => {
@@ -372,11 +430,22 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
     [guardStart, runChapter],
   );
 
-  // A draft whose scene or beats were deleted can never be kept.
+  // A beat deleted or moved out of the scene leaves the draft; the rest stays.
+  // A draft whose scene is gone, or with no beats left, can never be kept.
+  // Re-checked once a Keep ends, since nothing changes while it runs.
   useEffect(() => {
     const current = draftRef.current;
-    if (current && isSceneDraftOrphaned(current, state.planItems)) discard();
-  }, [discard, draftRef, state.planItems]);
+    if (!current || isKeeping) return;
+    const orphaned = orphanedDraftBeats(current, state.planItems);
+    if (
+      orphaned === "scene" ||
+      (orphaned.size > 0 && orphaned.size === current.beats.length)
+    ) {
+      discard();
+      return;
+    }
+    dropBeats(orphaned);
+  }, [discard, draftRef, dropBeats, isKeeping, state.planItems]);
 
   const value = useMemo<WritingLoop>(
     () => ({
@@ -389,12 +458,12 @@ export function WritingLoopProvider({ children }: { children: ReactNode }) {
       tryAgain,
       keepScene,
       stop,
-      discard,
+      discard: discardWithUndo,
       confirmDiscardDraft,
     }),
     [
       confirmDiscardDraft,
-      discard,
+      discardWithUndo,
       draft,
       isKeeping,
       keepScene,
