@@ -366,6 +366,11 @@ export function useChatTurn(options: UseChatTurnOptions) {
           message: actionFailureMessage(result, SEND_FAILED),
         };
       }
+      // Sending dismissed the suggestions still waiting (even if this turn
+      // is stopped next); their in-place previews go away.
+      if (prepared.rejectedBundles.length > 0) {
+        dispatch({ type: "merge", bundles: prepared.rejectedBundles });
+      }
       if (turn.controller.signal.aborted) {
         // Stopped while preparing: the composer still holds the text, so
         // only the stored message has to go.

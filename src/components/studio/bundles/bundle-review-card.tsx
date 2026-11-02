@@ -152,8 +152,8 @@ export function BundleReviewCard({ bundle }: { bundle: StudioBundleDto }) {
   const selectedIds = pendingOps
     .filter((op) => selected.has(op.id))
     .map((op) => op.id);
-  const canUndo =
-    bundle.status === "accepted" || bundle.status === "partially-accepted";
+  // Undo works while other ops are still pending (it leaves them pending).
+  const canUndo = bundle.operations.some((op) => op.status === "accepted");
   const issueCount = issuesByOpId.size;
 
   return (
@@ -207,56 +207,61 @@ export function BundleReviewCard({ bundle }: { bundle: StudioBundleDto }) {
         </p>
       ) : null}
 
-      {isPending ? (
+      {isPending || canUndo ? (
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            disabled={busy || selectedIds.length === 0}
-            loading={busy && action === "accept-selected"}
-            onClick={() =>
-              void run(
-                "accept-selected",
-                "accept",
-                selectedIds.length === pendingOps.length ? null : selectedIds,
-              )
-            }
-            size="sm"
-            type="button"
-          >
-            Accept selected ({selectedIds.length})
-          </Button>
-          <Button
-            disabled={busy}
-            loading={busy && action === "accept-all"}
-            onClick={() => void run("accept-all", "accept", null)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Accept all
-          </Button>
-          <Button
-            disabled={busy}
-            loading={busy && action === "reject"}
-            onClick={() => void run("reject", "reject", null)}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Discard
-          </Button>
-        </div>
-      ) : canUndo ? (
-        <div>
-          <Button
-            disabled={busy}
-            loading={busy && action === "undo"}
-            onClick={() => void run("undo", "undo", null)}
-            size="sm"
-            type="button"
-            variant="outline"
-          >
-            Undo
-          </Button>
+          {isPending ? (
+            <>
+              <Button
+                disabled={busy || selectedIds.length === 0}
+                loading={busy && action === "accept-selected"}
+                onClick={() =>
+                  void run(
+                    "accept-selected",
+                    "accept",
+                    selectedIds.length === pendingOps.length
+                      ? null
+                      : selectedIds,
+                  )
+                }
+                size="sm"
+                type="button"
+              >
+                Accept selected ({selectedIds.length})
+              </Button>
+              <Button
+                disabled={busy}
+                loading={busy && action === "accept-all"}
+                onClick={() => void run("accept-all", "accept", null)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Accept all
+              </Button>
+              <Button
+                disabled={busy}
+                loading={busy && action === "reject"}
+                onClick={() => void run("reject", "reject", null)}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Discard
+              </Button>
+            </>
+          ) : null}
+          {canUndo ? (
+            <Button
+              disabled={busy}
+              loading={busy && action === "undo"}
+              onClick={() => void run("undo", "undo", null)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              Undo
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>

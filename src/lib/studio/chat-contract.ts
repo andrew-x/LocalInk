@@ -14,7 +14,7 @@ import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
  * stages the reply in server memory on a `stop` finish) →
  * `saveStudioChatTurn` (persists the staged reply and its bundle). An
  * aborted or failed turn calls `discardStudioChatTurn` instead, so nothing
- * of it is kept.
+ * of it is kept, except that suggestions prepare dismissed stay dismissed.
  */
 
 export const STUDIO_CHAT_MAX_MESSAGE_CHARS = 4000;
@@ -60,6 +60,13 @@ export type StudioChatPreparedTurn = {
   thread: StudioChatThreadDto;
   userMessage: StudioChatMessageDto;
   generationId: string;
+  /**
+   * Bundles (any thread) whose still-pending ops this message dismissed
+   * without review. Merge them into the workspace store so their in-place
+   * suggestions disappear; they stay dismissed even if the turn is
+   * discarded.
+   */
+  rejectedBundles: StudioBundleDto[];
 };
 
 export type StudioChatSavedTurn = {
@@ -73,9 +80,9 @@ export type StudioChatThreadDeleteResult = {
   /** False when the thread was already gone (nothing was changed). */
   deleted: boolean;
   /**
-   * The thread's bundles that were pending and are now rejected (rows kept,
-   * every op rejected). Merge them into the workspace store so their
-   * in-place previews disappear.
+   * The thread's bundles that had pending ops, now rejected (rows kept;
+   * accepted ops stay accepted). Merge them into the workspace store so
+   * their in-place previews disappear.
    */
   rejectedBundles: StudioBundleDto[];
 };

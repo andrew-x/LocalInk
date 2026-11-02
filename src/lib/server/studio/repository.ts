@@ -19,7 +19,6 @@ import type {
   StudioBundleDto,
   StudioBundleOp,
   StudioBundleOpDto,
-  StudioBundleStatus,
 } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
@@ -188,17 +187,27 @@ function createdIdOf(result: unknown): string | null {
 }
 
 /**
- * Undo data stays on the server; the client gets the created id only, and
- * none once the bundle is undone (those records are gone). The stored
- * results are kept as a record of what was applied.
+ * A bundle's ops with their current status. Bundles undone before ops were
+ * decided one at a time kept their ops `accepted` under an `undone` bundle;
+ * those ops read as undone.
  */
-export function toBundleOpDto(
-  op: StudioBundleOp,
-  status: StudioBundleStatus,
-): StudioBundleOpDto {
+export function bundleOpsOf(row: StudioBundleRow): StudioBundleOp[] {
+  if (row.status !== "undone") return row.operations;
+  return row.operations.map(
+    (op): StudioBundleOp =>
+      op.status === "accepted" ? { ...op, status: "undone" } : op,
+  );
+}
+
+/**
+ * Undo data stays on the server; the client gets the created id only, and
+ * none once the op is undone (those records are gone). The stored results
+ * are kept as a record of what was applied.
+ */
+function toBundleOpDto(op: StudioBundleOp): StudioBundleOpDto {
   const dto: StudioBundleOp & { createdId: string | null } = {
     ...op,
-    createdId: status === "undone" ? null : createdIdOf(op.result),
+    createdId: op.status === "undone" ? null : createdIdOf(op.result),
   };
   delete dto.result;
   return dto;
@@ -213,7 +222,7 @@ export function toBundleDto(row: StudioBundleRow): StudioBundleDto {
     messageId: row.messageId,
     generationId: row.generationId,
     summary: row.summary,
-    operations: row.operations.map((op) => toBundleOpDto(op, row.status)),
+    operations: bundleOpsOf(row).map(toBundleOpDto),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

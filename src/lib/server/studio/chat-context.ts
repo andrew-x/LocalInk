@@ -223,9 +223,23 @@ export function buildStudioChatContextBlock(
   return `${STUDIO_CHAT_CONTEXT_PREFIX}\n${blocks.join("\n\n")}`;
 }
 
-function bundleNote(bundleId: string, bundle: StudioBundleDto | undefined) {
+const MAX_DISMISSED_LABELS = 20;
+
+/**
+ * The bundle's status in a bracketed note. For the latest bundle it also
+ * names, by label only, the ops a new message dismissed without review, so
+ * the model can propose the ones that still matter again.
+ */
+function bundleNote(
+  bundleId: string,
+  bundle: StudioBundleDto | undefined,
+  latest: boolean,
+) {
   if (!bundle) return `[Proposed changes ${bundleId}: no longer available]`;
   const accepted = bundle.operations.filter((op) => op.status === "accepted");
+  const unreviewed = bundle.operations.filter(
+    (op) => op.dismissedBy === "new-message",
+  );
   const status =
     bundle.status === "pending"
       ? "waiting for the author's review"
@@ -234,27 +248,45 @@ function bundleNote(bundleId: string, bundle: StudioBundleDto | undefined) {
         : bundle.status === "partially-accepted"
           ? `partly accepted (${accepted.length} of ${bundle.operations.length} changes)`
           : bundle.status === "rejected"
-            ? "discarded by the author"
+            ? unreviewed.length === bundle.operations.length
+              ? "not reviewed"
+              : "discarded by the author"
             : "accepted, then undone";
-  return `[Proposed changes ${bundle.id}: ${status}]`;
+  if (!latest || unreviewed.length === 0) {
+    return `[Proposed changes ${bundle.id}: ${status}]`;
+  }
+  const labels = unreviewed
+    .slice(0, MAX_DISMISSED_LABELS)
+    .map((op) => `“${op.label}”`);
+  const more =
+    unreviewed.length > MAX_DISMISSED_LABELS
+      ? ` and ${unreviewed.length - MAX_DISMISSED_LABELS} more`
+      : "";
+  return `[Proposed changes ${bundle.id}: ${status}. Dismissed without review when the author sent a new message: ${labels.join(", ")}${more}. Propose any that still matter again.]`;
 }
 
 /**
  * Thread history as model messages. Assistant replies that proposed a
  * bundle carry a bracketed note with the bundle's current status, so the
  * model knows what the author did with it; op contents (prose included)
- * never enter history.
+ * never enter history, only op labels.
  */
 export function buildStudioChatHistory(
   messages: StudioChatMessageDto[],
   bundles: Map<string, StudioBundleDto>,
 ): ModelMessage[] {
+  const latestBundleId =
+    messages.findLast((message) => message.bundleId !== null)?.bundleId ?? null;
   return messages.map((message): ModelMessage => {
     if (message.role === "user") {
       return { role: "user", content: message.content };
     }
     const note = message.bundleId
-      ? bundleNote(message.bundleId, bundles.get(message.bundleId))
+      ? bundleNote(
+          message.bundleId,
+          bundles.get(message.bundleId),
+          message.bundleId === latestBundleId,
+        )
       : "";
     return {
       role: "assistant",

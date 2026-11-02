@@ -15,10 +15,12 @@ import {
 } from "@/lib/drizzle/schema";
 import {
   isStudioBundleTempRef,
+  type StudioBundleOp,
   type StudioBundleOpKind,
   type StudioBundleOpOf,
   type StudioBundleStoryPatch,
   type StudioBundleWorkspacePatch,
+  studioBundleOpCreates,
 } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeMode,
@@ -218,8 +220,9 @@ export type StudioChangeFields = Partial<
 
 /**
  * What each accepted op records for undo. Stored in the op's `result`
- * (so undo survives a restart), with `seq`, its place in the apply order.
- * Create ops name the real id as `createdId`.
+ * (so undo survives a restart), with `seq`, its place in the apply order
+ * across every accept of the bundle. Create ops name the real id as
+ * `createdId`.
  */
 export type StudioBundleOpResults = {
   "story.update": {
@@ -265,10 +268,46 @@ export function readOpResult<K extends StudioBundleOpKind>(
     : null;
 }
 
+/** The real id an accepted create op was given; null for any other op. */
+export function acceptedCreatedId(op: StudioBundleOp): string | null {
+  if (op.status !== "accepted") return null;
+  const createdId = (readOpResult(op) as { createdId?: unknown } | null)
+    ?.createdId;
+  return typeof createdId === "string" ? createdId : null;
+}
+
+/** Temp id to real id for each create op accepted so far. */
+export function acceptedBundleRefs(ops: StudioBundleOp[]): Map<string, string> {
+  const refs = new Map<string, string>();
+  for (const op of ops) {
+    const created = studioBundleOpCreates(op);
+    const createdId = acceptedCreatedId(op);
+    if (created && createdId) refs.set(created.tempId, createdId);
+  }
+  return refs;
+}
+
+/**
+ * The `seq` the next applied op gets. Seqs keep rising across the separate
+ * accepts of one bundle (undone ops included), so undo can reverse them
+ * all in apply order.
+ */
+export function nextBundleOpSeq(ops: StudioBundleOp[]): number {
+  let next = 0;
+  for (const op of ops) {
+    const seq = readOpResult(op)?.seq;
+    if (seq !== undefined) next = Math.max(next, seq + 1);
+  }
+  return next;
+}
+
 export type BundleApplyContext = {
   storyId: string;
   now: string;
-  /** Temp id to real id, filled in as create ops run. */
+  /**
+   * Temp id to real id: seeded from the creates accepted earlier, then
+   * filled in as create ops run.
+   */
   refs: Map<string, string>;
   modes: AspectModeResolver;
   /**

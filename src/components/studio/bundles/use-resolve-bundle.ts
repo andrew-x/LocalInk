@@ -94,7 +94,7 @@ let resolveInFlight = false;
 export type ResolveBundle = {
   /**
    * Resolves to whether the decision took effect. `opIds: null` means every
-   * op (accept) and is required for reject and undo.
+   * pending op (accept, reject); undo ignores it.
    */
   resolve(
     bundleId: string,
@@ -157,12 +157,20 @@ export function useResolveBundle(): ResolveBundle {
     }
   }, [dispatch, storyId]);
 
-  /** Forced read-back of each accepted prose op, one at a time. */
+  /**
+   * Forced read-back of each prose op accepted since `previous` (the
+   * store's copy before this decision), one at a time. Prose accepted by an
+   * earlier decision was read back then.
+   */
   const readBackAccepted = useCallback(
-    async (bundle: StudioBundleDto) => {
+    async (bundle: StudioBundleDto, previous: StudioBundleDto) => {
+      const before = new Map(
+        previous.operations.map((op) => [op.id, op.status]),
+      );
       const momentIds = new Set<string>();
       for (const op of bundle.operations) {
         if (op.kind !== "prose.write" || op.status !== "accepted") continue;
+        if (before.get(op.id) === "accepted") continue;
         const momentId = resolveStudioBundleRef(
           bundle.operations,
           op.momentRef,
@@ -212,7 +220,7 @@ export function useResolveBundle(): ResolveBundle {
           return false;
         }
 
-        const selection = decision === "accept" ? opIds : null;
+        const selection = decision === "undo" ? null : opIds;
         let result: Awaited<ReturnType<typeof resolveStudioBundle>>;
         try {
           result = await resolveStudioBundle({
@@ -239,7 +247,9 @@ export function useResolveBundle(): ResolveBundle {
         if (resolution.replayed) {
           // The first response may have been lost before its read-back ran.
           await reloadWorkspace();
-          if (decision === "accept") await readBackAccepted(resolution.bundle);
+          if (decision === "accept") {
+            await readBackAccepted(resolution.bundle, bundle);
+          }
           return true;
         }
         const { removed, ...patch } = resolution.workspacePatch;
@@ -251,7 +261,7 @@ export function useResolveBundle(): ResolveBundle {
         });
 
         if (decision === "accept") {
-          await readBackAccepted(resolution.bundle);
+          await readBackAccepted(resolution.bundle, bundle);
         }
         return true;
       } finally {

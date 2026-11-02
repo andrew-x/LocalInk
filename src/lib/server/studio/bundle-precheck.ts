@@ -11,7 +11,7 @@ import {
   type StudioBundleSelectionIssue,
   type StudioBundleStoryPatch,
   studioBundleOpCreates,
-  studioBundleOpRefs,
+  studioBundleOpCreators,
   studioPlanParentKind,
 } from "@/lib/studio/bundle-contract";
 import {
@@ -22,12 +22,38 @@ import {
 import { applyFieldOps, normalizeEntryFields } from "@/lib/studio/entry-fields";
 import { hashText } from "@/lib/studio/prose-text";
 
-import { listMentions, opMentions, type StudioStoryRows } from "./bundle-kit";
+import {
+  acceptedBundleRefs,
+  listMentions,
+  opMentions,
+  type StudioStoryRows,
+} from "./bundle-kit";
 import type { StudioChangeRow } from "./repository";
 
 type Verdict = "ok" | "conflict" | "invalid" | "too-many-fields";
 
+/** True when `itemId` sits somewhere under `ancestorId`. */
+function isUnder(
+  rows: StudioStoryRows,
+  itemId: string,
+  ancestorId: string,
+): boolean {
+  const seen = new Set<string>();
+  let parentId = rows.planItems.get(itemId)?.parentId ?? null;
+  while (parentId !== null && !seen.has(parentId)) {
+    if (parentId === ancestorId) return true;
+    seen.add(parentId);
+    parentId = rows.planItems.get(parentId)?.parentId ?? null;
+  }
+  return false;
+}
+
+/**
+ * Read-back moves a planned change down from a scene into the moment that
+ * writes it, so a record now pinned under its baseline item still matches.
+ */
 function matchesChangeBaseline(
+  rows: StudioStoryRows,
   change: StudioChangeRow,
   baseline: StudioBundleChangeBaseline,
 ): boolean {
@@ -36,7 +62,8 @@ function matchesChangeBaseline(
     change.mode === baseline.mode &&
     change.value === baseline.value &&
     change.aboutEntryId === baseline.aboutEntryId &&
-    change.planItemId === baseline.planItemId
+    (change.planItemId === baseline.planItemId ||
+      isUnder(rows, change.planItemId, baseline.planItemId))
   );
 }
 
@@ -72,58 +99,74 @@ function subtreeChangedSince(
 
 /**
  * Checks a selection against the story without writing and reports every
- * problem by op id: missing temp-id dependencies, stale baselines, the field
- * cap, and ops that cannot apply as proposed. `since` is the bundle's
- * `createdAt`: a delete also conflicts when anything it would remove was
- * written after the proposal, since prose saves, child adds, reorders and
- * new records do not bump the revision its baseline holds.
+ * problem by op id: temp-id dependencies that are unselected or were
+ * dismissed, stale baselines, the field cap, and ops that cannot apply as
+ * proposed. A temp id whose create was accepted earlier is checked as the
+ * record it became. Deletes also conflict when anything they would remove
+ * was written after the op's `baselineAt` (else `proposedAt`, the bundle's
+ * createdAt), since prose saves, child adds, reorders and new records do
+ * not bump the revision the baseline holds.
  */
 export function findBundleSelectionIssues(
   ops: StudioBundleOp[],
   selected: Set<string>,
   rows: StudioStoryRows,
-  since: string,
+  proposedAt: string,
 ): StudioBundleSelectionIssue[] {
   const creators = new Map<string, StudioBundleOp>();
   for (const op of ops) {
     const created = studioBundleOpCreates(op);
     if (created) creators.set(created.tempId, op);
   }
+  const creatorsOf = studioBundleOpCreators(ops);
+  const accepted = acceptedBundleRefs(ops);
   const chosen = ops.filter((op) => selected.has(op.id));
 
   const issues: StudioBundleSelectionIssue[] = [];
   for (const op of chosen) {
-    const { entryRefs, planRefs } = studioBundleOpRefs(op);
-    const needs = [...entryRefs, ...planRefs]
-      .filter(isStudioBundleTempRef)
-      .map((ref) => creators.get(ref))
-      .filter(
-        (creator): creator is StudioBundleOp =>
-          creator !== undefined && !selected.has(creator.id),
-      );
+    const needs = (creatorsOf.get(op.id) ?? []).filter(
+      (creator) => creator.status === "pending" && !selected.has(creator.id),
+    );
     if (needs.length > 0) {
       issues.push({
         opId: op.id,
         label: op.label,
         kind: "missing-dependency",
-        needsOpIds: [...new Set(needs.map((need) => need.id))],
+        needsOpIds: needs.map((need) => need.id),
+      });
+    }
+    if (
+      (creatorsOf.get(op.id) ?? []).some(
+        (creator) =>
+          creator.status === "rejected" || creator.status === "undone",
+      )
+    ) {
+      issues.push({
+        opId: op.id,
+        label: op.label,
+        kind: "dependency-dismissed",
       });
     }
   }
 
-  const entryExists = (ref: string) =>
-    isStudioBundleTempRef(ref) || rows.entries.has(ref);
+  /** The saved id a ref names now; a temp id while its create is not accepted. */
+  const resolve = (ref: string) => accepted.get(ref) ?? ref;
+  const entryExists = (ref: string) => {
+    const id = resolve(ref);
+    return isStudioBundleTempRef(id) || rows.entries.has(id);
+  };
   /** The kind of a referenced plan item; null when it no longer exists. */
   const planKind = (ref: string): StudioPlanKind | null => {
-    if (!isStudioBundleTempRef(ref))
-      return rows.planItems.get(ref)?.kind ?? null;
-    const creator = creators.get(ref);
+    const id = resolve(ref);
+    if (!isStudioBundleTempRef(id)) return rows.planItems.get(id)?.kind ?? null;
+    const creator = creators.get(id);
     return creator?.kind === "plan.create" ? creator.item.kind : null;
   };
   // Field lists as earlier selected ops in this bundle leave them.
   const simulatedFields = new Map<string, StudioEntryField[]>();
 
   const verdict = (op: StudioBundleOp): Verdict => {
+    const since = op.baselineAt ?? proposedAt;
     switch (op.kind) {
       case "story.update": {
         const keys = Object.keys(op.patch) as (keyof StudioBundleStoryPatch)[];
@@ -217,7 +260,7 @@ export function findBundleSelectionIssues(
       }
       case "change.update": {
         const change = rows.changes.get(op.changeId);
-        if (!change || !matchesChangeBaseline(change, op.baseline)) {
+        if (!change || !matchesChangeBaseline(rows, change, op.baseline)) {
           return "conflict";
         }
         const { aboutEntryId, planItemId } = op.patch;
@@ -227,7 +270,7 @@ export function findBundleSelectionIssues(
       }
       case "change.delete": {
         const change = rows.changes.get(op.changeId);
-        return change && matchesChangeBaseline(change, op.baseline)
+        return change && matchesChangeBaseline(rows, change, op.baseline)
           ? "ok"
           : "conflict";
       }
@@ -235,8 +278,9 @@ export function findBundleSelectionIssues(
         const kind = planKind(op.momentRef);
         if (kind === null) return "conflict";
         if (kind !== "moment") return "invalid";
-        if (isStudioBundleTempRef(op.momentRef)) return "ok";
-        const prose = rows.prose.get(op.momentRef);
+        const momentId = resolve(op.momentRef);
+        if (isStudioBundleTempRef(momentId)) return "ok";
+        const prose = rows.prose.get(momentId);
         if ((prose?.revision ?? 0) !== op.baselineRevision) return "conflict";
         return op.baselineHash === "" ||
           hashText(prose?.markdown ?? "") === op.baselineHash
@@ -257,18 +301,18 @@ export function findBundleSelectionIssues(
 
 /**
  * Runs `findBundleSelectionIssues` and throws for the first kind found, with
- * a user-facing message naming the ops by label: BAD_REQUEST for missing
- * dependencies, CONFLICT for stale baselines (every conflicting op named),
- * BAD_REQUEST for the field cap and for ops that cannot apply as proposed.
- * The selection check returns the full list by op id.
+ * a user-facing message naming the ops by label: BAD_REQUEST for missing or
+ * dismissed dependencies, CONFLICT for stale baselines (every conflicting op
+ * named), BAD_REQUEST for the field cap and for ops that cannot apply as
+ * proposed. The selection check returns the full list by op id.
  */
 export function precheckBundleAccept(
   ops: StudioBundleOp[],
   selected: Set<string>,
   rows: StudioStoryRows,
-  since: string,
+  proposedAt: string,
 ): void {
-  const issues = findBundleSelectionIssues(ops, selected, rows, since);
+  const issues = findBundleSelectionIssues(ops, selected, rows, proposedAt);
   const mentions = opMentions(ops);
   const named = (ids: string[]) =>
     listMentions(ids.map((id) => mentions.get(id) ?? id));
@@ -285,6 +329,13 @@ export function precheckBundleAccept(
     throw new ActionError(
       "BAD_REQUEST",
       `Some selected changes depend on changes that are not selected: ${pairs.slice(0, 4).join("; ")}${more}. Select those too, or deselect these.`,
+    );
+  }
+  const orphaned = ofKind("dependency-dismissed");
+  if (orphaned.length > 0) {
+    throw new ActionError(
+      "BAD_REQUEST",
+      `These changes depend on ones that were dismissed or undone: ${named(orphaned)}. Dismiss them instead.`,
     );
   }
   const conflicts = ofKind("conflict");
@@ -308,6 +359,117 @@ export function precheckBundleAccept(
       `These changes can't be applied as proposed: ${named(invalid)}. Deselect them to accept the rest.`,
     );
   }
+}
+
+/**
+ * The pending ops with no issues against `rows`, all pending ops taken
+ * together (so pending creates count as selected). Accept and undo compute
+ * this before writing: only these ops are rebased afterwards.
+ */
+export function findCleanPendingOps(
+  ops: StudioBundleOp[],
+  rows: StudioStoryRows,
+  proposedAt: string,
+): Set<string> {
+  const pending = new Set(
+    ops.filter((op) => op.status === "pending").map((op) => op.id),
+  );
+  const flagged = new Set(
+    findBundleSelectionIssues(ops, pending, rows, proposedAt).map(
+      (issue) => issue.opId,
+    ),
+  );
+  return new Set([...pending].filter((id) => !flagged.has(id)));
+}
+
+function rebaseOp(
+  op: StudioBundleOp,
+  rows: StudioStoryRows,
+  refs: Map<string, string>,
+): StudioBundleOp {
+  switch (op.kind) {
+    case "story.update": {
+      const baseline: Record<string, unknown> = {};
+      for (const key of Object.keys(op.patch)) {
+        baseline[key] = rows.story[key as keyof StudioBundleStoryPatch];
+      }
+      return { ...op, baseline: baseline as StudioBundleStoryPatch };
+    }
+    case "entry.update":
+    case "entry.delete": {
+      const entry = rows.entries.get(op.entryId);
+      return entry ? { ...op, baselineRevision: entry.revision } : op;
+    }
+    case "plan.update":
+    case "plan.delete": {
+      const item = rows.planItems.get(op.itemId);
+      return item ? { ...op, baselineRevision: item.revision } : op;
+    }
+    case "plan.move": {
+      const item = rows.planItems.get(op.itemId);
+      return item
+        ? {
+            ...op,
+            baselineRevision: item.revision,
+            baselineParentId: item.parentId,
+            baselinePosition: item.position,
+          }
+        : op;
+    }
+    case "change.update":
+    case "change.delete": {
+      const change = rows.changes.get(op.changeId);
+      return change
+        ? {
+            ...op,
+            baseline: {
+              aspect: change.aspect,
+              mode: change.mode,
+              value: change.value,
+              aboutEntryId: change.aboutEntryId,
+              planItemId: change.planItemId,
+            },
+          }
+        : op;
+    }
+    case "prose.write": {
+      const momentId = refs.get(op.momentRef) ?? op.momentRef;
+      if (isStudioBundleTempRef(momentId) || !rows.planItems.has(momentId)) {
+        return op;
+      }
+      const prose = rows.prose.get(momentId);
+      return {
+        ...op,
+        baselineRevision: prose?.revision ?? 0,
+        baselineHash:
+          op.baselineHash === "" ? "" : hashText(prose?.markdown ?? ""),
+      };
+    }
+    default:
+      return op;
+  }
+}
+
+/**
+ * Rewrites the baselines of `opIds` from `rows`, the story right after an
+ * accept or undo of other ops in the same bundle wrote it, and stamps
+ * `baselineAt` (taken after those writes), so the bundle's own writes never
+ * read as conflicts later. Pass only `findCleanPendingOps` from before the
+ * write: an op that already conflicted keeps its old baselines. `ops` must
+ * carry this write's results, so a temp moment ref can resolve.
+ */
+export function rebaseBundleOps(
+  ops: StudioBundleOp[],
+  opIds: Set<string>,
+  rows: StudioStoryRows,
+  baselineAt: string,
+): StudioBundleOp[] {
+  const refs = acceptedBundleRefs(ops);
+  return ops.map((op) =>
+    opIds.has(op.id) && op.status === "pending"
+      ? { ...rebaseOp(op, rows, refs), baselineAt }
+      : op,
+  );
 }
 
 const APPLY_RANK: Record<StudioBundleOp["kind"], number> = {

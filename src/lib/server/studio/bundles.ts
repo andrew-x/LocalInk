@@ -1,21 +1,24 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import type { LocalinkTx } from "@/lib/drizzle/db";
 import { studioBundles } from "@/lib/drizzle/schema";
 import {
+  bundleStatusOf,
+  expandStudioBundleAccept,
   type StudioBundleDecision,
+  type StudioBundleDismissal,
   type StudioBundleDto,
   type StudioBundleOp,
   type StudioBundleOpInput,
   type StudioBundleResolution,
   type StudioBundleSelectionCheck,
   type StudioBundleSource,
-  type StudioBundleStatus,
   studioBundleOpsInputSchema,
+  studioBundlePendingDependents,
   validateStudioBundleOps,
 } from "@/lib/studio/bundle-contract";
 import { generateId } from "@/lib/util";
@@ -23,21 +26,26 @@ import { generateId } from "@/lib/util";
 import { createAspectModeResolver } from "./aspect-modes";
 import { applyBundleOp, flushDeferredRelations } from "./bundle-apply";
 import {
+  acceptedBundleRefs,
   type BundleApplyContext,
   captureStoryRows,
   diffStoryRows,
   emptyWorkspacePatch,
   listMentions,
+  nextBundleOpSeq,
   opMentions,
   readOpResult,
 } from "./bundle-kit";
 import {
   findBundleSelectionIssues,
+  findCleanPendingOps,
   orderBundleOpsForApply,
   precheckBundleAccept,
+  rebaseBundleOps,
 } from "./bundle-precheck";
 import { undoBundleOp } from "./bundle-undo";
 import {
+  bundleOpsOf,
   requireStudioStory,
   type StudioBundleRow,
   toBundleDto,
@@ -142,18 +150,11 @@ export function getStudioBundleByGeneration(
   return row ? toBundleDto(row) : null;
 }
 
-function alreadyResolved(status: StudioBundleStatus): ActionError {
-  const message: Record<StudioBundleStatus, string> = {
-    pending:
-      "These changes have not been accepted yet, so there is nothing to undo.",
-    accepted: "These changes were already accepted.",
-    "partially-accepted": "These changes were already accepted.",
-    rejected: "These changes were already discarded.",
-    undone: "These changes were already undone.",
-  };
+/** A decision with nothing left to do that is not a retry of itself. */
+function nothingLeft(message: string): ActionError {
   return new ActionError(
     "BAD_REQUEST",
-    `${message[status]} Reload to see where things stand.`,
+    `${message} Reload to see where things stand.`,
   );
 }
 
@@ -191,33 +192,70 @@ function requireBundle(
   return row;
 }
 
-/** The selected op ids (all when null), each checked to be in the bundle. */
-function selectionOf(row: StudioBundleRow, opIds: string[] | null) {
-  const known = new Set(row.operations.map((op) => op.id));
-  const selected = new Set(opIds ?? known);
-  if (selected.size === 0) {
+/** The ops a decision names (every op when null), each checked to exist. */
+function requestedOps(
+  ops: StudioBundleOp[],
+  opIds: string[] | null,
+): StudioBundleOp[] {
+  if (opIds === null) return ops;
+  const ids = new Set(opIds);
+  if (ids.size === 0) {
     throw new ActionError("BAD_REQUEST", "Select at least one change.");
   }
-  if ([...selected].some((id) => !known.has(id))) {
+  const requested = ops.filter((op) => ids.has(op.id));
+  if (requested.length !== ids.size) {
     throw new ActionError(
       "BAD_REQUEST",
       "Some selected changes are not part of this proposal. Reload and try again.",
     );
   }
-  return selected;
+  return requested;
 }
 
+/**
+ * What accepting `opIds` (null: everything pending) applies: the requested
+ * ops still pending plus, transitively, the pending creates they need.
+ * Accept and the selection check share it so they cannot drift.
+ */
+function acceptSelection(
+  ops: StudioBundleOp[],
+  opIds: string[] | null,
+): { requested: StudioBundleOp[]; selected: Set<string> } {
+  const requested = requestedOps(ops, opIds);
+  return {
+    requested,
+    selected: expandStudioBundleAccept(
+      ops,
+      requested.map((op) => op.id),
+    ),
+  };
+}
+
+/** Marks the pending ops among `opIds` rejected. */
+function dismissOps(
+  ops: StudioBundleOp[],
+  opIds: Set<string>,
+  by: StudioBundleDismissal,
+): StudioBundleOp[] {
+  return ops.map(
+    (op): StudioBundleOp =>
+      opIds.has(op.id) && op.status === "pending"
+        ? { ...op, status: "rejected", dismissedBy: by }
+        : op,
+  );
+}
+
+/** Stores the ops and the bundle status they add up to. */
 function saveBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
   operations: StudioBundleOp[],
-  status: StudioBundleStatus,
   now: string,
 ): StudioBundleDto {
   return toBundleDto(
     tx
       .update(studioBundles)
-      .set({ operations, status, updatedAt: now })
+      .set({ operations, status: bundleStatusOf(operations), updatedAt: now })
       .where(eq(studioBundles.id, row.id))
       .returning()
       .get(),
@@ -241,99 +279,154 @@ function applyNamed(
   }
 }
 
+/**
+ * Applies the selection (see `acceptSelection`) while the rest stays
+ * pending. Creates accepted earlier resolve their temp ids, and `seq`
+ * continues from earlier accepts. Afterwards the still-pending ops that
+ * were clean before this accept are rebased onto what it wrote, so the
+ * bundle's own writes never make a later accept conflict.
+ */
 function acceptBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
   opIds: string[] | null,
 ): StudioBundleResolution {
-  if (row.status === "accepted" || row.status === "partially-accepted") {
-    return replayed(row);
+  const ops = bundleOpsOf(row);
+  const mentions = opMentions(ops);
+  const { requested, selected } = acceptSelection(ops, opIds);
+  if (opIds !== null) {
+    const dismissed = requested.filter(
+      (op) => op.status === "rejected" || op.status === "undone",
+    );
+    if (dismissed.length > 0) {
+      throw nothingLeft(
+        `${listMentions(dismissed.map((op) => mentions.get(op.id) ?? op.label))} ${dismissed.length === 1 ? "was" : "were"} already dismissed or undone.`,
+      );
+    }
   }
-  if (row.status !== "pending") throw alreadyResolved(row.status);
-  const ops = row.operations;
-  const selected = selectionOf(row, opIds);
+  if (selected.size === 0) {
+    // Everything requested is already applied: a retried accept.
+    if (requested.some((op) => op.status === "accepted")) return replayed(row);
+    throw nothingLeft(
+      ops.some((op) => op.status === "undone")
+        ? "These changes were already undone."
+        : "These changes were already discarded.",
+    );
+  }
 
   const before = captureStoryRows(tx, row.storyId);
   precheckBundleAccept(ops, selected, before, row.createdAt);
-  const mentions = opMentions(ops);
+  const rebase = findCleanPendingOps(ops, before, row.createdAt);
   const now = day().toISOString();
   const ctx: BundleApplyContext = {
     storyId: row.storyId,
     now,
-    refs: new Map(),
+    refs: acceptedBundleRefs(ops),
     modes: createAspectModeResolver(tx, row.storyId),
     deferredRelated: [],
   };
   const results = new Map<string, object>();
-  orderBundleOpsForApply(
+  let seq = nextBundleOpSeq(ops);
+  for (const op of orderBundleOpsForApply(
     ops.filter((op) => selected.has(op.id)),
     before,
-  ).forEach((op, seq) => {
+  )) {
     results.set(op.id, {
       ...applyNamed(tx, ctx, op, mentions.get(op.id) ?? op.label),
-      seq,
+      seq: seq++,
     });
-  });
+  }
   flushDeferredRelations(tx, ctx);
   touchStudioStory(tx, row.storyId, now);
 
-  const operations = ops.map(
+  const after = captureStoryRows(tx, row.storyId);
+  const applied = ops.map(
     (op): StudioBundleOp =>
       selected.has(op.id)
         ? { ...op, status: "accepted", result: results.get(op.id) }
-        : { ...op, status: "rejected" },
-  );
-  const bundle = saveBundle(
-    tx,
-    row,
-    operations,
-    selected.size === ops.length ? "accepted" : "partially-accepted",
-    now,
+        : op,
   );
   return {
-    bundle,
-    workspacePatch: diffStoryRows(before, captureStoryRows(tx, row.storyId)),
+    bundle: saveBundle(
+      tx,
+      row,
+      rebaseBundleOps(applied, rebase, after, day().toISOString()),
+      now,
+    ),
+    workspacePatch: diffStoryRows(before, after),
     replayed: false,
   };
 }
 
+/**
+ * Dismisses the requested pending ops (null: every pending op) and the
+ * pending ops that depend on them, which could never apply. Accepted ops
+ * are left as they are.
+ */
 function rejectBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
+  opIds: string[] | null,
 ): StudioBundleResolution {
-  if (row.status === "rejected") return replayed(row);
-  if (row.status !== "pending") throw alreadyResolved(row.status);
-  const operations = row.operations.map(
-    (op): StudioBundleOp => ({ ...op, status: "rejected" }),
-  );
+  const ops = bundleOpsOf(row);
+  const requested = requestedOps(ops, opIds);
+  const roots = requested
+    .filter((op) => op.status === "pending")
+    .map((op) => op.id);
+  if (roots.length === 0) {
+    if (requested.some((op) => op.status === "rejected")) return replayed(row);
+    throw nothingLeft(
+      requested.some((op) => op.status === "accepted")
+        ? "These changes were already accepted."
+        : "These changes were already undone.",
+    );
+  }
+  const dismissed = new Set([
+    ...roots,
+    ...studioBundlePendingDependents(ops, roots),
+  ]);
   return {
-    bundle: saveBundle(tx, row, operations, "rejected", day().toISOString()),
+    bundle: saveBundle(
+      tx,
+      row,
+      dismissOps(ops, dismissed, "author"),
+      day().toISOString(),
+    ),
     workspacePatch: emptyWorkspacePatch(),
     replayed: false,
   };
 }
 
 /**
- * Reverses accepted ops, last applied first. Each op checks that what it
- * wrote is still in place; every op that fails is named and nothing is
- * kept (the caller's transaction rolls back).
+ * Reverses every accepted op, last applied first across all of the
+ * bundle's accepts. Each op checks that what it wrote is still in place;
+ * every op that fails is named and nothing is kept (the caller's
+ * transaction rolls back). Pending ops stay pending, except those that need
+ * a create being undone, which are dismissed; the rest are rebased as after
+ * an accept, since undo is this bundle's own write too.
  */
 function undoBundle(
   tx: LocalinkTx,
   row: StudioBundleRow,
 ): StudioBundleResolution {
-  if (row.status === "undone") return replayed(row);
-  if (row.status !== "accepted" && row.status !== "partially-accepted") {
-    throw alreadyResolved(row.status);
-  }
-  const before = captureStoryRows(tx, row.storyId);
-  const now = day().toISOString();
-  const ctx = { storyId: row.storyId, now };
-  const accepted = row.operations
+  const ops = bundleOpsOf(row);
+  const accepted = ops
     .filter((op) => op.status === "accepted")
     .map((op) => ({ op, seq: readOpResult(op)?.seq ?? -1 }))
     .sort((a, b) => b.seq - a.seq);
-  const mentions = opMentions(row.operations);
+  if (accepted.length === 0) {
+    if (ops.some((op) => op.status === "undone")) return replayed(row);
+    throw nothingLeft(
+      ops.some((op) => op.status === "pending")
+        ? "These changes have not been accepted yet, so there is nothing to undo."
+        : "These changes were already discarded.",
+    );
+  }
+  const before = captureStoryRows(tx, row.storyId);
+  const rebase = findCleanPendingOps(ops, before, row.createdAt);
+  const now = day().toISOString();
+  const ctx = { storyId: row.storyId, now };
+  const mentions = opMentions(ops);
   const conflicts: string[] = [];
   for (const { op } of accepted) {
     let undone = false;
@@ -351,18 +444,37 @@ function undoBundle(
     );
   }
   touchStudioStory(tx, row.storyId, now);
+
+  const after = captureStoryRows(tx, row.storyId);
+  const undoneIds = new Set(accepted.map(({ op }) => op.id));
+  const undone = dismissOps(
+    ops.map(
+      (op): StudioBundleOp =>
+        undoneIds.has(op.id) ? { ...op, status: "undone" } : op,
+    ),
+    studioBundlePendingDependents(ops, undoneIds),
+    "author",
+  );
   return {
-    bundle: saveBundle(tx, row, row.operations, "undone", now),
-    workspacePatch: diffStoryRows(before, captureStoryRows(tx, row.storyId)),
+    bundle: saveBundle(
+      tx,
+      row,
+      rebaseBundleOps(undone, rebase, after, day().toISOString()),
+      now,
+    ),
+    workspacePatch: diffStoryRows(before, after),
     replayed: false,
   };
 }
 
 /**
- * Accepts (all, or `opIds`), rejects, or undoes a bundle. Run it inside one
- * transaction: accept checks every baseline before writing and applies the
- * selection atomically. Each decision is idempotent once its target state
- * is reached, returning the bundle, an empty patch, and `replayed: true`.
+ * Accepts or rejects ops of a bundle (`opIds`, or every pending op when
+ * null) while the rest stays pending, or undoes everything accepted so far
+ * (`opIds` ignored). Run it inside one transaction: accept checks every
+ * baseline before writing and applies its selection atomically. Each
+ * decision is idempotent once its target state is reached, returning the
+ * bundle, an empty patch, and `replayed: true`. The bundle's status is
+ * always `bundleStatusOf` its ops.
  */
 export function resolveStudioBundle(
   tx: LocalinkTx,
@@ -370,7 +482,7 @@ export function resolveStudioBundle(
     storyId: string;
     bundleId: string;
     decision: StudioBundleDecision;
-    /** Accept only; null accepts every op. */
+    /** Accept and reject; null means every pending op. Undo ignores it. */
     opIds: string[] | null;
   },
 ): StudioBundleResolution {
@@ -379,29 +491,65 @@ export function resolveStudioBundle(
     case "accept":
       return acceptBundle(tx, row, input.opIds);
     case "reject":
-      return rejectBundle(tx, row);
+      return rejectBundle(tx, row, input.opIds);
     case "undo":
       return undoBundle(tx, row);
   }
 }
 
 /**
- * Every problem with accepting `opIds` (all when null) right now, by op id,
- * without writing. A bundle that is no longer pending has nothing to check.
- * The UI calls this after a failed accept to mark the ops to deselect.
+ * Every problem with accepting `opIds` (all pending when null) right now,
+ * by op id, without writing. It expands the selection exactly as accept
+ * does; when nothing would be applied there is nothing to check. The UI
+ * calls this after a failed accept to mark the ops that cannot go in.
  */
 export function checkStudioBundleSelection(
   tx: LocalinkTx,
   input: { storyId: string; bundleId: string; opIds: string[] | null },
 ): StudioBundleSelectionCheck {
   const row = requireBundle(tx, input.storyId, input.bundleId);
-  if (row.status !== "pending") return { issues: [] };
+  const ops = bundleOpsOf(row);
+  const { selected } = acceptSelection(ops, input.opIds);
+  if (selected.size === 0) return { issues: [] };
   return {
     issues: findBundleSelectionIssues(
-      row.operations,
-      selectionOf(row, input.opIds),
+      ops,
+      selected,
       captureStoryRows(tx, row.storyId),
       row.createdAt,
     ),
   };
+}
+
+/**
+ * Dismisses, without review, every op still pending in any bundle of the
+ * story (every thread): sending a new chat message clears what is still
+ * waiting, so at most one proposal has pending suggestions at a time.
+ * Accepted ops stay accepted and undoable. Returns the bundles it changed.
+ */
+export function dismissPendingStudioBundles(
+  tx: LocalinkTx,
+  storyId: string,
+): StudioBundleDto[] {
+  const now = day().toISOString();
+  return tx
+    .select()
+    .from(studioBundles)
+    .where(
+      and(
+        eq(studioBundles.storyId, storyId),
+        eq(studioBundles.status, "pending"),
+      ),
+    )
+    .orderBy(asc(studioBundles.createdAt), asc(studioBundles.id))
+    .all()
+    .map((row) => {
+      const ops = bundleOpsOf(row);
+      return saveBundle(
+        tx,
+        row,
+        dismissOps(ops, new Set(ops.map((op) => op.id)), "new-message"),
+        now,
+      );
+    });
 }

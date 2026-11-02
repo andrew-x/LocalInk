@@ -73,6 +73,7 @@ const WRITING_ERROR = {
 
 const ISSUE_TEXT: Record<StudioBundleSelectionIssue["kind"], string> = {
   "missing-dependency": "depends on something no other proposed change creates",
+  "dependency-dismissed": "depends on a change the author dismissed",
   conflict: "no longer matches the saved story",
   "too-many-fields": "would leave an entry with too many fields",
   invalid: "cannot be applied as proposed (wrong kind of parent or item)",

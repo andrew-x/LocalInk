@@ -264,14 +264,18 @@ export const resolveStudioBundleActionSchema = z.object({
   ...storyIdField,
   bundleId: id,
   decision: z.enum(["accept", "reject", "undo"]),
-  /** Accept only: the ops to apply; null applies all. Ignored otherwise. */
+  /**
+   * Accept and reject: the ops to decide (accept also brings the pending
+   * creates they need; reject also dismisses the pending ops that need
+   * them). Null means every pending op. Undo ignores it.
+   */
   opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
 });
 
 export const checkStudioBundleSelectionSchema = z.object({
   ...storyIdField,
   bundleId: id,
-  /** The ops the author has selected; null means all. */
+  /** The ops the author would accept; null means every pending op. */
   opIds: z.array(id).min(1).max(STUDIO_BUNDLE_MAX_OPS).nullable(),
 });
 

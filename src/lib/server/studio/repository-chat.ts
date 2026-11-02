@@ -26,6 +26,7 @@ import { generateId } from "@/lib/util";
 
 import type { StudioChatBundleCandidate } from "./bundle-builder";
 import {
+  dismissPendingStudioBundles,
   getStudioBundleByGeneration,
   insertStudioBundle,
   resolveStudioBundle,
@@ -39,7 +40,7 @@ import { getStudioStage, type StudioStageBinding } from "./staging";
  * stores the staged reply and its bundle. Both take ids only, never text
  * from the route, and save is idempotent on generationId. Discard removes a
  * prepared message that never got a reply, so an aborted turn keeps
- * nothing.
+ * nothing of its own (suggestions prepare dismissed stay dismissed).
  */
 
 type ThreadRow = typeof studioChatThreads.$inferSelect;
@@ -190,6 +191,12 @@ function bundlesById(
   );
 }
 
+/**
+ * Stores the user message (and a new thread for a first message). In the
+ * same transaction it dismisses every suggestion still pending in the
+ * story, so the author's new message clears what was waiting. That stays
+ * dismissed even if this turn is later discarded.
+ */
 export function prepareStudioChatTurn(
   tx: LocalinkTx,
   input: { storyId: string; threadId: string | null; content: string },
@@ -218,6 +225,7 @@ export function prepareStudioChatTurn(
       .returning()
       .get();
   }
+  const rejectedBundles = dismissPendingStudioBundles(tx, input.storyId);
   const generationId = generateId("studio-chat-generation");
   const message = tx
     .insert(studioChatMessages)
@@ -238,6 +246,7 @@ export function prepareStudioChatTurn(
     thread: toThreadDto(thread),
     userMessage: toMessageDto(message),
     generationId,
+    rejectedBundles,
   };
 }
 
@@ -459,12 +468,12 @@ export function loadStudioChatThread(
 }
 
 /**
- * Deletes a thread and its messages. Its pending bundles are rejected first,
- * in the same transaction, through the bundle reject path (op statuses and
- * updatedAt stay consistent; the rows are kept): once the thread is gone
- * there is no review card left to accept them from (Ruling A25). Accepted
- * bundles stay undoable from the workspace. Idempotent: a missing thread
- * deletes and rejects nothing.
+ * Deletes a thread and its messages. The pending ops of its bundles are
+ * rejected first, in the same transaction, through the bundle reject path
+ * (op statuses and updatedAt stay consistent; the rows are kept): once the
+ * thread is gone there is no review card left to accept them from (Ruling
+ * A25). Accepted ops stay undoable from the workspace. Idempotent: a
+ * missing thread deletes and rejects nothing.
  */
 export function deleteStudioChatThread(
   tx: LocalinkTx,

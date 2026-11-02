@@ -15,19 +15,31 @@ import {
 
 /**
  * A change bundle is a set of operations proposed together (by chat now, by
- * cascade fixes later) that the author accepts in whole or in part, rejects,
- * or undoes. These schemas are action-side, not model-facing: bounds are
- * fine here, and the chat's tool schemas are separate.
+ * cascade fixes later). The author accepts or dismisses ops one at a time
+ * (or all at once) while the bundle stays pending, and can undo everything
+ * accepted so far. These schemas are action-side, not model-facing: bounds
+ * are fine here, and the chat's tool schemas are separate.
  */
 
 export type StudioBundleSource = "chat";
+/** Derived from the op statuses by `bundleStatusOf` on every decision. */
 export type StudioBundleStatus =
   | "pending"
   | "accepted"
   | "partially-accepted"
   | "rejected"
   | "undone";
-export type StudioBundleOpStatus = "pending" | "accepted" | "rejected";
+export type StudioBundleOpStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "undone";
+/**
+ * Why a rejected op was dismissed: the author (✕, Dismiss all, a dismissed
+ * create's dependents, an undo's dependents) or a new chat message, which
+ * dismisses everything still pending without review.
+ */
+export type StudioBundleDismissal = "author" | "new-message";
 export type StudioBundleDecision = "accept" | "reject" | "undo";
 
 /**
@@ -276,10 +288,19 @@ export type StudioBundleChangePatch = z.infer<typeof changePatchSchema>;
 /**
  * A stored op. `result` is recorded when the op is accepted: whatever undo
  * needs (created ids, previous values, delete snapshots). Server-only data;
- * DTOs drop it.
+ * DTOs drop it. `baselineAt` and `dismissedBy` are action-side bookkeeping,
+ * never model-facing.
  */
 export type StudioBundleOp = StudioBundleOpInput & {
   status: StudioBundleOpStatus;
+  /**
+   * When an accept or undo of other ops in this bundle last rewrote this
+   * op's baselines. Delete checks count writes after it as conflicts
+   * (after the bundle's createdAt when unset).
+   */
+  baselineAt?: string;
+  /** Set on rejected ops. */
+  dismissedBy?: StudioBundleDismissal;
   result?: unknown;
 };
 
@@ -294,7 +315,8 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 
 /**
  * An op as the client sees it. `createdId` is the real id an accepted
- * entry/plan/change create was given (null otherwise).
+ * entry/plan/change create was given (null otherwise, including once the
+ * op is undone).
  */
 export type StudioBundleOpDto = DistributiveOmit<StudioBundleOp, "result"> & {
   createdId: string | null;
@@ -331,6 +353,9 @@ export type StudioBundleWorkspacePatch = {
 /**
  * Why a selected op cannot be accepted:
  * - `missing-dependency`: it needs a temp id only unselected ops create.
+ *   Accept pulls pending creates in automatically, so only a caller that
+ *   checks an unexpanded selection (the chat builder) sees it.
+ * - `dependency-dismissed`: a create it needs was dismissed or undone.
  * - `conflict`: its baseline no longer matches, a record it names is gone,
  *   or (deletes) something inside what it deletes changed after proposal.
  * - `too-many-fields`: it would leave an entry above the field cap.
@@ -338,6 +363,7 @@ export type StudioBundleWorkspacePatch = {
  */
 export type StudioBundleIssueKind =
   | "missing-dependency"
+  | "dependency-dismissed"
   | "conflict"
   | "too-many-fields"
   | "invalid";
@@ -366,12 +392,29 @@ export type StudioBundleResolution = {
   bundle: StudioBundleDto;
   workspacePatch: StudioBundleWorkspacePatch;
   /**
-   * True when the bundle was already in the target state (a retried
+   * True when the requested ops were already in the target state (a retried
    * decision): nothing was written and the patch is empty, so reload the
    * workspace if the earlier response was lost.
    */
   replayed: boolean;
 };
+
+type StatusedOp = StudioBundleOpInput & { status: StudioBundleOpStatus };
+
+/**
+ * The bundle status the op statuses add up to: pending while any op is;
+ * accepted when every decided op was; partly accepted when some were;
+ * undone when some were undone and none is accepted; otherwise rejected.
+ */
+export function bundleStatusOf(
+  ops: readonly { status: StudioBundleOpStatus }[],
+): StudioBundleStatus {
+  if (ops.some((op) => op.status === "pending")) return "pending";
+  if (ops.every((op) => op.status === "accepted")) return "accepted";
+  if (ops.some((op) => op.status === "accepted")) return "partially-accepted";
+  if (ops.some((op) => op.status === "undone")) return "undone";
+  return "rejected";
+}
 
 /** The temp id an op declares, and what kind of record it creates. */
 export function studioBundleOpCreates(
@@ -384,9 +427,9 @@ export function studioBundleOpCreates(
 
 /**
  * The record a ref names after accept: a temp id maps to the real id its
- * accepted create was given (null while pending, if that create was not
- * accepted, or once the bundle is undone, since DTOs of undone bundles carry
- * no created ids); a saved id is returned as is.
+ * accepted create was given (null while pending, if that create was
+ * dismissed, or once it is undone, since DTOs of undone ops carry no
+ * created ids); a saved id is returned as is.
  */
 export function resolveStudioBundleRef(
   operations: StudioBundleOpDto[],
@@ -441,6 +484,92 @@ export function studioBundleOpRefs(op: StudioBundleOpInput): {
     default:
       return { entryRefs: [], planRefs: [] };
   }
+}
+
+/**
+ * Dependencies inside a bundle, by op id: the create ops whose temp ids the
+ * op references. An op never depends on itself (a new entry may list itself
+ * as related).
+ */
+export function studioBundleOpCreators<T extends StudioBundleOpInput>(
+  ops: readonly T[],
+): Map<string, T[]> {
+  const byTempId = new Map<string, T>();
+  for (const op of ops) {
+    const created = studioBundleOpCreates(op);
+    if (created) byTempId.set(created.tempId, op);
+  }
+  return new Map(
+    ops.map((op) => {
+      const { entryRefs, planRefs } = studioBundleOpRefs(op);
+      const creators = new Set<T>();
+      for (const ref of [...entryRefs, ...planRefs]) {
+        const creator = isStudioBundleTempRef(ref)
+          ? byTempId.get(ref)
+          : undefined;
+        if (creator && creator.id !== op.id) creators.add(creator);
+      }
+      return [op.id, [...creators]];
+    }),
+  );
+}
+
+/**
+ * What accepting `opIds` applies: the ones still pending plus, transitively,
+ * the pending creates they reference, so a new beat brings its new scene.
+ * Accept and the selection check both use it, so they cannot drift.
+ */
+export function expandStudioBundleAccept(
+  ops: readonly StatusedOp[],
+  opIds: Iterable<string>,
+): Set<string> {
+  const creatorsOf = studioBundleOpCreators(ops);
+  const byId = new Map(ops.map((op) => [op.id, op]));
+  const selected = new Set<string>();
+  const queue = [...opIds].flatMap((id) => byId.get(id) ?? []);
+  while (queue.length > 0) {
+    const op = queue.pop() as StatusedOp;
+    if (op.status !== "pending" || selected.has(op.id)) continue;
+    selected.add(op.id);
+    queue.push(...(creatorsOf.get(op.id) ?? []));
+  }
+  return selected;
+}
+
+/**
+ * The pending ops that depend on any of `opIds` (creates), transitively
+ * through other pending ops; `opIds` themselves are left out. Dismissing or
+ * undoing a create takes these with it, since they could never apply.
+ */
+export function studioBundlePendingDependents(
+  ops: readonly StatusedOp[],
+  opIds: Iterable<string>,
+): Set<string> {
+  const creatorsOf = studioBundleOpCreators(ops);
+  const dependents = new Map<string, StatusedOp[]>();
+  for (const op of ops) {
+    for (const creator of creatorsOf.get(op.id) ?? []) {
+      dependents.set(creator.id, [...(dependents.get(creator.id) ?? []), op]);
+    }
+  }
+  const roots = new Set(opIds);
+  const found = new Set<string>();
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const id = queue.pop() as string;
+    for (const dependent of dependents.get(id) ?? []) {
+      if (
+        dependent.status !== "pending" ||
+        roots.has(dependent.id) ||
+        found.has(dependent.id)
+      ) {
+        continue;
+      }
+      found.add(dependent.id);
+      queue.push(dependent.id);
+    }
+  }
+  return found;
 }
 
 /** The parent kind a plan item of this kind lives under (null: the root). */

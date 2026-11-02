@@ -20,6 +20,8 @@ const ISSUE_TEXT: Record<StudioBundleIssueKind, string> = {
     "Changed since this was proposed. Deselect it to accept the rest, or discard these changes.",
   "missing-dependency":
     "Needs another change that is not selected. Select that one too, or deselect this.",
+  "dependency-dismissed":
+    "Needs a change that was dismissed or undone, so it can't be applied.",
   "too-many-fields":
     "Would leave this entry with more fields than are allowed.",
   invalid: "Cannot be applied as proposed.",
@@ -28,6 +30,7 @@ const ISSUE_TEXT: Record<StudioBundleIssueKind, string> = {
 const OP_STATUS_LABEL = {
   accepted: "Applied",
   rejected: "Not applied",
+  undone: "Undone",
   pending: "",
 } as const;
 
@@ -98,9 +101,7 @@ export function BundleOpRow({
           <span
             className={cn(
               "min-w-0 flex-1",
-              !bundlePending &&
-                op.status === "rejected" &&
-                "text-muted-foreground line-through",
+              op.status === "rejected" && "text-muted-foreground line-through",
             )}
           >
             {op.label}
