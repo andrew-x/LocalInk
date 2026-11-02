@@ -17,6 +17,7 @@ import {
 } from "@/lib/studio/rewrite-contract";
 import { computeStateGoingIn } from "@/lib/studio/state";
 
+import { selectMomentEntryIds } from "./moment-context";
 import {
   budgetPrompt,
   StudioNotFoundError,
@@ -64,6 +65,7 @@ const SYSTEM_PROMPT = [
   "Every option must keep the selection's point of view and tense, keep each character's age-appropriate vocabulary, and fit seamlessly into the surrounding paragraph. Do not repeat the surrounding text, and do not add events the selection did not contain unless asked.",
   'Fields marked use="steer-only-never-narrate" are background. Never state them.',
   "Follow the writer's instructions and style. Where they conflict, the more specific instruction wins.",
+  "When a Bible entry's own words (`in_the_authors_words`) and its details disagree, its own words win.",
   "Each option is prose only: no quotes around it, labels, numbering, or commentary. Preserve paragraph breaks where the selection has them.",
   "Return only the structured object requested.",
 ].join("\n");
@@ -116,12 +118,9 @@ export async function generateStudioRewrite(
     },
     moment.id,
   );
-  const bibleIds = new Set([
-    ...moment.presentEntryIds,
-    ...moment.contextPinnedEntryIds,
-  ]);
-  for (const excluded of moment.contextExcludedEntryIds)
-    bibleIds.delete(excluded);
+  const bibleIds = new Set(
+    selectMomentEntryIds(workspace.planItems, moment.id),
+  );
   const states = computeStateGoingIn(stateInput, moment.id);
 
   const guidance =

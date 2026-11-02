@@ -179,7 +179,7 @@ export function xmlEntryBlock(
     xmlGroup(
       "entry",
       [
-        xmlField("summary", entry.summary),
+        xmlField("in_the_authors_words", entry.summary),
         ...fieldBlocks,
         stateBlocks.length > 0
           ? xmlGroup("state_at_this_point", stateBlocks)

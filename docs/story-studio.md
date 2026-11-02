@@ -35,7 +35,9 @@ AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in 
 
 ## Moment prompt context
 
-Nothing writes chapter or scene summaries in Phase 1; read-back writes a summary per moment. So the "story so far" is every earlier written moment's summary (its brief until read-back has run), one unprotected section each, plus any chapter or scene summary. Under budget pressure the oldest summary is dropped first, then the next-moment set-up, then voice samples. The Bible, the brief, and the previous text are never dropped (the context-too-large error fires instead).
+Nothing writes chapter or scene summaries in Phase 1; read-back writes a summary per moment. So the "story so far" is every earlier written moment's summary (its brief until read-back has run), one unprotected section each, plus any chapter or scene summary. Under budget pressure the oldest summary is dropped first, then the next-moment set-up, then voice samples. The Bible, the brief, the scene and chapter descriptions, and the previous text are never dropped (the context-too-large error fires instead).
+
+The beat prompt reads the enclosing scene's and chapter's `whatHappens` as `this_scene_in_the_authors_words` / `this_chapter_in_the_authors_words`, flagged `author="true"` when author-owned. Author-flagged text outranks AI scaffolding in the prompt's precedence. The Bible selection is the moment's present entries plus its scene's; manual pins and exclusions are stored but ignored. `how_to_write` was merged into the description by migration 0014 for author-owned rows (AI-owned `how_to_write` is left in place), so author direction written there still reaches the prompt.
 
 ## Manuscript: one Lexical editor per moment
 

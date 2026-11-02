@@ -64,6 +64,8 @@ const SYSTEM_PROMPT = [
   "- Do not narrate character-sheet traits or backstory as description. Let them show only through what the character does and notices in this moment.",
   "- Match intensity to the stakes of the moment. Small moments stay small.",
   "- Follow the writer's instructions and style. Where they conflict, the more specific instruction wins. They shape voice, not canon: established facts and what each character knows outrank them.",
+  "- `this_scene_in_the_authors_words` and `this_chapter_in_the_authors_words` are the writer's plan for the scene and chapter around this moment. Text marked author=\"true\" is the writer's own direction and outranks AI scaffolding (`how_to_write`, craft fields, descriptions not marked author, entry details). It does not outrank established facts.",
+  "- When a Bible entry's own words (`in_the_authors_words`) and its details disagree, its own words win.",
   "- Aim for roughly 150 to 450 words.",
   "- Output the prose only. No title, heading, notes, preamble, options, or commentary.",
   "",
@@ -75,6 +77,25 @@ const SYSTEM_PROMPT = [
   "- Tidy epiphanies or lessons learned.",
   "- Runs of one-line paragraphs.",
 ].join("\n");
+
+/**
+ * The Bible entries in play for a moment: its own present entries first, then
+ * the scene's it has not already named. Pins and exclusions are ignored.
+ */
+export function selectMomentEntryIds(
+  planItems: StudioPlanItemDto[],
+  momentId: string,
+): string[] {
+  const moment = planItems.find((item) => item.id === momentId);
+  if (!moment) return [];
+  const point = getPlanIndex(planItems).get(momentId);
+  const byId = new Map(planItems.map((item) => [item.id, item]));
+  const sceneId = point?.ancestors.find((id) => byId.get(id)?.kind === "scene");
+  const scene = sceneId ? byId.get(sceneId) : undefined;
+  return [
+    ...new Set([...moment.presentEntryIds, ...(scene?.presentEntryIds ?? [])]),
+  ];
+}
 
 export function buildStudioMomentSystemPrompt(): string {
   return SYSTEM_PROMPT;
@@ -175,6 +196,33 @@ export function buildStudioMomentPrompt(
     ),
   );
 
+  // 1b. The scene's and chapter's descriptions. Never dropped: they carry the
+  // author's direction for everything below them.
+  const itemsById = new Map(workspace.planItems.map((item) => [item.id, item]));
+  const ancestorOf = (kind: "scene" | "chapter") => {
+    const id = point.ancestors.find(
+      (ancestor) => itemsById.get(ancestor)?.kind === kind,
+    );
+    return id ? itemsById.get(id) : undefined;
+  };
+  for (const [kind, tag] of [
+    ["scene", "this_scene_in_the_authors_words"],
+    ["chapter", "this_chapter_in_the_authors_words"],
+  ] as const) {
+    const ancestor = ancestorOf(kind);
+    if (!ancestor) continue;
+    sections.push(
+      section(
+        `${kind}-description`,
+        xmlField(tag, ancestor.whatHappens, {
+          author: ancestor.authorFields.includes("whatHappens")
+            ? "true"
+            : undefined,
+        }),
+      ),
+    );
+  }
+
   // 2. Style.
   sections.push(
     section(
@@ -188,13 +236,8 @@ export function buildStudioMomentPrompt(
     ),
   );
 
-  // 3. Bible: present and pinned entries, minus excluded, as of this moment.
-  const bibleIds = new Set([
-    ...moment.presentEntryIds,
-    ...moment.contextPinnedEntryIds,
-  ]);
-  for (const excluded of moment.contextExcludedEntryIds)
-    bibleIds.delete(excluded);
+  // 3. Bible: this moment's and its scene's present entries, as of this moment.
+  const bibleIds = new Set(selectMomentEntryIds(workspace.planItems, momentId));
   const states = computeStateGoingIn(stateInput, momentId);
   sections.push(
     section(
@@ -287,7 +330,6 @@ export function buildStudioMomentPrompt(
   // Changes still planned on the enclosing scene and chapter. Read-back
   // moves them down to the moment that realizes them; until then they are
   // where the arc is heading, not this moment's required end state.
-  const itemsById = new Map(workspace.planItems.map((item) => [item.id, item]));
   const headingToward = (kind: "scene" | "chapter") => {
     const ancestorId = point.ancestors.find(
       (id) => itemsById.get(id)?.kind === kind,
