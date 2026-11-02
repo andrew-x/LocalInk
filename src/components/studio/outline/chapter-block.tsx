@@ -5,11 +5,15 @@ import { useCallback, useState } from "react";
 
 import { Button } from "@/components/common/button";
 import { StudioConfirmDialog } from "@/components/studio/confirm-dialog";
+import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { usePatchPlanItem } from "@/components/studio/shared/use-patch-plan-item";
 import { usePlanAi } from "@/components/studio/workspace/use-plan-ai";
 import { usePlanTreeActions } from "@/components/studio/workspace/use-plan-tree-actions";
-import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import {
+  useProseByMomentId,
+  useStudioStore,
+} from "@/components/studio/workspace/use-studio-store";
 import { scrollToStudioItem } from "@/components/studio/workspace/workspace-anchors";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 import type { StudioPlanNode } from "@/lib/studio/plan-order";
@@ -62,6 +66,36 @@ function PlanningTag({
         </Button>
       ) : null}
     </span>
+  );
+}
+
+/**
+ * Write ▸ on a chapter: writes its scenes that still have unwritten (or no)
+ * beats in order, each waiting for Keep.
+ */
+function WriteChapterButton({ chapter }: { chapter: StudioPlanNode }) {
+  const loop = useWritingLoop();
+  const proseByMoment = useProseByMomentId();
+  const writable = chapter.children.some(
+    (scene) =>
+      scene.kind === "scene" &&
+      (scene.children.length === 0 ||
+        scene.children.some(
+          (beat) => !proseByMoment.get(beat.id)?.markdown.trim(),
+        )),
+  );
+  if (!writable) return null;
+  return (
+    <Button
+      className="h-6 px-2 font-semibold text-caption text-primary hover:text-primary"
+      disabled={loop.isKeeping || loop.queue?.chapterId === chapter.id}
+      onClick={() => void loop.writeChapter(chapter.id)}
+      size="sm"
+      type="button"
+      variant="ghost"
+    >
+      Write ▸
+    </Button>
   );
 }
 
@@ -128,6 +162,7 @@ export function ChapterBlock({ chapter }: { chapter: StudioPlanNode }) {
       <OutlineLine
         actions={
           <>
+            <WriteChapterButton chapter={chapter} />
             {scenes.length === 0 && !planAi.pending.has(chapter.id) ? (
               <Button
                 className="h-6 px-2 font-normal text-caption text-muted-foreground"

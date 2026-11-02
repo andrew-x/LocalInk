@@ -227,13 +227,6 @@ export const applyStudioPlanActionSchema = z.object({
   targetItemId: id.optional(),
 });
 
-export const keepStudioMomentDraftActionSchema = z.object({
-  ...storyIdField,
-  momentId: id,
-  generationId: id,
-  expectedRevision: revisionSchema,
-});
-
 export const keepStudioSceneDraftActionSchema = z.object({
   ...storyIdField,
   sceneId: id,

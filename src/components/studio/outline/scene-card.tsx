@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { type KeyboardEvent, useCallback } from "react";
 
 import { Button } from "@/components/common/button";
+import { isSceneDraftRunning } from "@/components/studio/manuscript/scene-draft-model";
 import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import {
@@ -181,9 +182,7 @@ function SceneActions({ scene }: { scene: StudioPlanNode }) {
   const beats = scene.children;
   const pending = planAi.pending.get(scene.id);
   const writing =
-    loop.preparingSceneId === scene.id ||
-    loop.chain?.sceneId === scene.id ||
-    beats.some((beat) => beat.id === loop.draft?.momentId);
+    loop.draft?.sceneId === scene.id && isSceneDraftRunning(loop.draft);
   const unwritten = beats.some(
     (beat) => !proseByMoment.get(beat.id)?.markdown.trim(),
   );
@@ -221,11 +220,10 @@ function SceneActions({ scene }: { scene: StudioPlanNode }) {
           <span aria-hidden="true">✦</span> Plan beats
         </Button>
       ) : unwritten ? (
-        // Temporary until Task 9's scene drafts: writes beat by beat.
         <Button
           className="h-6 px-2 font-semibold text-caption text-primary hover:text-primary"
           disabled={loop.isKeeping}
-          onClick={() => void loop.writeRestOfScene(scene.id, false)}
+          onClick={() => void loop.writeScene(scene.id)}
           size="sm"
           type="button"
           variant="ghost"

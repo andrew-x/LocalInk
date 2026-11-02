@@ -20,7 +20,6 @@ export function UpNext({ sceneId }: { sceneId: string }) {
   if (!scene) return null;
   const title = scene.title.trim() || "Untitled scene";
   const start = descriptionStart(scene.whatHappens);
-  const isBusy = loop.isKeeping || loop.preparingSceneId !== null;
 
   return (
     <p className="flex flex-wrap items-baseline justify-center gap-x-2 text-center font-sans text-caption text-muted-foreground">
@@ -30,8 +29,8 @@ export function UpNext({ sceneId }: { sceneId: string }) {
       </span>
       <button
         className="rounded-sm px-1.5 py-0.5 text-studio-proposed underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50"
-        disabled={isBusy}
-        onClick={() => void loop.startScene(sceneId)}
+        disabled={loop.isKeeping}
+        onClick={() => void loop.writeScene(sceneId)}
         type="button"
       >
         Write it ▸

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { useBundlePreview } from "@/components/studio/bundles/use-bundle-preview";
 import {
@@ -14,16 +21,22 @@ import {
 } from "@/components/studio/workspace/workspace-anchors";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 
-import { DraftBlock } from "./draft-block";
 import {
   buildManuscriptLayout,
   chapterNumberWord,
   type ManuscriptBlock,
 } from "./manuscript-layout";
 import { MomentEditor } from "./moment-editor";
+import { DraftBar, DraftBeat, SceneDraftGroup } from "./scene-draft";
+import {
+  isSceneDraftKeepable,
+  isSceneDraftRunning,
+  type SceneDraft,
+} from "./scene-draft-model";
 import { UpNext } from "./up-next";
 import { useReadingPosition } from "./use-reading-position";
 import { useWritingLoop } from "./use-writing-loop";
+import { WritingStatus } from "./writing-status";
 
 function ChapterHeading({
   chapter,
@@ -80,14 +93,38 @@ function blockDataProps(block: ManuscriptBlock) {
   return {
     "data-studio-chapter": block.chapterId,
     "data-studio-scene": block.sceneId,
-    ...(block.type === "break"
-      ? {}
-      : { "data-studio-moment": block.moment.id }),
+    ...(block.type === "moment"
+      ? { "data-studio-moment": block.moment.id }
+      : {}),
     // The outline scrolls to a scene's first rendered element.
     ...(block.type !== "break" && block.sceneStart
       ? { id: studioSceneAnchorId(block.sceneId) }
       : {}),
   };
+}
+
+/** The writing loop's bar under its scene draft. */
+function LoopDraftBar({ draft }: { draft: SceneDraft }) {
+  const { state } = useStudioStore();
+  const loop = useWritingLoop();
+  const scene = state.planItems.find((item) => item.id === draft.sceneId);
+  const queue = loop.queue;
+  return (
+    <DraftBar
+      canKeep={isSceneDraftKeepable(draft)}
+      draft={draft}
+      isKeeping={loop.isKeeping}
+      onDiscard={loop.discard}
+      onKeep={() => void loop.keepScene()}
+      onTryAgain={(note) => void loop.tryAgain(note)}
+      progress={
+        queue && queue.total > 1
+          ? `scene ${queue.index} of ${queue.total} in this chapter`
+          : null
+      }
+      title={scene?.title.trim() || "Untitled scene"}
+    />
+  );
 }
 
 /**
@@ -113,11 +150,17 @@ export function Manuscript() {
   useEffect(() => {
     selectedRef.current = selectedItemId;
   }, [selectedItemId]);
-  // Until the writing loop tracks one draft per moment, pass its single draft.
   const draftByMomentId = useMemo(
-    () => new Map(draft ? [[draft.momentId, draft]] : []),
+    () => new Map(draft?.beats.map((beat) => [beat.momentId, beat]) ?? []),
     [draft],
   );
+  const draftNumbers = useMemo(
+    () =>
+      new Map(draft?.beats.map((beat, index) => [beat.momentId, index + 1])),
+    [draft],
+  );
+  const canRedo =
+    draft !== null && !isSceneDraftRunning(draft) && !loop.isKeeping;
 
   const layout = useMemo(
     () =>
@@ -132,7 +175,13 @@ export function Manuscript() {
   const momentKey = useMemo(
     () =>
       layout.blocks
-        .map((block) => (block.type === "moment" ? block.moment.id : ""))
+        .map((block) => {
+          if (block.type === "moment") return block.moment.id;
+          if (block.type === "draft") {
+            return block.beats.map((beat) => beat.moment.id).join(",");
+          }
+          return "";
+        })
         .join(","),
     [layout.blocks],
   );
@@ -152,82 +201,103 @@ export function Manuscript() {
     setActiveMomentId((current) => (current === momentId ? null : current));
   }, []);
 
+  const showUpNext = layout.upNext !== null && !draft && !loop.isKeeping;
+
   return (
-    <div
-      className="mx-auto max-w-[38rem] px-6 pt-16 pb-[40vh] font-content"
-      ref={containerRef}
-    >
-      {layout.blocks.map((block) => {
-        switch (block.type) {
-          case "chapter":
-            return (
-              <ChapterHeading
-                chapter={block.chapter}
-                key={`chapter:${block.chapter.id}`}
-                number={block.number}
-              />
-            );
-          case "break":
-            return <SceneBreak key={`break:${block.sceneId}`} />;
-          case "moment":
-            return (
-              <div
-                className="scroll-mt-24"
-                key={`moment:${block.moment.id}`}
-                {...blockDataProps(block)}
-              >
-                {proseOpByMomentId.has(block.moment.id) ? (
-                  <ProposedProseMarker
-                    onReview={() => reviewProposedProse(block.moment.id)}
+    // The full-width container lets draft labels sit in the margin when there is room.
+    <div className="@container/manuscript">
+      <div
+        className="mx-auto max-w-[38rem] px-6 pt-16 pb-[40vh] font-content"
+        ref={containerRef}
+      >
+        {layout.blocks.map((block) => {
+          switch (block.type) {
+            case "chapter":
+              return (
+                <ChapterHeading
+                  chapter={block.chapter}
+                  key={`chapter:${block.chapter.id}`}
+                  number={block.number}
+                />
+              );
+            case "break":
+              return <SceneBreak key={`break:${block.sceneId}`} />;
+            case "moment":
+              return (
+                <div
+                  className="scroll-mt-24"
+                  key={`moment:${block.moment.id}`}
+                  {...blockDataProps(block)}
+                >
+                  {proseOpByMomentId.has(block.moment.id) ? (
+                    <ProposedProseMarker
+                      onReview={() => reviewProposedProse(block.moment.id)}
+                    />
+                  ) : null}
+                  <MomentEditor
+                    isSceneStart={block.sceneStart}
+                    momentId={block.moment.id}
+                    onBlurMoment={handleBlurMoment}
+                    onFocusMoment={handleFocusMoment}
+                    prose={proseById.get(block.moment.id)}
+                    storyId={storyId}
+                    title={block.moment.title}
                   />
-                ) : null}
-                <MomentEditor
-                  isSceneStart={block.sceneStart}
-                  momentId={block.moment.id}
-                  onBlurMoment={handleBlurMoment}
-                  onFocusMoment={handleFocusMoment}
-                  prose={proseById.get(block.moment.id)}
-                  storyId={storyId}
-                  title={block.moment.title}
-                />
-              </div>
-            );
-          case "draft":
-            return draft ? (
-              <div
-                className="scroll-mt-24"
-                key={`draft:${block.moment.id}`}
-                {...blockDataProps(block)}
-              >
-                <DraftBlock
-                  draft={draft}
-                  isSceneStart={block.sceneStart}
-                  replacesProse={block.replacesProse}
-                />
-              </div>
-            ) : null;
-        }
-        return null;
-      })}
-      {draft ? null : layout.blocks.length === 0 ? (
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-center font-sans text-caption text-muted-foreground">
-            Nothing written yet.
-            {layout.upNext ? "" : " Add a scene in the outline to begin."}
-          </p>
-          {layout.upNext ? <UpNext sceneId={layout.upNext.sceneId} /> : null}
-        </div>
-      ) : (
-        <div className="mt-20 flex flex-col items-center gap-4">
-          <span
-            aria-hidden="true"
-            className="select-none text-muted-foreground/60"
-          >
-            ⁂
-          </span>
-          {layout.upNext ? <UpNext sceneId={layout.upNext.sceneId} /> : null}
-        </div>
-      )}
+                </div>
+              );
+            case "draft":
+              return draft ? (
+                <Fragment key={`draft:${block.beats[0]?.moment.id}`}>
+                  <SceneDraftGroup
+                    busy={isSceneDraftRunning(draft)}
+                    className="scroll-mt-24"
+                    {...blockDataProps(block)}
+                  >
+                    {block.beats.map(({ draft: beat, moment }, index) => (
+                      <DraftBeat
+                        beat={beat}
+                        canRedo={canRedo}
+                        isSceneStart={block.sceneStart && index === 0}
+                        key={moment.id}
+                        number={draftNumbers.get(moment.id) ?? index + 1}
+                        onRedo={(note) => void loop.redoBeat(moment.id, note)}
+                        total={draft.beats.length}
+                      />
+                    ))}
+                  </SceneDraftGroup>
+                  {block.endsDraft ? <LoopDraftBar draft={draft} /> : null}
+                </Fragment>
+              ) : null;
+          }
+          return null;
+        })}
+        {layout.blocks.length === 0 ? (
+          draft ? null : (
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-center font-sans text-caption text-muted-foreground">
+                Nothing written yet.
+                {layout.upNext ? "" : " Add a scene in the outline to begin."}
+              </p>
+              {showUpNext && layout.upNext ? (
+                <UpNext sceneId={layout.upNext.sceneId} />
+              ) : null}
+            </div>
+          )
+        ) : (
+          <div className="mt-20 flex flex-col items-center gap-4">
+            <span
+              aria-hidden="true"
+              className="select-none text-muted-foreground/60"
+            >
+              ⁂
+            </span>
+            {showUpNext && layout.upNext ? (
+              <UpNext sceneId={layout.upNext.sceneId} />
+            ) : null}
+          </div>
+        )}
+        <WritingStatus />
+      </div>
     </div>
   );
 }

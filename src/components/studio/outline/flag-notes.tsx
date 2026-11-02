@@ -50,6 +50,15 @@ export function FlagNotes({ scene }: { scene: StudioPlanNode }) {
     );
   if (flags.length === 0) return null;
 
+  /** Redrafts the flagged beat as a scene draft (every beat for a scene-level flag). */
+  function rewrite(flag: StudioFlagDto) {
+    const momentIds =
+      flag.planItemId === scene.id
+        ? scene.children.map((beat) => beat.id)
+        : [flag.planItemId];
+    return loop.writeScene(scene.id, { momentIds });
+  }
+
   async function resolve(flag: StudioFlagDto, resolution: Resolution) {
     setBusyId(flag.id);
     try {
@@ -131,12 +140,9 @@ export function FlagNotes({ scene }: { scene: StudioPlanNode }) {
                   >
                     Keep anyway
                   </NoteButton>
-                  {/* Temporary until Task 9 redrafts the whole scene. */}
                   <NoteButton
                     disabled={busy || loop.isKeeping}
-                    onClick={() =>
-                      void loop.write(flag.planItemId, { again: true })
-                    }
+                    onClick={() => void rewrite(flag)}
                   >
                     Rewrite
                   </NoteButton>

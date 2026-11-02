@@ -1,17 +1,25 @@
 import type { StudioPlanItemDto, StudioProseDto } from "@/lib/studio/contracts";
 import { buildPlanTree, type StudioPlanNode } from "@/lib/studio/plan-order";
 
+import type { BeatDraft } from "./scene-draft-model";
+
 type Placement = { sceneId: string; chapterId: string; sceneStart: boolean };
+
+export type ManuscriptDraftBeat = {
+  moment: StudioPlanItemDto;
+  draft: BeatDraft;
+};
 
 export type ManuscriptBlock =
   | { type: "chapter"; chapter: StudioPlanItemDto; number: number }
   | { type: "break"; sceneId: string; chapterId: string }
   | ({ type: "moment"; moment: StudioPlanItemDto } & Placement)
   | ({
+      /** Consecutive draft beats of one scene, shown in place of their prose. */
       type: "draft";
-      moment: StudioPlanItemDto;
-      /** The moment already has prose, shown above until Keep. */
-      replacesProse: boolean;
+      beats: ManuscriptDraftBeat[];
+      /** The scene's last draft run: the Keep / Try again / Discard bar follows it. */
+      endsDraft: boolean;
     } & Placement);
 
 export type ManuscriptLayout = {
@@ -106,7 +114,8 @@ export function findUpNext(
 /**
  * Lays out only what has been written, as one flat list of book blocks:
  * chapter openers, scene breaks, written moments and drafts. A chapter or
- * scene with neither prose nor a draft never appears. A flat keyed list lets
+ * scene with neither prose nor a draft never appears. A beat with a draft
+ * shows the draft in place of its prose until Keep. A flat keyed list lets
  * React keep an editor's instance when its position shifts.
  */
 export function buildManuscriptLayout({
@@ -117,8 +126,7 @@ export function buildManuscriptLayout({
 }: {
   planItems: StudioPlanItemDto[];
   proseById: Map<string, StudioProseDto>;
-  /** Task 9 narrows the value type. */
-  draftByMomentId: ReadonlyMap<string, unknown>;
+  draftByMomentId: ReadonlyMap<string, BeatDraft>;
   /** The focused editor stays mounted even when its prose is emptied. */
   activeMomentId?: string | null;
 }): ManuscriptLayout {
@@ -141,15 +149,19 @@ export function buildManuscriptLayout({
       const sceneBlocks: ManuscriptBlock[] = [];
       for (const node of entry.moments) {
         const moment = stripNode(node);
-        const written = isRendered(moment);
-        if (written) sceneBlocks.push({ type: "moment", moment, ...placement });
-        if (draftByMomentId.has(moment.id)) {
+        const draft = draftByMomentId.get(moment.id);
+        const last = sceneBlocks.at(-1);
+        if (draft && last?.type === "draft") {
+          last.beats.push({ moment, draft });
+        } else if (draft) {
           sceneBlocks.push({
             type: "draft",
-            moment,
-            replacesProse: written,
+            beats: [{ moment, draft }],
+            endsDraft: false,
             ...placement,
           });
+        } else if (isRendered(moment)) {
+          sceneBlocks.push({ type: "moment", moment, ...placement });
         }
       }
       const [first] = sceneBlocks;
@@ -157,6 +169,8 @@ export function buildManuscriptLayout({
       if (first.type === "moment" || first.type === "draft") {
         first.sceneStart = true;
       }
+      const lastDraft = sceneBlocks.findLast((block) => block.type === "draft");
+      if (lastDraft?.type === "draft") lastDraft.endsDraft = true;
       if (renderedScenes > 0) {
         chapterBlocks.push({ type: "break", sceneId, chapterId: chapter.id });
       }

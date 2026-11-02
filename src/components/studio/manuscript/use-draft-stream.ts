@@ -7,6 +7,7 @@ import {
   streamStudioText,
   studioErrorMessage,
 } from "@/components/studio/studio-fetch";
+import type { StudioMomentProseRequest } from "@/lib/studio/moment-contract";
 import { generateId } from "@/lib/util";
 
 const DRAFT_FAILED = "The draft could not be written. Please try again.";
@@ -14,43 +15,46 @@ const EMPTY_DRAFT = "The draft came back empty. Try again.";
 const UNSAVED_BEFORE =
   "Your latest edits could not be saved, so the draft was not started. The AI would have read older text.";
 
-export type WritingDraft = {
-  momentId: string;
-  text: string;
-  status: "streaming" | "ready" | "error";
+export type DraftStreamOptions = {
+  attempt: "first" | "again";
+  /** Earlier unkept beats of the same scene, by staged id. */
+  precedingDrafts: { momentId: string; generationId: string }[];
+  /** The author's one-off direction for this pass, or null. */
+  note: string | null;
+};
+
+export type DraftStreamResult = {
   generationId: string;
-  /** The author pressed Stop. A partial draft is never staged, so never kept. */
+  text: string;
+  status: "ready" | "error";
+  /** Aborted while still current. A partial draft is never staged. */
   stopped?: boolean;
 };
 
 type UseDraftStreamOptions = {
   storyId: string;
-  draftRef: RefObject<WritingDraft | null>;
-  commitDraft: (draft: WritingDraft | null) => void;
-  /** Shared with flesh-out so one Stop aborts whichever request is running. */
+  /** Shared with flesh-out so one Stop or Discard aborts whichever request runs. */
   requestRef: RefObject<AbortController | null>;
   /**
    * Saves pending edits the route will read as context (the moment-prose route
    * reads prose from the database). Resolves false when a save failed.
    */
   flushBefore: (momentId: string) => Promise<boolean>;
+  /** Streamed text so far, at most once per frame. */
+  onProgress: (momentId: string, generationId: string, text: string) => void;
 };
 
 /**
- * Streams one moment draft from the moment-prose route. The route stages only
+ * Streams one beat draft from the moment-prose route. The route stages only
  * complete text, so a stopped or failed stream leaves nothing to keep.
  */
 export function useDraftStream({
-  commitDraft,
-  draftRef,
   flushBefore,
+  onProgress,
   requestRef,
   storyId,
 }: UseDraftStreamOptions) {
   const frameRef = useRef<number | null>(null);
-  const pendingTextRef = useRef("");
-  /** The newest stream, so a chain can follow a Try again that replaced its own. */
-  const latestStreamRef = useRef<Promise<WritingDraft | null> | null>(null);
 
   const cancelFrame = useCallback(() => {
     if (frameRef.current !== null) {
@@ -61,12 +65,15 @@ export function useDraftStream({
 
   useEffect(() => cancelFrame, [cancelFrame]);
 
-  /** Resolves to the final draft, or null when a newer request superseded it. */
-  const streamOnce = useCallback(
+  /**
+   * Resolves to the beat's final text, or null when something else took the
+   * request slot (Stop, Discard, a newer stream, or planning).
+   */
+  const stream = useCallback(
     async (
       momentId: string,
-      attempt: "first" | "again",
-    ): Promise<WritingDraft | null> => {
+      { attempt, note, precedingDrafts }: DraftStreamOptions,
+    ): Promise<DraftStreamResult | null> => {
       requestRef.current?.abort();
       cancelFrame();
       const controller = new AbortController();
@@ -74,109 +81,68 @@ export function useDraftStream({
       const isCurrent = () => requestRef.current === controller;
       const generationId = generateId("studio-draft");
       let text = "";
-      commitDraft({ momentId, generationId, text: "", status: "streaming" });
 
       // Deltas land once per frame so the manuscript does not re-render per token.
       const scheduleText = () => {
-        pendingTextRef.current = text;
         if (frameRef.current !== null) return;
         frameRef.current = requestAnimationFrame(() => {
           frameRef.current = null;
-          const current = draftRef.current;
-          if (
-            current?.generationId === generationId &&
-            current.status === "streaming"
-          ) {
-            commitDraft({ ...current, text: pendingTextRef.current });
-          }
+          if (isCurrent()) onProgress(momentId, generationId, text);
         });
-      };
-
-      const finish = (
-        status: WritingDraft["status"],
-        stopped?: boolean,
-      ): WritingDraft => {
-        const final: WritingDraft = {
-          momentId,
-          generationId,
-          text,
-          status,
-          ...(stopped ? { stopped } : {}),
-        };
-        commitDraft(final);
-        return final;
-      };
-
-      // Something else took the request slot (a newer stream, flesh-out, or
-      // Discard). A newer stream or Discard already replaced this draft; if it
-      // is still on screen, settle it so it never sits at "Writing…".
-      const settleSuperseded = (status: WritingDraft["status"]) => {
-        const current = draftRef.current;
-        if (
-          current?.generationId !== generationId ||
-          current.status !== "streaming"
-        ) {
-          return null;
-        }
-        cancelFrame();
-        finish(status, status === "error");
-        return null;
       };
 
       try {
         const flushed = await flushBefore(momentId);
-        if (!isCurrent()) return settleSuperseded("error");
-        if (controller.signal.aborted) return finish("error", true);
+        if (!isCurrent()) return null;
+        if (controller.signal.aborted) {
+          return { generationId, text, status: "error", stopped: true };
+        }
         if (!flushed) {
           toast.error(UNSAVED_BEFORE);
-          return finish("error");
+          return { generationId, text, status: "error" };
         }
-        await streamStudioText(
-          "/api/studio/moment-prose",
-          { storyId, momentId, generationId, attempt },
-          {
-            signal: controller.signal,
-            onDelta: (delta) => {
-              if (!isCurrent()) return;
-              text += delta;
-              scheduleText();
-            },
+        const body: StudioMomentProseRequest = {
+          storyId,
+          momentId,
+          generationId,
+          attempt,
+          precedingDrafts,
+          note: note?.trim() || null,
+        };
+        await streamStudioText("/api/studio/moment-prose", body, {
+          signal: controller.signal,
+          onDelta: (delta) => {
+            if (!isCurrent()) return;
+            text += delta;
+            scheduleText();
           },
-        );
-        // The route staged complete text, so a superseded draft stays keepable.
-        if (!isCurrent()) {
-          return settleSuperseded(text.trim() ? "ready" : "error");
-        }
+        });
+        if (!isCurrent()) return null;
         cancelFrame();
         if (!text.trim()) {
           toast.error(EMPTY_DRAFT);
-          return finish("error");
+          return { generationId, text, status: "error" };
         }
-        return finish("ready");
+        return { generationId, text, status: "ready" };
       } catch (error) {
-        if (!isCurrent()) return settleSuperseded("error");
+        if (!isCurrent()) return null;
         cancelFrame();
         const stopped = controller.signal.aborted;
-        // A user stop is silent; anything else toasts a sanitized message.
+        // A stop is silent. Anything else, including an expired earlier beat
+        // (409 DRAFT_EXPIRED), toasts the route's sanitized message.
         if (!stopped) toast.error(studioErrorMessage(error, DRAFT_FAILED));
-        return finish("error", stopped);
+        return {
+          generationId,
+          text,
+          status: "error",
+          ...(stopped ? { stopped } : {}),
+        };
       } finally {
         if (requestRef.current === controller) requestRef.current = null;
       }
     },
-    [cancelFrame, commitDraft, draftRef, flushBefore, requestRef, storyId],
+    [cancelFrame, flushBefore, onProgress, requestRef, storyId],
   );
 
-  const stream = useCallback(
-    (momentId: string, attempt: "first" | "again") => {
-      const pending = streamOnce(momentId, attempt);
-      latestStreamRef.current = pending;
-      return pending;
-    },
-    [streamOnce],
-  );
-
-  const getLatestStream = useCallback(() => latestStreamRef.current, []);
-
-  return { cancelFrame, getLatestStream, stream };
+  return { cancelFrame, stream };
 }

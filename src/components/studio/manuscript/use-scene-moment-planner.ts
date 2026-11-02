@@ -1,6 +1,6 @@
 "use client";
 
-import { type RefObject, useCallback, useState } from "react";
+import { type RefObject, useCallback } from "react";
 import { toast } from "sonner";
 
 import { applyStudioPlan } from "@/actions/studio/apply-studio-plan";
@@ -30,8 +30,8 @@ export function momentsOfScene(
 }
 
 /**
- * §8.2: writing a scene with no moments first plans them (plan route, then
- * apply). Shares the writing loop's request slot so Stop cancels planning too.
+ * Writing a scene with no beats first plans them (plan route, then apply).
+ * Shares the writing loop's request slot so Stop cancels planning too.
  */
 export function useSceneMomentPlanner({
   getPlanItems,
@@ -44,7 +44,6 @@ export function useSceneMomentPlanner({
 }) {
   const { dispatch } = useStudioStore();
   const run = useRunStudioAction();
-  const [preparingSceneId, setPreparingSceneId] = useState<string | null>(null);
 
   /** Resolves to the scene's moments in order, or null when cancelled or failed. */
   const planSceneMoments = useCallback(
@@ -55,7 +54,6 @@ export function useSceneMomentPlanner({
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
-      setPreparingSceneId(sceneId);
       try {
         const preview = await postStudioJson<StudioPlanPreview>(
           "/api/studio/plan",
@@ -85,13 +83,10 @@ export function useSceneMomentPlanner({
         return null;
       } finally {
         if (requestRef.current === controller) requestRef.current = null;
-        setPreparingSceneId((current) =>
-          current === sceneId ? null : current,
-        );
       }
     },
     [dispatch, getPlanItems, requestRef, run, storyId],
   );
 
-  return { planSceneMoments, preparingSceneId };
+  return { planSceneMoments };
 }

@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/common/button";
+import { isSceneDraftRunning } from "@/components/studio/manuscript/scene-draft-model";
 import { useWritingLoop } from "@/components/studio/manuscript/use-writing-loop";
 import {
   resolvePlanDrop,
@@ -110,27 +111,28 @@ function OutlineBody() {
     (chapter) => chapter.children.length === 0,
   ).length;
 
-  const draftMomentId = loop.draft?.momentId ?? null;
-  const preparingSceneId = loop.preparingSceneId;
+  // The scene being planned or written spins; its draft's beats get a ring.
+  // Keyed by ids, so streamed text (a new draft each frame) recomputes nothing.
+  const draft = loop.draft;
+  const draftingKey =
+    draft && isSceneDraftRunning(draft)
+      ? [draft.sceneId, ...draft.beats.map((beat) => beat.momentId)].join(" ")
+      : "";
+  const draftingIds = useMemo(
+    () => (draftingKey ? draftingKey.split(" ") : []),
+    [draftingKey],
+  );
   const data = useMemo(
     () =>
       computeOutlineData({
-        draftingIds: [draftMomentId, preparingSceneId],
+        draftingIds,
         flags,
         items: planItems,
         prose,
         readingItemId,
         statuses: planStatuses,
       }),
-    [
-      draftMomentId,
-      flags,
-      planItems,
-      planStatuses,
-      preparingSceneId,
-      prose,
-      readingItemId,
-    ],
+    [draftingIds, flags, planItems, planStatuses, prose, readingItemId],
   );
   const chapterNumbers = useMemo(
     () => new Map(chapters.map((chapter, index) => [chapter.id, index + 1])),
