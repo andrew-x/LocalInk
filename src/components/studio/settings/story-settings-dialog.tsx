@@ -1,0 +1,48 @@
+"use client";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/common/dialog";
+
+import { InstructionsStyleSection } from "./instructions-style-section";
+import { ModelsSection } from "./models-section";
+import { StructureSection } from "./structure-section";
+import { ThemeSection } from "./theme-section";
+
+/**
+ * Story-level settings: theme, instructions, style, voice samples (inside the
+ * instructions section), structure and models. The premise lives in the
+ * outline, not here.
+ */
+export function StorySettingsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="flex max-h-[85dvh] max-w-3xl flex-col gap-0 p-0 sm:max-w-3xl">
+        <div className="flex min-h-12 shrink-0 items-center border-border/80 border-b px-5">
+          <DialogTitle className="font-serif text-heading">
+            Story settings
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Theme, instructions and style, voice samples, structure and models
+            for this story. Changes save as you type.
+          </DialogDescription>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-5 py-5">
+          <ThemeSection />
+          <InstructionsStyleSection />
+          <StructureSection />
+          <ModelsSection />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

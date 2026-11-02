@@ -1,15 +1,17 @@
 "use client";
 
-import { BookOpen, ChevronLeft, Maximize2, Minimize2 } from "lucide-react";
+import {
+  ChevronLeft,
+  PanelRightClose,
+  PanelRightOpen,
+  Settings,
+} from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { updateStudioStory } from "@/actions/studio/update-studio-story";
 import { Button } from "@/components/common/button";
-import {
-  STORY_GENERATION_MODELS,
-  storyGenerationModelSchema,
-} from "@/lib/story-generation-models";
+import { StorySettingsDialog } from "@/components/studio/settings/story-settings-dialog";
 
 import { useRunStudioAction, useStudioStore } from "./use-studio-store";
 
@@ -19,7 +21,7 @@ export function StudioTopBar() {
   const { story } = state;
   const [titleDraft, setTitleDraft] = useState(story.title);
   const skipCommit = useRef(false);
-  const [isSavingModel, setIsSavingModel] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     setTitleDraft(story.title);
@@ -43,23 +45,25 @@ export function StudioTopBar() {
     else setTitleDraft(story.title);
   }
 
-  async function changeModel(value: string) {
-    const parsed = storyGenerationModelSchema.safeParse(value);
-    if (!parsed.success || parsed.data === story.proseModel) return;
-    setIsSavingModel(true);
-    try {
-      const updated = await run(
-        updateStudioStory({
-          storyId: story.id,
-          patch: { proseModel: parsed.data },
-        }),
-        "The prose model could not be saved.",
-      );
-      if (updated) dispatch({ type: "merge", story: updated });
-    } finally {
-      setIsSavingModel(false);
+  const wordCount = useMemo(
+    () => state.prose.reduce((sum, p) => sum + p.wordCount, 0),
+    [state.prose],
+  );
+  const chapterProgress = useMemo(() => {
+    const byId = new Map(state.planItems.map((item) => [item.id, item]));
+    const chapters = state.planItems
+      .filter((item) => item.kind === "chapter")
+      .sort((a, b) => a.position - b.position);
+    let current = state.readingItemId ? byId.get(state.readingItemId) : null;
+    // Walk up to the chapter that holds the item in view.
+    while (current && current.kind !== "chapter") {
+      current = current.parentId ? byId.get(current.parentId) : undefined;
     }
-  }
+    const index = current
+      ? chapters.findIndex((chapter) => chapter.id === current.id)
+      : -1;
+    return { total: chapters.length, number: index >= 0 ? index + 1 : null };
+  }, [state.planItems, state.readingItemId]);
 
   return (
     <header className="flex min-h-12 shrink-0 items-center gap-3 border-border/80 border-b bg-background/95 px-3 py-1.5">
@@ -94,40 +98,22 @@ export function StudioTopBar() {
         value={titleDraft}
       />
 
-      <Button
-        leftSection={<BookOpen aria-hidden="true" className="size-3.5" />}
-        onClick={() => dispatch({ type: "openBible", section: "overview" })}
-        size="sm"
-        type="button"
-        variant="outline"
-      >
-        Bible
-      </Button>
-
-      <label className="sr-only" htmlFor="studio-prose-model">
-        Prose model
-      </label>
-      <select
-        className="h-8 max-w-44 min-w-0 rounded-md border border-input bg-card/80 px-2 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:opacity-50"
-        disabled={isSavingModel}
-        id="studio-prose-model"
-        onChange={(event) => void changeModel(event.target.value)}
-        value={story.proseModel}
-      >
-        {STORY_GENERATION_MODELS.map((model) => (
-          <option key={model.value} value={model.value}>
-            {model.label}
-          </option>
-        ))}
-      </select>
+      <p className="ml-auto flex shrink-0 items-center gap-3 text-caption text-muted-foreground tabular-nums">
+        <span>{wordCount.toLocaleString()} words</span>
+        {chapterProgress.total > 0 ? (
+          <span>
+            Ch {chapterProgress.number ?? ""} of {chapterProgress.total}
+          </span>
+        ) : null}
+      </p>
 
       <Button
         aria-pressed={state.readMode}
         leftSection={
           state.readMode ? (
-            <Minimize2 aria-hidden="true" className="size-3.5" />
+            <PanelRightOpen aria-hidden="true" className="size-3.5" />
           ) : (
-            <Maximize2 aria-hidden="true" className="size-3.5" />
+            <PanelRightClose aria-hidden="true" className="size-3.5" />
           )
         }
         onClick={() =>
@@ -135,10 +121,21 @@ export function StudioTopBar() {
         }
         size="sm"
         type="button"
-        variant={state.readMode ? "default" : "outline"}
+        variant="outline"
       >
-        Read
+        {state.readMode ? "Show plan" : "Hide plan"}
       </Button>
+
+      <Button
+        leftSection={<Settings aria-hidden="true" className="size-3.5" />}
+        onClick={() => setSettingsOpen(true)}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Story settings
+      </Button>
+      <StorySettingsDialog onOpenChange={setSettingsOpen} open={settingsOpen} />
     </header>
   );
 }

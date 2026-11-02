@@ -1,14 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
@@ -24,17 +17,12 @@ import type {
 import { deleteStudioChatThread } from "@/actions/studio/delete-studio-chat-thread";
 import { getStudioChatThread } from "@/actions/studio/get-studio-chat-thread";
 import { getStudioChatThreads } from "@/actions/studio/get-studio-chat-threads";
-import { updateStudioStory } from "@/actions/studio/update-studio-story";
 import { Button } from "@/components/common/button";
 import {
   useRunStudioAction,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
 import { formResolver } from "@/lib/schemas/resolve";
-import {
-  STORY_GENERATION_MODELS,
-  storyGenerationModelSchema,
-} from "@/lib/story-generation-models";
 import { STUDIO_CHAT_MAX_PINNED_ENTRIES } from "@/lib/studio/chat-contract";
 
 import { ChatComposer } from "./chat-composer";
@@ -83,9 +71,6 @@ const ANNOUNCEMENT: Record<ChatTurnStatus, string> = {
   stopping: "Stopping the reply.",
 };
 
-const MODEL_SELECT_CLASS =
-  "h-7 max-w-32 min-w-0 shrink rounded-md border border-input bg-card/80 px-1.5 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:opacity-50";
-
 /**
  * The agent chat tab. Chat state (threads, the open thread's messages, the
  * running turn) is local to this panel rather than the workspace store:
@@ -98,7 +83,6 @@ export function ChatPanel({ active }: { active: boolean }) {
   const { state, dispatch } = useStudioStore();
   const run = useRunStudioAction();
   const storyId = state.story.id;
-  const modelSelectId = useId();
 
   const [threads, setThreads] = useState<StudioChatThreadDto[]>([]);
   const [threadsStatus, setThreadsStatus] = useState<ChatThreadsStatus>("idle");
@@ -116,7 +100,6 @@ export function ChatPanel({ active }: { active: boolean }) {
   const [dismissedLookingAt, setDismissedLookingAt] = useState<string | null>(
     null,
   );
-  const [isSavingModel, setIsSavingModel] = useState(false);
   const activeThreadRef = useRef<string | null>(null);
   const loadTokenRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -381,21 +364,6 @@ export function ChatPanel({ active }: { active: boolean }) {
     return true;
   }
 
-  async function changeChatModel(value: string) {
-    const parsed = storyGenerationModelSchema.safeParse(value);
-    if (!parsed.success || parsed.data === state.story.chatModel) return;
-    setIsSavingModel(true);
-    try {
-      const updated = await run(
-        updateStudioStory({ storyId, patch: { chatModel: parsed.data } }),
-        "The chat model could not be saved.",
-      );
-      if (updated) dispatch({ type: "merge", story: updated });
-    } finally {
-      setIsSavingModel(false);
-    }
-  }
-
   const selectedId = state.selectedItemId;
   const lookingAtItemId =
     selectedId &&
@@ -473,23 +441,6 @@ export function ChatPanel({ active }: { active: boolean }) {
         >
           <Plus aria-hidden="true" className="size-3.5" />
         </Button>
-        <label className="sr-only" htmlFor={modelSelectId}>
-          Chat model
-        </label>
-        <select
-          className={MODEL_SELECT_CLASS}
-          disabled={isSavingModel}
-          id={modelSelectId}
-          onChange={(event) => void changeChatModel(event.target.value)}
-          title="Chat model"
-          value={state.story.chatModel}
-        >
-          {STORY_GENERATION_MODELS.map((model) => (
-            <option key={model.value} value={model.value}>
-              {model.label}
-            </option>
-          ))}
-        </select>
       </div>
 
       <ChatMessageList

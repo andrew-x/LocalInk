@@ -10,6 +10,8 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/common/dialog";
+import { InstructionsStyleSection } from "@/components/studio/settings/instructions-style-section";
+import { StructureSection } from "@/components/studio/settings/structure-section";
 import {
   type StudioBibleTarget,
   useRunStudioAction,
@@ -29,10 +31,8 @@ import {
 } from "./bible-sections";
 import { BibleSidebar } from "./bible-sidebar";
 import { EntryEditor } from "./entry-editor";
-import { InstructionsStyleSection } from "./instructions-style-section";
-import { OverviewSection } from "./overview-section";
+import { PremiseSection } from "./premise-section";
 import { DEFAULT_RELATIONSHIP_NAME } from "./relationship-editor";
-import { StructureSection } from "./structure-section";
 
 function BibleBody({ target }: { target: StudioBibleTarget }) {
   const { state, dispatch } = useStudioStore();
@@ -104,7 +104,7 @@ function BibleBody({ target }: { target: StudioBibleTarget }) {
     BIBLE_WORLD_TYPES.find((type) => type.id === section)?.singular ?? "entry";
 
   let content: React.ReactNode;
-  if (section === BIBLE_OVERVIEW_SECTION) content = <OverviewSection />;
+  if (section === BIBLE_OVERVIEW_SECTION) content = <PremiseSection />;
   else if (section === BIBLE_INSTRUCTIONS_SECTION)
     content = <InstructionsStyleSection />;
   else if (section === BIBLE_STRUCTURE_SECTION) content = <StructureSection />;

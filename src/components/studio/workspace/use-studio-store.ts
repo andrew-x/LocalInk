@@ -27,7 +27,7 @@ import { computePlanStatuses } from "./plan-status";
 
 export type StudioBibleTarget = { section: string; entryId?: string };
 
-export type StudioRightTab = "inspect" | "chat";
+export type StudioPlanTab = "outline" | "characters";
 
 /**
  * A review-card op. Op ids are unique only within their bundle (every turn
@@ -45,13 +45,18 @@ export type StudioStoreState = StudioWorkspace & {
    */
   selectNonce: number;
   readMode: boolean;
+  /** Temporary: the Bible sheet stays until the Characters tab replaces it. */
   bibleOpen: StudioBibleTarget | null;
   /**
-   * The right column's tab. Chat state itself (threads, messages, the turn)
+   * The plan pane's tab. Chat state itself (threads, messages, the turn)
    * lives in the chat panel, not here: streamed tokens would otherwise
    * re-render the whole workspace.
    */
-  rightTab: StudioRightTab;
+  planTab: StudioPlanTab;
+  /** The moment the manuscript is showing (reading sync), or null. */
+  readingItemId: string | null;
+  /** The entry the Characters tab has open, or null. */
+  openEntryId: string | null;
   /** The bundle op the chat review card should scroll to and highlight. */
   focusedBundleOp: StudioBundleOpFocus | null;
   /** Bumped by every focusBundleOp, so refocusing the same op re-highlights. */
@@ -82,7 +87,9 @@ export type StudioStoreAction =
   | { type: "replace"; workspace: StudioWorkspace }
   | { type: "select"; itemId: string | null }
   | { type: "setReadMode"; value: boolean }
-  | { type: "setRightTab"; tab: StudioRightTab }
+  | { type: "setPlanTab"; tab: StudioPlanTab }
+  | { type: "setReading"; itemId: string | null }
+  | { type: "openEntry"; entryId: string | null }
   | ({ type: "focusBundleOp" } & StudioBundleOpFocus)
   | { type: "clearBundleFocus" }
   | ({ type: "openBible" } & StudioBibleTarget)
@@ -207,14 +214,21 @@ function studioReducer(
       };
     case "setReadMode":
       return { ...state, readMode: action.value };
-    case "setRightTab":
-      return { ...state, rightTab: action.tab };
+    case "setPlanTab":
+      return state.planTab === action.tab
+        ? state
+        : { ...state, planTab: action.tab };
+    case "setReading":
+      return state.readingItemId === action.itemId
+        ? state
+        : { ...state, readingItemId: action.itemId };
+    case "openEntry":
+      return { ...state, openEntryId: action.entryId, planTab: "characters" };
     case "focusBundleOp":
       return {
         ...state,
-        // The review card lives in the chat column, which Read mode hides.
+        // The review card lives in the plan pane, which Read mode hides.
         readMode: false,
-        rightTab: "chat",
         focusedBundleOp: { bundleId: action.bundleId, opId: action.opId },
         bundleFocusNonce: state.bundleFocusNonce + 1,
       };
@@ -256,7 +270,9 @@ export function StudioStoreProvider({
       selectNonce: 0,
       readMode: false,
       bibleOpen: null,
-      rightTab: "inspect",
+      planTab: "outline",
+      readingItemId: null,
+      openEntryId: null,
       focusedBundleOp: null,
       bundleFocusNonce: 0,
     }),
@@ -274,7 +290,7 @@ export function useStudioStore(): StudioStoreValue {
 }
 
 /**
- * Opens the chat tab on this bundle's review-card op. The Inspect "Review in
+ * Shows this bundle's review-card op in the chat. The Inspect "Review in
  * chat" link, proposed plan rows, and manuscript markers call it.
  */
 export function useFocusBundleOp(): (target: StudioBundleOpFocus) => void {
