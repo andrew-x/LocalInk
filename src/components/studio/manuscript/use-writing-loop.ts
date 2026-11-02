@@ -32,7 +32,7 @@ const KEEP_FAILED = "The draft could not be kept. Please try again.";
 const FLUSH_FAILED =
   "Your edits to this moment could not be saved, so the draft was not kept.";
 const READ_BACK_FAILED =
-  "The draft was kept, but the moment could not be re-read. Try Re-read in Inspect.";
+  "The draft was kept, but the beat could not be re-read. Try Re-read in the scene's ⋯ menu.";
 const NOTHING_LEFT = "Everything in this scene is already written.";
 
 export type WritingChain = {
@@ -67,8 +67,8 @@ type ChainDecision = "kept" | "end";
 const WritingLoopContext = createContext<WritingLoop | null>(null);
 
 /**
- * One writing loop per workspace, shared by the manuscript, the plan tree and
- * Inspect. Drafts stream from the moment-prose route, which stages only
+ * One writing loop per workspace, shared by the manuscript and the outline.
+ * Drafts stream from the moment-prose route, which stages only
  * complete text; Keep persists the staged draft through the revision
  * compare-and-swap and then runs read-back.
  */

@@ -3,8 +3,8 @@
 import { useCallback } from "react";
 
 import { Textarea } from "@/components/common/textarea";
-import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
 import { useSaveStory } from "@/components/studio/settings/use-save-story";
+import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 
 import { BibleFieldLabel, BibleHeading } from "./bible-field";

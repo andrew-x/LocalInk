@@ -6,11 +6,11 @@ import { toast } from "sonner";
 import type { StudioSuggestedFieldsApplyResult } from "@/actions/studio/_types";
 import { applyStudioSuggestedFields } from "@/actions/studio/apply-studio-suggested-fields";
 import { updateStudioEntry } from "@/actions/studio/update-studio-entry";
+import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
 import {
   createRevisionSlots,
   newestRevision,
-} from "@/components/studio/inspect/revision-slots";
-import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
+} from "@/components/studio/shared/revision-slots";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import type { StudioEntryDto, StudioEntryField } from "@/lib/studio/contracts";
 

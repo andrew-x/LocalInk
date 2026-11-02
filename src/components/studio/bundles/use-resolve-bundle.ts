@@ -29,7 +29,7 @@ const FLUSH_FAILED =
 const RELOAD_FAILED =
   "This was already resolved, but the story could not be reloaded. Refresh the page.";
 const READ_BACK_FAILED =
-  "The changes were applied, but a rewritten moment could not be re-read. Try Re-read in Inspect.";
+  "The changes were applied, but a rewritten moment could not be re-read. Try Re-read in the scene's ⋯ menu.";
 
 /** Saved moments at or under `rootId`. */
 function subtreeMomentIds(

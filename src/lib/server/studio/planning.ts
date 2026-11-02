@@ -20,7 +20,6 @@ import type {
 import { getInstructionStack } from "@/lib/studio/instructions";
 import { flattenPlan, getAncestors } from "@/lib/studio/plan-order";
 import {
-  normalizeStudioAlternatives,
   normalizeStudioChildren,
   normalizeStudioInitialPlan,
   normalizeStudioQuestions,
@@ -28,8 +27,6 @@ import {
   type StagedStudioPlan,
   type StudioPlanRequest,
   type StudioQuestionsResponse,
-  studioAlternativesSchema,
-  studioBriefSchema,
   studioChildrenSchema,
   studioInitialPlanSchema,
   studioQuestionsSchema,
@@ -61,8 +58,6 @@ const OUTPUT_TOKENS = {
   questions: 1_500,
   initial: 20_000,
   children: 8_000,
-  alternatives: 3_000,
-  brief: 1_500,
 } as const;
 
 const PLANNER_RULES = [
@@ -704,99 +699,6 @@ async function generateFleshOut(
   return { mode: "flesh-out", targetItemId: request.targetItemId, groups };
 }
 
-function requireTarget(
-  workspace: StudioWorkspace,
-  targetItemId: string,
-): StudioPlanItemDto {
-  const target = workspace.planItems.find((item) => item.id === targetItemId);
-  if (!target) throw new StudioNotFoundError();
-  return target;
-}
-
-function singleItemSections(
-  workspace: StudioWorkspace,
-  globalInstructions: string,
-  target: StudioPlanItemDto,
-  task: string,
-  extra: StudioPromptSection[] = [],
-): StudioPromptSection[] {
-  const states = computeStateGoingIn(stateInputFor(workspace), target.id);
-  return [
-    section(
-      "instructions",
-      instructionsBlock(workspace, globalInstructions, target.id),
-    ),
-    section("story", storyBlock(workspace)),
-    section("bible", bibleBlock(workspace, states)),
-    section("ancestors", ancestorsBlock(workspace, target.id)),
-    section("target", itemBlock(target, workspace, "target")),
-    section("outline", outlineBlock(workspace, target.id), {
-      protected: false,
-      dropOrder: 1,
-    }),
-    ...extra,
-    section("task", task),
-  ];
-}
-
-async function generateAlternatives(
-  request: Extract<StudioPlanRequest, { mode: "alternatives" }>,
-  workspace: StudioWorkspace,
-  globalInstructions: string,
-  abortSignal: AbortSignal,
-): Promise<StagedStudioPlan> {
-  const target = requireTarget(workspace, request.targetItemId);
-  const output = await generateJson({
-    schema: studioAlternativesSchema,
-    normalize: normalizeStudioAlternatives,
-    system: systemPrompt(),
-    sections: singleItemSections(
-      workspace,
-      globalInstructions,
-      target,
-      `Offer exactly three alternatives to the target ${target.kind}'s title, whatHappens, and howToWrite. They must be genuinely different directions the ${target.kind} could take, not rewordings: change what happens, who acts, or what it costs. Each must work as a full replacement in the same place in the story, keep the same role in the structure, stay consistent with the state going in and with the rest of plan_outline, and follow the same length rules. Do not reuse the current text, including text marked author="true".`,
-    ),
-    maxOutputTokens: OUTPUT_TOKENS.alternatives,
-    temperature: 0.95,
-    abortSignal,
-  });
-  return {
-    mode: "alternatives",
-    targetItemId: target.id,
-    options: output.options,
-  };
-}
-
-async function generateRewriteBrief(
-  request: Extract<StudioPlanRequest, { mode: "rewrite-brief" }>,
-  workspace: StudioWorkspace,
-  globalInstructions: string,
-  abortSignal: AbortSignal,
-): Promise<StagedStudioPlan> {
-  const target = requireTarget(workspace, request.targetItemId);
-  const brief = await generateJson({
-    schema: studioBriefSchema,
-    normalize: (brief) => brief,
-    system: systemPrompt(),
-    sections: singleItemSections(
-      workspace,
-      globalInstructions,
-      target,
-      `Rewrite the target ${target.kind}'s title, whatHappens, and howToWrite to follow the author's instruction. Keep whatever the instruction does not touch. Stay consistent with the state going in and with the rest of plan_outline, and follow the same length rules.`,
-      [
-        section(
-          "author_instruction",
-          xmlField("author_instruction", request.instruction),
-        ),
-      ],
-    ),
-    maxOutputTokens: OUTPUT_TOKENS.brief,
-    temperature: 0.7,
-    abortSignal,
-  });
-  return { mode: "rewrite-brief", targetItemId: target.id, brief };
-}
-
 export async function generateStudioPlan(
   request: StudioPlanRequest,
   workspace: StudioWorkspace,
@@ -813,20 +715,6 @@ export async function generateStudioPlan(
       );
     case "flesh-out":
       return generateFleshOut(
-        request,
-        workspace,
-        globalInstructions,
-        abortSignal,
-      );
-    case "alternatives":
-      return generateAlternatives(
-        request,
-        workspace,
-        globalInstructions,
-        abortSignal,
-      );
-    case "rewrite-brief":
-      return generateRewriteBrief(
         request,
         workspace,
         globalInstructions,

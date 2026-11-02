@@ -1,9 +1,6 @@
 /** DOM ids shared between the outline, the manuscript and the top bar. */
-export function studioPlanRowId(itemId: string): string {
-  return `studio-plan-row-${itemId}`;
-}
 
-/** The outline line for a chapter, scene or moment. */
+/** The outline line for a chapter or scene (an open scene's card header). */
 export function studioOutlineLineId(itemId: string): string {
   return `studio-outline-${itemId}`;
 }
@@ -27,10 +24,9 @@ export function scrollToStudioItem(
   itemId: string,
   opts?: { manuscript?: boolean },
 ) {
-  const line =
-    document.getElementById(studioOutlineLineId(itemId)) ??
-    document.getElementById(studioPlanRowId(itemId));
-  line?.scrollIntoView({ block: "nearest" });
+  document
+    .getElementById(studioOutlineLineId(itemId))
+    ?.scrollIntoView({ block: "nearest" });
   if (opts?.manuscript) {
     const anchor =
       document.getElementById(studioChapterAnchorId(itemId)) ??

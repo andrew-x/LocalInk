@@ -228,19 +228,11 @@ export const splitStudioMomentActionSchema = z.object({
   afterMarkdown: markdownSchema,
 });
 
-export const mergeStudioMomentActionSchema = z.object({
-  ...storyIdField,
-  momentId: id,
-  expectedRevision: revisionSchema,
-  previousExpectedRevision: revisionSchema,
-});
-
 export const applyStudioPlanActionSchema = z.object({
   ...storyIdField,
   generationId: id,
-  mode: z.enum(["initial", "flesh-out", "alternatives", "rewrite-brief"]),
+  mode: z.enum(["initial", "flesh-out"]),
   targetItemId: id.optional(),
-  optionIndex: z.number().int().min(0).max(2).optional(),
 });
 
 export const keepStudioMomentDraftActionSchema = z.object({

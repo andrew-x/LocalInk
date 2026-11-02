@@ -7,7 +7,7 @@ import { createStudioPlanItem } from "@/actions/studio/create-studio-plan-item";
 import { deleteStudioPlanItem } from "@/actions/studio/delete-studio-plan-item";
 import { moveStudioPlanItem } from "@/actions/studio/move-studio-plan-item";
 import { restoreStudioPlanItem } from "@/actions/studio/restore-studio-plan-item";
-import { usePatchPlanItem } from "@/components/studio/inspect/use-patch-plan-item";
+import { usePatchPlanItem } from "@/components/studio/shared/use-patch-plan-item";
 import type { StudioPlanItemDto, StudioPlanKind } from "@/lib/studio/contracts";
 import { buildPlanTree } from "@/lib/studio/plan-order";
 
@@ -17,6 +17,13 @@ const PARENT_KIND: Record<StudioPlanKind, StudioPlanKind | null> = {
   chapter: null,
   scene: "chapter",
   moment: "scene",
+};
+
+// Moments are "beats" everywhere the author sees them.
+const KIND_LABEL: Record<StudioPlanKind, string> = {
+  chapter: "chapter",
+  scene: "scene",
+  moment: "beat",
 };
 
 const CHILD_KIND: Record<StudioPlanKind, StudioPlanKind | null> = {
@@ -95,7 +102,7 @@ export function usePlanTreeActions() {
     async (item: StudioPlanItemDto, title: string) => {
       const next = title.trim();
       if (next === item.title) return;
-      // Shares the per-item save queue with Inspect's autosave; a conflict
+      // Shares the per-item save queue with the outline's autosave; a conflict
       // toasts the server message and the local title stays.
       await patchItem(item.id, { title: next });
     },
@@ -107,24 +114,28 @@ export function usePlanTreeActions() {
       kind: StudioPlanKind;
       parentId: string | null;
       afterItemId?: string | null;
-    }) => {
+    }): Promise<StudioPlanItemDto | null> => {
       const result = await run(
         createStudioPlanItem({ storyId, ...input }),
         "The item could not be added.",
       );
-      if (!result) return;
+      if (!result) return null;
       dispatch({
         type: "merge",
         planItems: [result.item, ...result.shifted],
       });
       dispatch({ type: "select", itemId: result.item.id });
+      return result.item;
     },
     [dispatch, run, storyId],
   );
 
-  /** Chapters/scenes get a child; moments get a sibling after themselves. */
+  /**
+   * Chapters/scenes get a child at the end; moments get a sibling after
+   * themselves. Resolves the new item, or null after a toast.
+   */
   const add = useCallback(
-    (item: StudioPlanItemDto) => {
+    (item: StudioPlanItemDto): Promise<StudioPlanItemDto | null> => {
       const childKind = CHILD_KIND[item.kind];
       if (childKind) {
         return create({ kind: childKind, parentId: item.id });
@@ -151,7 +162,7 @@ export function usePlanTreeActions() {
       );
       if (!result) return;
       dispatch({ type: "remove", planItemIds: result.deletedIds });
-      toast(`Deleted ${item.kind}.`, {
+      toast(`Deleted ${KIND_LABEL[item.kind]}.`, {
         action: {
           label: "Undo",
           onClick: () => {

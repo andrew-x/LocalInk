@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Label } from "@/components/common/label";
-import { InspectPill } from "@/components/studio/inspect/inspect-section";
+import { InspectPill } from "@/components/studio/shared/inspect-pill";
 
 /** Pill for fields that steer the AI but must never be narrated. */
 export function NeverSaysPill() {

@@ -9,7 +9,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/common/popover";
-import { chapterNumbers } from "@/components/studio/inspect/inspect-labels";
+import { chapterNumbers } from "@/components/studio/shared/inspect-labels";
 import {
   useSelectedItem,
   useStudioStore,

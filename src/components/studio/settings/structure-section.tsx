@@ -7,7 +7,7 @@ import {
   BibleFieldLabel,
   BibleHeading,
 } from "@/components/studio/bible/bible-field";
-import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
+import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { STUDIO_STRUCTURE_TEMPLATES } from "@/lib/studio/bible-templates";
 import { cn } from "@/lib/util";

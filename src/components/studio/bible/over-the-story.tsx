@@ -8,12 +8,12 @@ import { Label } from "@/components/common/label";
 import {
   ChangeForm,
   type ChangeFormValues,
-} from "@/components/studio/inspect/changes-section";
+} from "@/components/studio/shared/change-form";
 import {
   chapterNumberOf,
   chapterNumbers,
   entryNameMap,
-} from "@/components/studio/inspect/inspect-labels";
+} from "@/components/studio/shared/inspect-labels";
 import {
   useRunStudioAction,
   useStudioStore,

@@ -238,7 +238,7 @@ type MomentHandlePluginProps = {
   retry: () => void;
 };
 
-/** Registers this editor so neighbours, the writing loop and Inspect can reach it. */
+/** Registers this editor so neighbours, the writing loop and the outline can reach it. */
 export function MomentHandlePlugin({
   flush,
   registryId,

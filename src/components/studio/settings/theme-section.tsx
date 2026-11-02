@@ -8,7 +8,7 @@ import {
   BibleHeading,
   NeverSaysPill,
 } from "@/components/studio/bible/bible-field";
-import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
+import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { useSaveStory } from "./use-save-story";
 

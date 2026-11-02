@@ -11,7 +11,6 @@ const id = z.string().trim().min(1).max(128);
 export const STUDIO_PLAN_STORY_TARGET = "story";
 export const STUDIO_QUESTIONS_MIN = 3;
 export const STUDIO_QUESTIONS_MAX = 7;
-export const STUDIO_ALTERNATIVE_COUNT = 3;
 
 export const studioQuestionsRequestSchema = z.object({ storyId: id });
 
@@ -77,17 +76,6 @@ export const studioPlanRequestSchema = z.discriminatedUnion("mode", [
     storyId: id,
     /** A plan item id, or "story" to flesh out every chapter without scenes. */
     targetItemId: id,
-  }),
-  z.object({
-    mode: z.literal("alternatives"),
-    storyId: id,
-    targetItemId: id,
-  }),
-  z.object({
-    mode: z.literal("rewrite-brief"),
-    storyId: id,
-    targetItemId: id,
-    instruction: z.string().trim().min(1).max(2000),
   }),
 ]);
 
@@ -258,31 +246,6 @@ export function normalizeStudioChildren(raw: RawChildren): StudioChildren {
   };
 }
 
-export const studioBriefSchema = z.object({
-  title: z.string(),
-  whatHappens: z.string(),
-  howToWrite: z.string(),
-});
-
-export type StudioBrief = z.infer<typeof studioBriefSchema>;
-
-export const studioAlternativesSchema = z.object({
-  options: z.array(studioBriefSchema),
-});
-
-export function normalizeStudioAlternatives(
-  raw: z.infer<typeof studioAlternativesSchema>,
-): z.infer<typeof studioAlternativesSchema> {
-  if (raw.options.length !== STUDIO_ALTERNATIVE_COUNT) {
-    throw generationFailed(
-      "The model did not return three alternatives. Try again.",
-    );
-  }
-  return raw;
-}
-
-export type StudioAlternatives = z.infer<typeof studioAlternativesSchema>;
-
 /**
  * The validated model output held in server memory until the author applies
  * it. Flesh-out is a list of groups because "story" fills many chapters.
@@ -293,20 +256,13 @@ export type StagedStudioPlan =
       mode: "flesh-out";
       targetItemId: string;
       groups: { parentId: string; items: StudioChildren["items"] }[];
-    }
-  | {
-      mode: "alternatives";
-      targetItemId: string;
-      options: StudioAlternatives["options"];
-    }
-  | { mode: "rewrite-brief"; targetItemId: string; brief: StudioBrief };
+    };
 
 /** What a plan route returns. Full payloads stay on the server. */
 export type StudioPlanPreview = {
   generationId: string;
   mode: StudioPlanMode;
   summary: string;
-  options?: { title: string; whatHappens: string }[];
 };
 
 function plural(count: number, noun: string): string {
@@ -344,27 +300,5 @@ export function toStudioPlanPreview(
         summary: `${plural(count, "new item")} across ${plural(staged.groups.length, "parent")}.`,
       };
     }
-    case "alternatives":
-      return {
-        generationId,
-        mode: "alternatives",
-        summary: `${plural(staged.options.length, "alternative")} to choose from.`,
-        options: staged.options.map(({ title, whatHappens }) => ({
-          title,
-          whatHappens,
-        })),
-      };
-    case "rewrite-brief":
-      return {
-        generationId,
-        mode: "rewrite-brief",
-        summary: "A rewritten brief.",
-        options: [
-          {
-            title: staged.brief.title,
-            whatHappens: staged.brief.whatHappens,
-          },
-        ],
-      };
   }
 }

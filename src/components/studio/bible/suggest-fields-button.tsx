@@ -10,7 +10,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/common/popover";
-import { InspectPill } from "@/components/studio/inspect/inspect-section";
+import { InspectPill } from "@/components/studio/shared/inspect-pill";
 import {
   postStudioJson,
   studioErrorMessage,

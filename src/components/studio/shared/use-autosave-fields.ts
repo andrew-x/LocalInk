@@ -7,7 +7,6 @@ const AUTOSAVE_DELAY_MS = 800;
 type Options<K extends string> = {
   /** What the store holds now; clean fields follow it. */
   serverValues: Record<K, string>;
-  /** Resolves true once the changed fields are saved. */
   /**
    * `final` is true for blur and unmount flushes, false while typing.
    * Resolves true when saved, false when nothing was, or the keys to keep
@@ -17,6 +16,11 @@ type Options<K extends string> = {
     changed: Partial<Record<K, string>>,
     final: boolean,
   ) => Promise<boolean | readonly K[]>;
+  /**
+   * Called when the hook starts or stops holding edits the store does not
+   * have yet (typed but unsaved, or a save in flight or failed).
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 /**
@@ -26,6 +30,7 @@ type Options<K extends string> = {
  * Pending edits are flushed on blur and on unmount.
  */
 export function useAutosaveFields<K extends string>({
+  onDirtyChange,
   save,
   serverValues,
 }: Options<K>) {
@@ -34,9 +39,11 @@ export function useAutosaveFields<K extends string>({
   const dirty = useRef(new Set<K>());
   const timer = useRef<number | null>(null);
   const saveRef = useRef(save);
+  const onDirtyChangeRef = useRef(onDirtyChange);
   useEffect(() => {
     saveRef.current = save;
-  }, [save]);
+    onDirtyChangeRef.current = onDirtyChange;
+  }, [onDirtyChange, save]);
 
   // The serialized values stand in for the object, which is rebuilt each render.
   const serverKey = JSON.stringify(serverValues);
@@ -70,6 +77,7 @@ export function useAutosaveFields<K extends string>({
       if (keep.has(key)) continue;
       if (valuesRef.current[key] === sent[key]) dirty.current.delete(key);
     }
+    if (dirty.current.size === 0) onDirtyChangeRef.current?.(false);
     // A save that landed may leave the store behind newer typing; nothing to do.
   }, []);
 
@@ -82,6 +90,7 @@ export function useAutosaveFields<K extends string>({
   const setValue = useCallback(
     (key: K, value: string) => {
       valuesRef.current = { ...valuesRef.current, [key]: value };
+      if (dirty.current.size === 0) onDirtyChangeRef.current?.(true);
       dirty.current.add(key);
       setValues(valuesRef.current);
       if (timer.current !== null) window.clearTimeout(timer.current);

@@ -11,7 +11,7 @@ import {
   BibleFieldLabel,
   BibleHeading,
 } from "@/components/studio/bible/bible-field";
-import { useAutosaveFields } from "@/components/studio/inspect/use-autosave-fields";
+import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import {
   STUDIO_MAX_VOICE_SAMPLE_CHARS,

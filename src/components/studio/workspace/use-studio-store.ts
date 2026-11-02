@@ -36,7 +36,7 @@ export type StudioPlanTab = "outline" | "characters";
 export type StudioBundleOpFocus = { bundleId: string; opId: string };
 
 export type StudioStoreState = StudioWorkspace & {
-  /** Read-only global instructions, kept for the Inspect panel. */
+  /** Read-only global instructions, shown in Story settings. */
   globalInstructions: string;
   selectedItemId: string | null;
   /**
@@ -290,8 +290,7 @@ export function useStudioStore(): StudioStoreValue {
 }
 
 /**
- * Shows this bundle's review-card op in the chat. The Inspect "Review in
- * chat" link, proposed plan rows, and manuscript markers call it.
+ * Shows this bundle's review-card op in the chat. Manuscript markers call it.
  */
 export function useFocusBundleOp(): (target: StudioBundleOpFocus) => void {
   const { dispatch } = useStudioStore();

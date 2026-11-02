@@ -19,7 +19,7 @@ const SPLIT_POSITION =
   "Select where the new moment should start: after some text, and before the end.";
 const SPLIT_FAILED = "The moment could not be split. Please try again.";
 const SPLIT_READ_BACK_FAILED =
-  "The moment was split, but it could not be re-read. Try Re-read in Inspect.";
+  "The moment was split, but it could not be re-read. Try Re-read in the scene's ⋯ menu.";
 
 /**
  * "Split moment here": flushes autosave, splits at the selection start through

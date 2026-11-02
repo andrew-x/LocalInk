@@ -16,7 +16,6 @@ import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type {
   StudioAspect,
   StudioChangeMode,
-  StudioPlanField,
   StudioPlanKind,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
@@ -34,7 +33,6 @@ import {
 } from "./aspect-modes";
 import {
   loadStudioWorkspace,
-  requirePlanItem,
   requireStudioStory,
   touchStudioStory,
 } from "./repository";
@@ -491,42 +489,9 @@ function applyFleshOut(
   }
 }
 
-/**
- * An explicit pick of an AI option counts as the author's approval, so it
- * may overwrite fields the author wrote and then protects all three.
- */
-function applyPickedBrief(
-  tx: LocalinkTx,
-  storyId: string,
-  targetItemId: string,
-  brief: { title: string; whatHappens: string; howToWrite: string },
-  now: string,
-): void {
-  const target = requirePlanItem(tx, storyId, targetItemId);
-  const authorFields = [
-    ...new Set<StudioPlanField>([
-      ...target.authorFields,
-      "title",
-      "whatHappens",
-      "howToWrite",
-    ]),
-  ];
-  tx.update(studioPlanItems)
-    .set({
-      title: clip(brief.title, MAX_TITLE),
-      whatHappens: clip(brief.whatHappens, MAX_TEXT),
-      howToWrite: clip(brief.howToWrite, MAX_TEXT),
-      authorFields,
-      revision: target.revision + 1,
-      updatedAt: now,
-    })
-    .where(eq(studioPlanItems.id, targetItemId))
-    .run();
-}
-
 export function applyStagedStudioPlan(
   tx: LocalinkTx,
-  input: { storyId: string; staged: StagedStudioPlan; optionIndex?: number },
+  input: { storyId: string; staged: StagedStudioPlan },
 ): void {
   const { storyId, staged } = input;
   const now = day().toISOString();
@@ -539,20 +504,6 @@ export function applyStagedStudioPlan(
     case "flesh-out":
       applyFleshOut(tx, storyId, staged, now);
       break;
-    case "alternatives": {
-      const option =
-        input.optionIndex === undefined
-          ? undefined
-          : staged.options[input.optionIndex];
-      if (!option) {
-        throw new ActionError("BAD_REQUEST", "Choose one of the alternatives.");
-      }
-      applyPickedBrief(tx, storyId, staged.targetItemId, option, now);
-      break;
-    }
-    case "rewrite-brief":
-      applyPickedBrief(tx, storyId, staged.targetItemId, staged.brief, now);
-      break;
   }
   touchStudioStory(tx, storyId, now);
 }
@@ -562,7 +513,6 @@ export function commitStudioPlan(input: {
   generationId: string;
   mode: StagedStudioPlan["mode"];
   targetItemId?: string;
-  optionIndex?: number;
 }): StudioWorkspace {
   if (input.mode !== "initial" && !input.targetItemId) {
     throw new ActionError("BAD_REQUEST", "This plan needs a target.");
@@ -582,11 +532,7 @@ export function commitStudioPlan(input: {
   }
 
   getDb().transaction((tx) =>
-    applyStagedStudioPlan(tx, {
-      storyId: input.storyId,
-      staged,
-      optionIndex: input.optionIndex,
-    }),
+    applyStagedStudioPlan(tx, { storyId: input.storyId, staged }),
   );
   // Dropped only after a successful commit so a failed apply can be retried.
   dropStudioStage(binding);

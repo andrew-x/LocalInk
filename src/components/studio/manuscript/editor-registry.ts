@@ -107,7 +107,7 @@ export function focusNeighbor(
   return false;
 }
 
-// Save states, read by Inspect for the focused moment.
+// Save states per moment, for UI that reports whether prose is saved.
 
 const saveStates = new Map<string, MomentSaveState>();
 const saveStateListeners = new Set<() => void>();

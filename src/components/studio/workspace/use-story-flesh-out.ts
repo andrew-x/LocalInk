@@ -44,7 +44,8 @@ const StoryFleshOutContext = createContext<StoryFleshOut | null>(null);
 /**
  * "Plan scenes for every chapter": the plan route's story-wide flesh-out,
  * then apply and replace the workspace. One request per workspace, shared by
- * the plan tree header and the manuscript's empty state.
+ * the outline's "Plan scenes for N chapters" line and the manuscript's empty
+ * state.
  */
 export function StoryFleshOutProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useStudioStore();

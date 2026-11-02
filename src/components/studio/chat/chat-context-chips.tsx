@@ -3,8 +3,8 @@
 import { Eye, Pin, X } from "lucide-react";
 import { useMemo } from "react";
 
-import { EntryPicker } from "@/components/studio/inspect/entry-picker";
-import { chapterNumbers } from "@/components/studio/inspect/inspect-labels";
+import { EntryPicker } from "@/components/studio/shared/entry-picker";
+import { chapterNumbers } from "@/components/studio/shared/inspect-labels";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { STUDIO_CHAT_MAX_PINNED_ENTRIES } from "@/lib/studio/chat-contract";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";

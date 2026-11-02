@@ -1,18 +1,16 @@
 import "server-only";
 
-import { and, desc, eq, max } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import type { LocalinkTx } from "@/lib/drizzle/db";
 import {
-  studioChanges,
   studioPlanItems,
   studioProse,
   studioProseVersions,
 } from "@/lib/drizzle/schema";
 import type {
-  StudioChangeDto,
   StudioPlanItemDto,
   StudioProseDto,
   StudioProseOrigin,
@@ -21,12 +19,9 @@ import { countWords } from "@/lib/studio/prose-text";
 import { generateId } from "@/lib/util";
 
 import {
-  applySiblingOrder,
-  listSiblingRows,
   requirePlanItem,
   type StudioProseRow,
   selectPlanItemsByIds,
-  toChangeDto,
   toPlanItemDto,
   toProseDto,
   touchStudioStory,
@@ -401,114 +396,5 @@ export function splitMoment(
   return {
     prose: [toProseDto(before), toProseDto(after)],
     planItems: planItems.map(toPlanItemDto),
-  };
-}
-
-export function mergeMomentIntoPrevious(
-  tx: LocalinkTx,
-  input: {
-    storyId: string;
-    momentId: string;
-    expectedRevision: number;
-    previousExpectedRevision: number;
-  },
-): {
-  prose: StudioProseDto[];
-  planItems: StudioPlanItemDto[];
-  changes: StudioChangeDto[];
-  deletedIds: string[];
-} {
-  const { storyId, momentId } = input;
-  const moment = requirePlanItem(tx, storyId, momentId, "moment");
-  const siblings = listSiblingRows(tx, storyId, moment.parentId);
-  const index = siblings.findIndex((row) => row.id === momentId);
-  const previous = index > 0 ? siblings[index - 1] : undefined;
-  if (!previous) {
-    throw new ActionError(
-      "BAD_REQUEST",
-      "This is the first moment in its scene, so there is nothing to merge it into.",
-    );
-  }
-  const now = day().toISOString();
-  const thisProse = getProseRow(tx, momentId);
-  if ((thisProse?.revision ?? 0) !== input.expectedRevision) {
-    throw new ActionError("CONFLICT", MOMENT_CONFLICT);
-  }
-  const previousProse = getProseRow(tx, previous.id);
-  if ((previousProse?.revision ?? 0) !== input.previousExpectedRevision) {
-    throw new ActionError("CONFLICT", MOMENT_CONFLICT);
-  }
-
-  const prose: StudioProseDto[] = [];
-  const appended = thisProse?.markdown.trim() ?? "";
-  if (appended) {
-    appendVersionIfChanged(tx, storyId, previous.id, now);
-    const base = previousProse?.markdown.trimEnd() ?? "";
-    const origin: StudioProseOrigin =
-      !previousProse || previousProse.origin === thisProse?.origin
-        ? (thisProse?.origin ?? "author")
-        : "ai-edited";
-    const row = writeProse(tx, {
-      storyId,
-      momentId: previous.id,
-      markdown: base ? `${base}\n\n${appended}` : appended,
-      expectedRevision: input.previousExpectedRevision,
-      origin,
-      now,
-      strict: true,
-    });
-    prose.push(toProseDto(row));
-  } else if (previousProse) {
-    prose.push(toProseDto(previousProse));
-  }
-
-  // Re-pin this moment's changes after the previous moment's own.
-  const moved = tx
-    .select()
-    .from(studioChanges)
-    .where(eq(studioChanges.planItemId, momentId))
-    .all()
-    .sort(
-      (a, b) => a.position - b.position || (a.createdAt < b.createdAt ? -1 : 1),
-    );
-  const last = tx
-    .select({ value: max(studioChanges.position) })
-    .from(studioChanges)
-    .where(eq(studioChanges.planItemId, previous.id))
-    .get();
-  let nextPosition = (last?.value ?? -1) + 1;
-  const changes: StudioChangeDto[] = [];
-  for (const change of moved) {
-    const row = tx
-      .update(studioChanges)
-      .set({
-        planItemId: previous.id,
-        position: nextPosition++,
-        updatedAt: now,
-      })
-      .where(eq(studioChanges.id, change.id))
-      .returning()
-      .get();
-    changes.push(toChangeDto(row));
-  }
-
-  // Foreign keys cascade this moment's prose, versions and flags.
-  tx.delete(studioPlanItems).where(eq(studioPlanItems.id, momentId)).run();
-  const remaining = siblings
-    .filter((row) => row.id !== momentId)
-    .map((row) => row.id);
-  const shifted = applySiblingOrder(
-    tx,
-    storyId,
-    moment.parentId,
-    remaining,
-    now,
-  );
-  touchStudioStory(tx, storyId, now);
-  return {
-    prose,
-    planItems: selectPlanItemsByIds(tx, storyId, shifted).map(toPlanItemDto),
-    changes,
-    deletedIds: [momentId],
   };
 }
