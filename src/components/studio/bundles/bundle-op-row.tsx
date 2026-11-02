@@ -22,6 +22,7 @@ const ISSUE_TEXT: Record<StudioBundleIssueKind, string> = {
     "Needs another change that is not selected. Select that one too, or deselect this.",
   "dependency-dismissed":
     "Needs a change that was dismissed or undone, so it can't be applied.",
+  dismissed: "Already dismissed or undone.",
   "too-many-fields":
     "Would leave this entry with more fields than are allowed.",
   invalid: "Cannot be applied as proposed.",

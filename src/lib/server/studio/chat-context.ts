@@ -226,19 +226,24 @@ export function buildStudioChatContextBlock(
 const MAX_DISMISSED_LABELS = 20;
 
 /**
- * The bundle's status in a bracketed note. For the latest bundle it also
- * names, by label only, the ops a new message dismissed without review, so
- * the model can propose the ones that still matter again.
+ * The bundle's status in a bracketed note. It also names, by label only,
+ * the ops a new message dismissed without review since the thread's last
+ * reply (`lastReplyAt`), so the model hears about them once, on the turn
+ * that dismissed them (or the next one if that turn was discarded), and can
+ * propose the ones that still matter again.
  */
 function bundleNote(
   bundleId: string,
   bundle: StudioBundleDto | undefined,
-  latest: boolean,
+  lastReplyAt: string,
 ) {
   if (!bundle) return `[Proposed changes ${bundleId}: no longer available]`;
   const accepted = bundle.operations.filter((op) => op.status === "accepted");
   const unreviewed = bundle.operations.filter(
     (op) => op.dismissedBy === "new-message",
+  );
+  const untold = unreviewed.filter(
+    (op) => op.dismissedAt !== undefined && op.dismissedAt > lastReplyAt,
   );
   const status =
     bundle.status === "pending"
@@ -252,15 +257,15 @@ function bundleNote(
               ? "not reviewed"
               : "discarded by the author"
             : "accepted, then undone";
-  if (!latest || unreviewed.length === 0) {
+  if (untold.length === 0) {
     return `[Proposed changes ${bundle.id}: ${status}]`;
   }
-  const labels = unreviewed
+  const labels = untold
     .slice(0, MAX_DISMISSED_LABELS)
     .map((op) => `“${op.label}”`);
   const more =
-    unreviewed.length > MAX_DISMISSED_LABELS
-      ? ` and ${unreviewed.length - MAX_DISMISSED_LABELS} more`
+    untold.length > MAX_DISMISSED_LABELS
+      ? ` and ${untold.length - MAX_DISMISSED_LABELS} more`
       : "";
   return `[Proposed changes ${bundle.id}: ${status}. Dismissed without review when the author sent a new message: ${labels.join(", ")}${more}. Propose any that still matter again.]`;
 }
@@ -275,18 +280,20 @@ export function buildStudioChatHistory(
   messages: StudioChatMessageDto[],
   bundles: Map<string, StudioBundleDto>,
 ): ModelMessage[] {
-  const latestBundleId =
-    messages.findLast((message) => message.bundleId !== null)?.bundleId ?? null;
+  // A reply saved after a dismissal means the model was already told.
+  const lastReplyAt = messages.reduce(
+    (latest, message) =>
+      message.role === "assistant" && message.createdAt > latest
+        ? message.createdAt
+        : latest,
+    "",
+  );
   return messages.map((message): ModelMessage => {
     if (message.role === "user") {
       return { role: "user", content: message.content };
     }
     const note = message.bundleId
-      ? bundleNote(
-          message.bundleId,
-          bundles.get(message.bundleId),
-          message.bundleId === latestBundleId,
-        )
+      ? bundleNote(message.bundleId, bundles.get(message.bundleId), lastReplyAt)
       : "";
     return {
       role: "assistant",

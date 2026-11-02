@@ -301,6 +301,11 @@ export type StudioBundleOp = StudioBundleOpInput & {
   baselineAt?: string;
   /** Set on rejected ops. */
   dismissedBy?: StudioBundleDismissal;
+  /**
+   * When it was rejected. For a new-message dismissal this is the sending
+   * turn's prepare, so chat history can tell whether a reply has followed.
+   */
+  dismissedAt?: string;
   result?: unknown;
 };
 
@@ -356,6 +361,8 @@ export type StudioBundleWorkspacePatch = {
  *   Accept pulls pending creates in automatically, so only a caller that
  *   checks an unexpanded selection (the chat builder) sees it.
  * - `dependency-dismissed`: a create it needs was dismissed or undone.
+ * - `dismissed`: it was itself dismissed or undone already, so accept
+ *   refuses it.
  * - `conflict`: its baseline no longer matches, a record it names is gone,
  *   or (deletes) something inside what it deletes changed after proposal.
  * - `too-many-fields`: it would leave an entry above the field cap.
@@ -364,6 +371,7 @@ export type StudioBundleWorkspacePatch = {
 export type StudioBundleIssueKind =
   | "missing-dependency"
   | "dependency-dismissed"
+  | "dismissed"
   | "conflict"
   | "too-many-fields"
   | "invalid";

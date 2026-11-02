@@ -12,6 +12,7 @@ import {
   type StudioBundleStoryPatch,
   studioBundleOpCreates,
   studioBundleOpCreators,
+  studioBundlePendingDependents,
   studioPlanParentKind,
 } from "@/lib/studio/bundle-contract";
 import {
@@ -470,6 +471,78 @@ export function rebaseBundleOps(
       ? { ...rebaseOp(op, rows, refs), baselineAt }
       : op,
   );
+}
+
+/** The saved records an op writes, or creates something inside. */
+function opTargets(
+  op: StudioBundleOp,
+  refs: Map<string, string>,
+): { planItemIds: string[]; entryIds: string[]; changeIds: string[] } {
+  const resolve = (ref: string) => refs.get(ref) ?? ref;
+  const none = { planItemIds: [], entryIds: [], changeIds: [] };
+  switch (op.kind) {
+    case "entry.update":
+    case "entry.delete":
+      return { ...none, entryIds: [op.entryId] };
+    case "plan.create":
+      return op.item.parentRef === null
+        ? none
+        : { ...none, planItemIds: [resolve(op.item.parentRef)] };
+    case "plan.update":
+    case "plan.move":
+    case "plan.delete":
+      return { ...none, planItemIds: [op.itemId] };
+    case "change.create":
+      return {
+        ...none,
+        planItemIds: [resolve(op.planItemRef)],
+        entryIds: [resolve(op.entryRef)],
+      };
+    case "change.update":
+    case "change.delete":
+      return { ...none, changeIds: [op.changeId] };
+    case "prose.write":
+      return { ...none, planItemIds: [resolve(op.momentRef)] };
+    default:
+      return none;
+  }
+}
+
+/**
+ * Pending ops whose target an accept just removed (something inside an
+ * accepted plan.delete's subtree, an accepted entry.delete's entry and its
+ * records, a deleted change record), plus the pending ops that depend on
+ * them. They can never apply, so accept dismisses them instead of leaving
+ * them to read as conflicts. `ops` must carry the accept's results.
+ */
+export function findOrphanedPendingOps(
+  ops: StudioBundleOp[],
+  before: StudioStoryRows,
+  after: StudioStoryRows,
+): Set<string> {
+  const refs = acceptedBundleRefs(ops);
+  const removed = <T>(was: Map<string, T>, now: Map<string, T>, id: string) =>
+    was.has(id) && !now.has(id);
+  const orphaned = new Set<string>();
+  for (const op of ops) {
+    if (op.status !== "pending") continue;
+    const targets = opTargets(op, refs);
+    if (
+      targets.planItemIds.some((id) =>
+        removed(before.planItems, after.planItems, id),
+      ) ||
+      targets.entryIds.some((id) =>
+        removed(before.entries, after.entries, id),
+      ) ||
+      targets.changeIds.some((id) => removed(before.changes, after.changes, id))
+    ) {
+      orphaned.add(op.id);
+    }
+  }
+  for (const id of studioBundlePendingDependents(ops, orphaned)) {
+    orphaned.add(id);
+  }
+  return orphaned;
 }
 
 const APPLY_RANK: Record<StudioBundleOp["kind"], number> = {

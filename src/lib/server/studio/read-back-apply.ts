@@ -12,6 +12,7 @@ import {
   studioPlanItems,
   studioProse,
 } from "@/lib/drizzle/schema";
+import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
   StudioFlagDto,
@@ -30,6 +31,7 @@ import {
 import { generateId } from "@/lib/util";
 
 import { createAspectModeResolver } from "./aspect-modes";
+import { rebasePendingStudioBundlesAround } from "./bundles";
 import {
   chunk,
   requireEntry,
@@ -50,6 +52,8 @@ export type StudioReadBackApplyResult = {
     changes: StudioChangeDto[];
     flags: StudioFlagDto[];
     prose: StudioProseDto[];
+    /** Pending bundles whose suggestions were rebased onto this read-back. */
+    bundles: StudioBundleDto[];
   };
 };
 
@@ -62,7 +66,7 @@ export type StudioFlagResolveResult = {
 };
 
 function emptyPatch(): StudioReadBackApplyResult["workspacePatch"] {
-  return { planItems: [], changes: [], flags: [], prose: [] };
+  return { planItems: [], changes: [], flags: [], prose: [], bundles: [] };
 }
 
 function selectOpenFlags(tx: LocalinkTx, storyId: string): StudioFlagRow[] {
@@ -111,9 +115,25 @@ function existingEntryIds(
  * Applies a staged read-back inside the caller's transaction. Returns
  * `applied: false` without touching anything when the prose moved on since the
  * read-back was staged. Changes with `authorEdited` are never modified, and
- * plan fields listed in `authorFields` are never overwritten.
+ * plan fields listed in `authorFields` are never overwritten. Pending
+ * suggestions that only this read-back made stale (it bumps the moment's
+ * revision and moves planned changes) are rebased in the same transaction
+ * and returned in the patch.
  */
 export function applyStagedReadBack(
+  tx: LocalinkTx,
+  input: { storyId: string; momentId: string; staged: StagedStudioReadBack },
+): StudioReadBackApplyResult {
+  const { result, bundles } = rebasePendingStudioBundlesAround(
+    tx,
+    input.storyId,
+    () => applyReadBackRows(tx, input),
+  );
+  if (bundles.length > 0) result.workspacePatch.bundles = bundles;
+  return result;
+}
+
+function applyReadBackRows(
   tx: LocalinkTx,
   input: { storyId: string; momentId: string; staged: StagedStudioReadBack },
 ): StudioReadBackApplyResult {
