@@ -35,9 +35,9 @@ import {
 } from "@/lib/studio/contracts";
 import {
   cleanFieldLabel,
-  mergeAiFields,
   normalizeEntryFields,
-  type StudioProposedField,
+  refreshAiFields,
+  type StudioFieldRefreshOp,
 } from "@/lib/studio/entry-fields";
 import { generateId } from "@/lib/util";
 
@@ -748,32 +748,26 @@ export function removeStudioChange(
 }
 
 /**
- * Adds AI-suggested fields to an entry. Author-written fields are never
- * touched and new labels stop at the field cap (`mergeAiFields`); the
- * entry's revision is the compare-and-swap. `skipped` counts picked fields
- * the cap kept out.
+ * Brings an entry's AI-owned fields in line with a refresh (`refreshAiFields`;
+ * author-owned fields are never touched). The entry's revision is the
+ * compare-and-swap against the revision the refresh read: a mismatch writes
+ * nothing and returns null, since the author's newer edit triggers its own
+ * refresh.
  */
-export function applySuggestedEntryFields(
+export function applyRefreshedEntryFields(
   tx: LocalinkTx,
   input: {
     storyId: string;
     entryId: string;
-    expectedRevision: number;
-    proposed: StudioProposedField[];
+    sourceRevision: number;
+    ops: StudioFieldRefreshOp[];
   },
-): { entry: StudioEntryDto; skipped: number } {
+): StudioEntryDto | null {
   const current = requireEntry(tx, input.storyId, input.entryId);
-  if (current.revision !== input.expectedRevision) {
-    throw new ActionError(
-      "CONFLICT",
-      "This entry changed while suggestions were being made. Ask for suggestions again.",
-    );
-  }
+  if (current.revision !== input.sourceRevision) return null;
   const currentFields = normalizeEntryFields(current.fields, current.type);
-  const { fields, skipped } = mergeAiFields(currentFields, input.proposed);
-  if (isDeepStrictEqual(fields, currentFields)) {
-    return { entry: toEntryDto(current), skipped };
-  }
+  const { fields } = refreshAiFields(currentFields, input.ops);
+  if (isDeepStrictEqual(fields, currentFields)) return toEntryDto(current);
   const now = day().toISOString();
   const row = tx
     .update(studioEntries)
@@ -782,17 +776,12 @@ export function applySuggestedEntryFields(
       and(
         eq(studioEntries.id, input.entryId),
         eq(studioEntries.storyId, input.storyId),
-        eq(studioEntries.revision, input.expectedRevision),
+        eq(studioEntries.revision, input.sourceRevision),
       ),
     )
     .returning()
     .get();
-  if (!row) {
-    throw new ActionError(
-      "CONFLICT",
-      "This entry changed while suggestions were being made. Ask for suggestions again.",
-    );
-  }
+  if (!row) return null;
   touchStudioStory(tx, input.storyId, now);
-  return { entry: toEntryDto(row), skipped };
+  return toEntryDto(row);
 }

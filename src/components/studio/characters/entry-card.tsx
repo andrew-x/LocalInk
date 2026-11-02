@@ -24,8 +24,13 @@ import {
 } from "./entry-line";
 import { RelationshipEditor } from "./relationship-editor";
 import { TrackingSection } from "./tracking-section";
+import { useAutoDetails } from "./use-auto-details";
 import { useDeleteEntry } from "./use-delete-entry";
 import { type EntryPatch, usePatchEntry } from "./use-patch-entry";
+
+function normalizeSummary(text: string): string {
+  return text.trim().replace(/\s+/g, " ");
+}
 
 type EntryCardProps = {
   entry: StudioEntryDto;
@@ -48,7 +53,11 @@ export function EntryCard({
 }: EntryCardProps) {
   const { state } = useStudioStore();
   const patchEntry = usePatchEntry();
+  const autoDetails = useAutoDetails();
   const deleteEntry = useDeleteEntry();
+  // The paragraph last refreshed from; only this card's own saves move it,
+  // so a store merge cannot hide the change that triggers the refresh.
+  const summaryRef = useRef(entry.summary);
   const [tracking, setTracking] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -80,11 +89,23 @@ export function EntryCard({
       }
       if (changed.summary !== undefined) patch.summary = changed.summary;
       if (Object.keys(patch).length > 0) {
-        if ((await patchEntry(entry.id, patch)) === null) return false;
+        const saved = await patchEntry(entry.id, patch);
+        if (saved === null) return false;
+        // A changed, non-blank paragraph (including a new entry's first one)
+        // refreshes the AI-owned details. Edits to fields alone never do.
+        if (
+          patch.summary !== undefined &&
+          normalizeSummary(saved.summary) !==
+            normalizeSummary(summaryRef.current) &&
+          normalizeSummary(saved.summary)
+        ) {
+          autoDetails(entry.id);
+        }
+        summaryRef.current = saved.summary;
       }
       return keep.length > 0 ? keep : true;
     },
-    [entry.id, patchEntry],
+    [autoDetails, entry.id, patchEntry],
   );
 
   const serverValues = useMemo(

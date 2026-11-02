@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-import type { StudioSuggestedFieldsApplyResult } from "@/actions/studio/_types";
-import { applyStudioSuggestedFields } from "@/actions/studio/apply-studio-suggested-fields";
+import type { StudioRefreshedFieldsApplyResult } from "@/actions/studio/_types";
+import { applyStudioRefreshedFields } from "@/actions/studio/apply-studio-refreshed-fields";
 import { updateStudioEntry } from "@/actions/studio/update-studio-entry";
 import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
 import {
@@ -81,49 +81,51 @@ export function usePatchEntry() {
   );
 }
 
-const APPLY_FAILED_MESSAGE = "The suggestions could not be added.";
+const REFRESH_TOAST_ID = "studio-entry-refresh";
+const REFRESH_APPLY_FAILED_MESSAGE =
+  "Couldn't update the details the AI keeps.";
 
 /**
- * Adds picked suggestions through the same per-entry queue as field edits, so
- * the compare-and-swap always uses the newest revision. Resolves the saved
- * entry and how many picks the field cap left out, or null after toasting a
- * failure.
+ * Applies a staged details refresh through the same per-entry queue as field
+ * edits, so it never lands in the middle of an autosave. The server compares
+ * against the revision the refresh read, so a newer edit makes it stale
+ * (resolved `{ entry: null, stale: true }`, silent). Resolves null after
+ * toasting a failure.
  */
-export function useApplyEntrySuggestions() {
+export function useApplyRefreshedFields() {
   const { state, dispatch } = useStudioStore();
   const storyId = state.story.id;
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
 
   return useCallback(
     (
       entryId: string,
       generationId: string,
-      pickedLabels: string[],
-    ): Promise<StudioSuggestedFieldsApplyResult | null> => {
+    ): Promise<StudioRefreshedFieldsApplyResult | null> => {
       const slot = getSlot(`${storyId}:${entryId}`);
       const task = slot.queue.then(async () => {
-        const stored = stateRef.current.entries.find((e) => e.id === entryId);
-        const latest = newestRevision(stored, slot);
-        if (!latest) return null;
         try {
-          const result = await applyStudioSuggestedFields({
+          const result = await applyStudioRefreshedFields({
             storyId,
             entryId,
             generationId,
-            pickedLabels,
-            expectedRevision: latest.revision,
           });
           if (result?.data) {
-            slot.newest = result.data.entry;
-            dispatch({ type: "merge", entries: [result.data.entry] });
+            const saved = result.data.entry;
+            if (
+              saved &&
+              (!slot.newest || saved.revision > slot.newest.revision)
+            ) {
+              slot.newest = saved;
+            }
+            if (saved) dispatch({ type: "merge", entries: [saved] });
             return result.data;
           }
-          toast.error(actionFailureMessage(result, APPLY_FAILED_MESSAGE));
+          toast.error(
+            actionFailureMessage(result, REFRESH_APPLY_FAILED_MESSAGE),
+            { id: REFRESH_TOAST_ID },
+          );
         } catch {
-          toast.error(APPLY_FAILED_MESSAGE);
+          toast.error(REFRESH_APPLY_FAILED_MESSAGE, { id: REFRESH_TOAST_ID });
         }
         return null;
       });

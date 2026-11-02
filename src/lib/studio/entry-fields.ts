@@ -194,6 +194,83 @@ export function mergeAiFields(
   return { fields: merged, skipped: skipped.size };
 }
 
+/** One AI refresh edit, addressed by field id (adds by label). */
+export type StudioFieldRefreshOp =
+  | ({ action: "add"; label: string } & Omit<StudioProposedField, "label">)
+  | ({ action: "update"; fieldId: string } & Omit<StudioProposedField, "label">)
+  | { action: "remove"; fieldId: string };
+
+/**
+ * Applies an AI refresh: removes, then updates, then adds while the list is
+ * under `STUDIO_MAX_ENTRY_FIELDS`. Only `author: "ai"` fields are ever
+ * removed or changed; ops on author fields or unknown ids are ignored, and an
+ * add whose label an author field holds is dropped. An add whose label an AI
+ * field holds updates it. `skipped` lists the labels the cap kept out.
+ */
+export function refreshAiFields(
+  existing: StudioEntryField[],
+  ops: StudioFieldRefreshOp[],
+): { fields: StudioEntryField[]; skipped: string[] } {
+  let fields = existing.map((field) => ({ ...field }));
+  const isAi = (fieldId: string) =>
+    fields.some((field) => field.id === fieldId && field.author === "ai");
+
+  const removed = new Set<string>();
+  for (const op of ops) {
+    if (op.action === "remove" && isAi(op.fieldId)) removed.add(op.fieldId);
+  }
+  fields = fields.filter((field) => !removed.has(field.id));
+
+  for (const op of ops) {
+    if (op.action !== "update" || !op.value.trim()) continue;
+    const index = fields.findIndex(
+      (field) => field.id === op.fieldId && field.author === "ai",
+    );
+    if (index === -1) continue;
+    fields[index] = {
+      ...fields[index],
+      value: op.value.trim(),
+      steerOnly: op.steerOnly,
+      backstoryOnly: op.backstoryOnly,
+    };
+  }
+
+  const skipped: string[] = [];
+  for (const op of ops) {
+    if (op.action !== "add") continue;
+    const label = cleanFieldLabel(op.label);
+    const value = op.value.trim();
+    if (!label || !value) continue;
+    const normalized = normalizeFieldLabel(label);
+    const index = fields.findIndex(
+      (field) => normalizeFieldLabel(field.label) === normalized,
+    );
+    if (index !== -1) {
+      if (fields[index].author === "author") continue;
+      fields[index] = {
+        ...fields[index],
+        value,
+        steerOnly: op.steerOnly,
+        backstoryOnly: op.backstoryOnly,
+      };
+      continue;
+    }
+    if (fields.length >= STUDIO_MAX_ENTRY_FIELDS) {
+      skipped.push(label);
+      continue;
+    }
+    fields.push({
+      id: generateId("studio-field"),
+      label,
+      value,
+      author: "ai",
+      steerOnly: op.steerOnly,
+      backstoryOnly: op.backstoryOnly,
+    });
+  }
+  return { fields, skipped };
+}
+
 /** One edit to an entry's field list, addressed by label. */
 export type StudioFieldOp =
   | {
