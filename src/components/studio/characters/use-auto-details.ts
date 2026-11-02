@@ -3,10 +3,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 
-import {
-  postStudioJson,
-  studioErrorMessage,
-} from "@/components/studio/studio-fetch";
+import { postStudioJson } from "@/components/studio/studio-fetch";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import type { StudioRefreshFieldsPreview } from "@/lib/studio/suggest-fields-contract";
 
@@ -58,11 +55,9 @@ export function useAutoDetails(): (entryId: string) => void {
           );
           if (controller.signal.aborted) return;
           await applyRefresh(entryId, preview.generationId);
-        } catch (error) {
+        } catch {
           if (controller.signal.aborted) return;
-          toast.error(studioErrorMessage(error, REFRESH_FAILED_MESSAGE), {
-            id: REFRESH_TOAST_ID,
-          });
+          toast.error(REFRESH_FAILED_MESSAGE, { id: REFRESH_TOAST_ID });
         } finally {
           if (pending.get(key) === slot) pending.delete(key);
         }

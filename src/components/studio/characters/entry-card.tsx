@@ -58,6 +58,7 @@ export function EntryCard({
   // The paragraph last refreshed from; only this card's own saves move it,
   // so a store merge cannot hide the change that triggers the refresh.
   const summaryRef = useRef(entry.summary);
+  const savedSummaryRef = useRef(entry.summary);
   const [tracking, setTracking] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -73,6 +74,16 @@ export function EntryCard({
   useEffect(() => {
     rootRef.current?.scrollIntoView({ block: "nearest" });
   }, []);
+
+  // Refreshes the AI-owned details when the saved paragraph is non-blank and
+  // differs from the one last refreshed from. Called only on final flushes
+  // (blur, unmount), never while the author is still typing.
+  const refreshDetails = useCallback(() => {
+    const saved = normalizeSummary(savedSummaryRef.current);
+    if (!saved || saved === normalizeSummary(summaryRef.current)) return;
+    summaryRef.current = savedSummaryRef.current;
+    autoDetails(entry.id);
+  }, [autoDetails, entry.id]);
 
   const save = useCallback(
     async (
@@ -91,21 +102,14 @@ export function EntryCard({
       if (Object.keys(patch).length > 0) {
         const saved = await patchEntry(entry.id, patch);
         if (saved === null) return false;
-        // A changed, non-blank paragraph (including a new entry's first one)
-        // refreshes the AI-owned details. Edits to fields alone never do.
-        if (
-          patch.summary !== undefined &&
-          normalizeSummary(saved.summary) !==
-            normalizeSummary(summaryRef.current) &&
-          normalizeSummary(saved.summary)
-        ) {
-          autoDetails(entry.id);
+        if (patch.summary !== undefined) {
+          savedSummaryRef.current = saved.summary;
+          if (final) refreshDetails();
         }
-        summaryRef.current = saved.summary;
       }
       return keep.length > 0 ? keep : true;
     },
-    [autoDetails, entry.id, patchEntry],
+    [entry.id, patchEntry, refreshDetails],
   );
 
   const serverValues = useMemo(
@@ -142,7 +146,7 @@ export function EntryCard({
             autoFocus={focusName}
             className="h-7 border-transparent bg-transparent px-1.5 font-semibold text-body shadow-none"
             maxLength={200}
-            onBlur={() => void flush(true)}
+            onBlur={() => void flush(true).then(refreshDetails)}
             onChange={(event) => setValue("name", event.target.value)}
             onFocus={(event) => {
               if (focusName) event.currentTarget.select();
@@ -196,7 +200,7 @@ export function EntryCard({
           className="text-label-sm leading-[1.5]"
           label="In your words"
           maxLength={20_000}
-          onBlur={() => void flush(true)}
+          onBlur={() => void flush(true).then(refreshDetails)}
           onChange={(event) => setValue("summary", event.target.value)}
           placeholder="Write a paragraph about them in your own words. The AI keeps track of the rest."
           value={values.summary}
