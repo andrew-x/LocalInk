@@ -1,14 +1,6 @@
 import type { StudioPlanItemDto, StudioProseDto } from "@/lib/studio/contracts";
 import { buildPlanTree, type StudioPlanNode } from "@/lib/studio/plan-order";
 
-/** Where typing (or Continue) after the last written prose goes. */
-export type ContinueTarget =
-  | { kind: "moment"; moment: StudioPlanItemDto; sceneId: string }
-  /** A scene with no moments yet: Continue plans them first. */
-  | { kind: "scene"; scene: StudioPlanItemDto }
-  /** Nothing planned follows: typing creates a moment at the scene's end. */
-  | { kind: "new"; sceneId: string; afterMomentId: string | null };
-
 type Placement = { sceneId: string; chapterId: string; sceneStart: boolean };
 
 export type ManuscriptBlock =
@@ -20,12 +12,12 @@ export type ManuscriptBlock =
       moment: StudioPlanItemDto;
       /** The moment already has prose, shown above until Keep. */
       replacesProse: boolean;
-    } & Placement)
-  | ({ type: "continue"; target: ContinueTarget } & Placement);
+    } & Placement);
 
 export type ManuscriptLayout = {
   blocks: ManuscriptBlock[];
-  target: ContinueTarget | null;
+  /** The scene the closing "Up next" line offers to write, if any. */
+  upNext: { sceneId: string } | null;
   chapterCount: number;
   sceneCount: number;
 };
@@ -41,81 +33,14 @@ function stripNode(node: StudioPlanNode): StudioPlanItemDto {
   return item;
 }
 
-function targetSceneId(target: ContinueTarget): string {
-  if (target.kind === "moment") return target.sceneId;
-  if (target.kind === "scene") return target.scene.id;
-  return target.sceneId;
-}
-
-/**
- * §7.5: typing after the last written prose writes the next planned moment;
- * with none, a new moment at the end of the last written moment's scene.
- * "Next" means after the last written moment, so a gap left earlier in the
- * story never pulls the continue editor backwards. Chapters without scenes
- * are skipped; they need planning in the tree first.
- */
-function findContinueTarget(
-  scenes: SceneEntry[],
-  isRendered: (moment: StudioPlanItemDto) => boolean,
-): ContinueTarget | null {
-  let lastScene = -1;
-  let lastMoment = -1;
-  scenes.forEach((entry, sceneIndex) => {
-    entry.moments.forEach((moment, momentIndex) => {
-      if (isRendered(moment)) {
-        lastScene = sceneIndex;
-        lastMoment = momentIndex;
-      }
-    });
-  });
-
-  for (let index = Math.max(lastScene, 0); index < scenes.length; index++) {
-    const entry = scenes[index];
-    const from = index === lastScene ? lastMoment + 1 : 0;
-    const next = entry.moments.slice(from).find((m) => !isRendered(m));
-    if (next) {
-      return {
-        kind: "moment",
-        moment: stripNode(next),
-        sceneId: entry.scene.id,
-      };
-    }
-    if (entry.moments.length === 0) {
-      return { kind: "scene", scene: stripNode(entry.scene) };
-    }
-  }
-
-  const last = lastScene >= 0 ? scenes[lastScene] : scenes[0];
-  if (!last) return null;
-  return {
-    kind: "new",
-    sceneId: last.scene.id,
-    afterMomentId: last.moments.at(-1)?.id ?? null,
-  };
-}
-
-/**
- * Lays the plan out as one flat list of book blocks: every chapter heading,
- * then breaks, written moments, drafts and the continue area. A flat keyed
- * list lets React keep an editor's instance when it moves from "continue" to
- * "written".
- */
-export function buildManuscriptLayout({
-  activeMomentId,
-  draftMomentId,
-  planItems,
-  proseById,
-}: {
-  planItems: StudioPlanItemDto[];
-  proseById: Map<string, StudioProseDto>;
-  /** The focused editor stays mounted even when its prose is emptied. */
-  activeMomentId: string | null;
-  draftMomentId: string | null;
-}): ManuscriptLayout {
+function sceneEntries(planItems: StudioPlanItemDto[]): {
+  chapters: StudioPlanNode[];
+  scenes: SceneEntry[];
+} {
   const chapters = buildPlanTree(planItems).filter(
     (node) => node.kind === "chapter",
   );
-  const scenes: SceneEntry[] = chapters.flatMap((chapter) =>
+  const scenes = chapters.flatMap((chapter) =>
     chapter.children
       .filter((child) => child.kind === "scene")
       .map((scene) => ({
@@ -124,13 +49,86 @@ export function buildManuscriptLayout({
         moments: scene.children.filter((child) => child.kind === "moment"),
       })),
   );
+  return { chapters, scenes };
+}
+
+function hasProse(
+  proseById: Map<string, StudioProseDto>,
+  momentId: string,
+): boolean {
+  return (proseById.get(momentId)?.markdown.trim().length ?? 0) > 0;
+}
+
+function upNextFor(
+  scenes: SceneEntry[],
+  proseById: Map<string, StudioProseDto>,
+): { sceneId: string } | null {
+  let lastScene = -1;
+  let lastMoment = -1;
+  scenes.forEach((entry, sceneIndex) => {
+    entry.moments.forEach((moment, momentIndex) => {
+      if (hasProse(proseById, moment.id)) {
+        lastScene = sceneIndex;
+        lastMoment = momentIndex;
+      }
+    });
+  });
+  if (lastScene < 0) {
+    const first = scenes[0];
+    return first ? { sceneId: first.scene.id } : null;
+  }
+  for (let index = lastScene; index < scenes.length; index++) {
+    const entry = scenes[index];
+    // In the last written scene only beats after the last prose count, so a
+    // gap left earlier never pulls "Up next" backwards.
+    const from = index === lastScene ? lastMoment + 1 : 0;
+    const hasUnwritten = entry.moments
+      .slice(from)
+      .some((moment) => !hasProse(proseById, moment.id));
+    if (hasUnwritten || (entry.moments.length === 0 && index > lastScene)) {
+      return { sceneId: entry.scene.id };
+    }
+  }
+  return null;
+}
+
+/**
+ * The first scene after the last written moment (plan order) that still has
+ * an unwritten or empty beat set; the first scene when nothing is written.
+ */
+export function findUpNext(
+  planItems: StudioPlanItemDto[],
+  proseById: Map<string, StudioProseDto>,
+): { sceneId: string } | null {
+  return upNextFor(sceneEntries(planItems).scenes, proseById);
+}
+
+/**
+ * Lays out only what has been written, as one flat list of book blocks:
+ * chapter openers, scene breaks, written moments and drafts. A chapter or
+ * scene with neither prose nor a draft never appears. A flat keyed list lets
+ * React keep an editor's instance when its position shifts.
+ */
+export function buildManuscriptLayout({
+  activeMomentId = null,
+  draftByMomentId,
+  planItems,
+  proseById,
+}: {
+  planItems: StudioPlanItemDto[];
+  proseById: Map<string, StudioProseDto>;
+  /** Task 9 narrows the value type. */
+  draftByMomentId: ReadonlyMap<string, unknown>;
+  /** The focused editor stays mounted even when its prose is emptied. */
+  activeMomentId?: string | null;
+}): ManuscriptLayout {
+  const { chapters, scenes } = sceneEntries(planItems);
 
   const isRendered = (moment: StudioPlanItemDto) => {
     const prose = proseById.get(moment.id);
     if (!prose) return false;
     return prose.markdown.trim().length > 0 || moment.id === activeMomentId;
   };
-  const target = findContinueTarget(scenes, isRendered);
 
   const blocks: ManuscriptBlock[] = [];
   chapters.forEach((chapter, chapterIndex) => {
@@ -145,32 +143,18 @@ export function buildManuscriptLayout({
         const moment = stripNode(node);
         const written = isRendered(moment);
         if (written) sceneBlocks.push({ type: "moment", moment, ...placement });
-        if (moment.id === draftMomentId) {
+        if (draftByMomentId.has(moment.id)) {
           sceneBlocks.push({
             type: "draft",
             moment,
             replacesProse: written,
             ...placement,
           });
-        } else if (
-          !written &&
-          target?.kind === "moment" &&
-          target.moment.id === moment.id
-        ) {
-          sceneBlocks.push({ type: "continue", target, ...placement });
         }
       }
-      if (
-        target &&
-        target.kind !== "moment" &&
-        targetSceneId(target) === sceneId
-      ) {
-        sceneBlocks.push({ type: "continue", target, ...placement });
-      }
-      if (sceneBlocks.length === 0) continue;
-
       const [first] = sceneBlocks;
-      if (first && first.type !== "chapter" && first.type !== "break") {
+      if (!first) continue;
+      if (first.type === "moment" || first.type === "draft") {
         first.sceneStart = true;
       }
       if (renderedScenes > 0) {
@@ -179,8 +163,8 @@ export function buildManuscriptLayout({
       renderedScenes++;
       chapterBlocks.push(...sceneBlocks);
     }
-    // Every chapter gets its heading, written or not, so the arc strip's
-    // chapter anchors always exist.
+    // A chapter opener exists only when one of its scenes renders.
+    if (chapterBlocks.length === 0) return;
     blocks.push(
       {
         type: "chapter",
@@ -193,7 +177,7 @@ export function buildManuscriptLayout({
 
   return {
     blocks,
-    target,
+    upNext: upNextFor(scenes, proseById),
     chapterCount: chapters.length,
     sceneCount: scenes.length,
   };

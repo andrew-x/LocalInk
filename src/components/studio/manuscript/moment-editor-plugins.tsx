@@ -304,15 +304,6 @@ export function ExternalProsePlugin({
   return null;
 }
 
-/** Keeps Lexical's editable flag in step with the `editable` prop. */
-export function EditablePlugin({ editable }: { editable: boolean }) {
-  const [editor] = useLexicalComposerContext();
-  useEffect(() => {
-    editor.setEditable(editable);
-  }, [editable, editor]);
-  return null;
-}
-
 type FocusTrackingPluginProps = {
   onFocus: () => void;
   onBlur: () => void;

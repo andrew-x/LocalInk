@@ -2,23 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/common/button";
 import { useBundlePreview } from "@/components/studio/bundles/use-bundle-preview";
-import { useStoryFleshOut } from "@/components/studio/workspace/use-story-flesh-out";
 import {
   useFocusBundleOp,
   useProseByMomentId,
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
-import { studioChapterAnchorId } from "@/components/studio/workspace/workspace-anchors";
+import {
+  studioChapterAnchorId,
+  studioSceneAnchorId,
+} from "@/components/studio/workspace/workspace-anchors";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 
-import {
-  ContinueLine,
-  continuePlaceholder,
-  continueTargetTitle,
-  useContinueEditor,
-} from "./continue-editor";
 import { DraftBlock } from "./draft-block";
 import {
   buildManuscriptLayout,
@@ -26,6 +21,8 @@ import {
   type ManuscriptBlock,
 } from "./manuscript-layout";
 import { MomentEditor } from "./moment-editor";
+import { UpNext } from "./up-next";
+import { useReadingPosition } from "./use-reading-position";
 import { useWritingLoop } from "./use-writing-loop";
 
 function ChapterHeading({
@@ -38,16 +35,14 @@ function ChapterHeading({
   const title = chapter.title.trim();
   return (
     <h2
-      className="mt-20 mb-10 scroll-mt-10 text-center font-content font-normal first:mt-0"
+      className="mt-24 mb-12 scroll-mt-10 text-center font-content font-normal first:mt-0"
       id={studioChapterAnchorId(chapter.id)}
     >
-      <span className="block text-[1.375rem] leading-8 tracking-wide">
-        {chapterNumberWord(number)}
+      <span className="block text-caption text-muted-foreground uppercase tracking-[0.2em]">
+        Chapter {chapterNumberWord(number)}
       </span>
       {title ? (
-        <span className="block text-[1.125rem] text-foreground/80 italic leading-8">
-          {title}
-        </span>
+        <span className="mt-2 block text-[1.5rem] leading-9">{title}</span>
       ) : null}
     </h2>
   );
@@ -73,9 +68,9 @@ function ProposedProseMarker({ onReview }: { onReview: () => void }) {
 
 function SceneBreak() {
   return (
-    <div className="my-6 select-none text-center text-muted-foreground tracking-[0.6em]">
+    <div className="my-8 select-none text-center text-muted-foreground">
       <hr className="sr-only" />
-      <span aria-hidden="true">* * *</span>
+      <span aria-hidden="true">⁂</span>
     </div>
   );
 }
@@ -87,20 +82,17 @@ function blockDataProps(block: ManuscriptBlock) {
     "data-studio-scene": block.sceneId,
     ...(block.type === "break"
       ? {}
-      : block.type === "continue"
-        ? {
-            "data-studio-moment":
-              block.target.kind === "moment"
-                ? block.target.moment.id
-                : undefined,
-          }
-        : { "data-studio-moment": block.moment.id }),
+      : { "data-studio-moment": block.moment.id }),
+    // The outline scrolls to a scene's first rendered element.
+    ...(block.type !== "break" && block.sceneStart
+      ? { id: studioSceneAnchorId(block.sceneId) }
+      : {}),
   };
 }
 
 /**
- * The book view: chapter headings, scene breaks and one seamless editor per
- * written moment, with a single continue area after the last written prose.
+ * The book view: only what is written. Chapter openers, scene breaks and one
+ * seamless editor per written moment, ending with a quiet "Up next" line.
  */
 export function Manuscript() {
   const { state, dispatch } = useStudioStore();
@@ -112,37 +104,45 @@ export function Manuscript() {
     const op = proseOpByMomentId.get(momentId);
     if (pending && op) focusBundleOp({ bundleId: pending.id, opId: op.id });
   };
-  const storyPlan = useStoryFleshOut();
   const storyId = state.story.id;
   const selectedItemId = state.selectedItemId;
-  const selectNonce = state.selectNonce;
   const draft = loop.draft;
   const [activeMomentId, setActiveMomentId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef(selectedItemId);
-  const selectedHereRef = useRef(false);
+  useEffect(() => {
+    selectedRef.current = selectedItemId;
+  }, [selectedItemId]);
+  // Until the writing loop tracks one draft per moment, pass its single draft.
+  const draftByMomentId = useMemo(
+    () => new Map(draft ? [[draft.momentId, draft]] : []),
+    [draft],
+  );
 
   const layout = useMemo(
     () =>
       buildManuscriptLayout({
         activeMomentId,
-        draftMomentId: draft?.momentId ?? null,
+        draftByMomentId,
         planItems: state.planItems,
         proseById,
       }),
-    [activeMomentId, draft?.momentId, proseById, state.planItems],
+    [activeMomentId, draftByMomentId, proseById, state.planItems],
   );
-  const { continueKey, createMoment, keyFor } = useContinueEditor(
-    layout.target,
+  const momentKey = useMemo(
+    () =>
+      layout.blocks
+        .map((block) => (block.type === "moment" ? block.moment.id : ""))
+        .join(","),
+    [layout.blocks],
   );
+  useReadingPosition(containerRef, momentKey);
 
   const handleFocusMoment = useCallback(
     (momentId: string | null) => {
       if (!momentId) return;
       setActiveMomentId(momentId);
       if (selectedRef.current === momentId) return;
-      // A click in the prose selects its moment without scrolling to it.
-      selectedHereRef.current = true;
       selectedRef.current = momentId;
       dispatch({ type: "select", itemId: momentId });
     },
@@ -152,35 +152,9 @@ export function Manuscript() {
     setActiveMomentId((current) => (current === momentId ? null : current));
   }, []);
 
-  // A tree (or arc strip, or Bible pin) selection scrolls its first moment
-  // into view, even when the item was already selected (the nonce moves).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectNonce re-runs the scroll for a repeated selection.
-  useEffect(() => {
-    selectedRef.current = selectedItemId;
-    if (selectedHereRef.current) {
-      selectedHereRef.current = false;
-      return;
-    }
-    if (!selectedItemId) return;
-    const escaped = CSS.escape(selectedItemId);
-    const element =
-      document.getElementById(studioChapterAnchorId(selectedItemId)) ??
-      containerRef.current?.querySelector(
-        `[data-studio-moment="${escaped}"], [data-studio-scene="${escaped}"]`,
-      );
-    element?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [selectedItemId, selectNonce]);
-
-  const isHighlighted = (block: ManuscriptBlock) =>
-    selectedItemId !== null &&
-    block.type === "moment" &&
-    (block.moment.id === selectedItemId ||
-      block.sceneId === selectedItemId ||
-      block.chapterId === selectedItemId);
-
   return (
     <div
-      className="mx-auto max-w-[70ch] px-8 pt-12 pb-[40vh] font-content"
+      className="mx-auto max-w-[38rem] px-6 pt-16 pb-[40vh] font-content"
       ref={containerRef}
     >
       {layout.blocks.map((block) => {
@@ -199,7 +173,7 @@ export function Manuscript() {
             return (
               <div
                 className="scroll-mt-24"
-                key={keyFor(block.moment.id)}
+                key={`moment:${block.moment.id}`}
                 {...blockDataProps(block)}
               >
                 {proseOpByMomentId.has(block.moment.id) ? (
@@ -208,7 +182,6 @@ export function Manuscript() {
                   />
                 ) : null}
                 <MomentEditor
-                  isHighlighted={isHighlighted(block)}
                   isSceneStart={block.sceneStart}
                   momentId={block.moment.id}
                   onBlurMoment={handleBlurMoment}
@@ -233,89 +206,28 @@ export function Manuscript() {
                 />
               </div>
             ) : null;
-          case "continue": {
-            const { target } = block;
-            const momentId = target.kind === "moment" ? target.moment.id : null;
-            // While this scene's moments are planned, the editor's key and
-            // target are about to change; typing now could be lost.
-            const isPlanningTarget =
-              target.kind === "scene" &&
-              loop.preparingSceneId === target.scene.id;
-            return (
-              <div
-                className="scroll-mt-24"
-                key={continueKey}
-                {...blockDataProps(block)}
-              >
-                {momentId && proseOpByMomentId.has(momentId) ? (
-                  <ProposedProseMarker
-                    onReview={() => reviewProposedProse(momentId)}
-                  />
-                ) : null}
-                <MomentEditor
-                  continueLine={<ContinueLine target={target} />}
-                  createMoment={momentId ? undefined : createMoment}
-                  isHighlighted={false}
-                  isSceneStart={block.sceneStart}
-                  momentId={momentId}
-                  onBlurMoment={handleBlurMoment}
-                  onFocusMoment={handleFocusMoment}
-                  placeholder={
-                    isPlanningTarget ? "Planning…" : continuePlaceholder(target)
-                  }
-                  prose={momentId ? proseById.get(momentId) : undefined}
-                  readOnly={isPlanningTarget}
-                  storyId={storyId}
-                  title={continueTargetTitle(target)}
-                />
-              </div>
-            );
-          }
         }
         return null;
       })}
-      {layout.sceneCount === 0 ? (
-        <div className="mt-10 flex flex-col items-center gap-3 font-sans">
-          <p className="text-center text-caption text-muted-foreground">
-            {layout.chapterCount === 0
-              ? "Add a chapter in the plan to start writing."
-              : "Add a scene to a chapter, or flesh one out, to start writing."}
+      {draft ? null : layout.blocks.length === 0 ? (
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-center font-sans text-caption text-muted-foreground">
+            Nothing written yet.
+            {layout.upNext ? "" : " Add a scene in the outline to begin."}
           </p>
-          {layout.chapterCount > 0 ? (
-            storyPlan.phase === "idle" ? (
-              <Button
-                disabled={!storyPlan.canPlan}
-                onClick={storyPlan.start}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <span aria-hidden="true" className="text-accent">
-                  ✦
-                </span>
-                Plan scenes for every chapter
-              </Button>
-            ) : (
-              <div className="flex items-center gap-2 text-caption text-muted-foreground">
-                <span aria-live="polite">
-                  {storyPlan.phase === "planning"
-                    ? "Planning scenes for every chapter…"
-                    : "Saving the planned scenes…"}
-                </span>
-                {storyPlan.phase === "planning" ? (
-                  <button
-                    className="rounded-sm px-1.5 py-0.5 underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-                    onClick={storyPlan.cancel}
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-                ) : null}
-              </div>
-            )
-          ) : null}
+          {layout.upNext ? <UpNext sceneId={layout.upNext.sceneId} /> : null}
         </div>
-      ) : null}
+      ) : (
+        <div className="mt-20 flex flex-col items-center gap-4">
+          <span
+            aria-hidden="true"
+            className="select-none text-muted-foreground/60"
+          >
+            ⁂
+          </span>
+          {layout.upNext ? <UpNext sceneId={layout.upNext.sceneId} /> : null}
+        </div>
+      )}
     </div>
   );
 }

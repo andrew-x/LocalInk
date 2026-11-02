@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { snapshotStudioMomentProse } from "@/actions/studio/snapshot-studio-moment-prose";
 import { updateStudioMomentProse } from "@/actions/studio/update-studio-moment-prose";
@@ -28,28 +28,21 @@ const SAVE_FAILED_MESSAGE =
   "This moment could not be saved. Your writing is kept here.";
 const READ_BACK_FAILED_MESSAGE =
   "The moment could not be re-read. It will try again after your next edit.";
-const BIND_FAILED_MESSAGE =
-  "A new moment could not be created for your writing. Keep typing to try again.";
 
 type UseMomentAutosaveOptions = {
   storyId: string;
-  /** Null for the continue editor until its first keystroke binds a moment. */
-  momentId: string | null;
+  momentId: string;
   initialMarkdown: string;
   initialRevision: number;
-  /** Creates the moment an unbound editor writes into. */
-  createMoment?: () => Promise<string | null>;
 };
 
 export type MomentAutosave = {
-  /** The moment this editor saves into, once known. */
-  boundMomentId: string | null;
   handleMarkdownChange: (markdown: string) => void;
   flush: () => Promise<number | null>;
   retry: () => void;
   /**
    * Called when the store holds a newer revision written elsewhere (Keep,
-   * split, restore). Returns true when the editor should load it; a dirty
+   * restore). Returns true when the editor should load it; a dirty
    * editor keeps its text, and its next save loses the compare-and-swap.
    */
   adoptExternal: (prose: StudioProseDto) => boolean;
@@ -65,20 +58,14 @@ export function useMomentAutosave({
   momentId,
   initialMarkdown,
   initialRevision,
-  createMoment,
 }: UseMomentAutosaveOptions): MomentAutosave {
   const { dispatch } = useStudioStore();
-  const [createdMomentId, setCreatedMomentId] = useState<string | null>(null);
-  const boundMomentId = momentId ?? createdMomentId;
-
-  const momentIdRef = useRef(boundMomentId);
-  const createMomentRef = useRef(createMoment);
+  const momentIdRef = useRef(momentId);
   const acknowledgedRevisionRef = useRef(initialRevision);
   const lastSavedRef = useRef(initialMarkdown);
   const latestRef = useRef(initialMarkdown);
   const inFlightRef = useRef(0);
   const blockedRef = useRef(false);
-  const bindingRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleAbortRef = useRef<AbortController | null>(null);
@@ -87,14 +74,6 @@ export function useMomentAutosave({
   const settleToastShownRef = useRef(false);
   const isMountedRef = useRef(true);
   const retryRef = useRef(() => {});
-
-  useEffect(() => {
-    createMomentRef.current = createMoment;
-  }, [createMoment]);
-
-  useEffect(() => {
-    if (boundMomentId) momentIdRef.current = boundMomentId;
-  }, [boundMomentId]);
 
   const setSaveState = useCallback((state: MomentSaveState) => {
     const id = momentIdRef.current;
@@ -249,31 +228,6 @@ export function useMomentAutosave({
     }, AUTOSAVE_DELAY_MS);
   }, [clearSaveTimer, enqueue]);
 
-  const bindMoment = useCallback(() => {
-    const create = createMomentRef.current;
-    if (momentIdRef.current || bindingRef.current || !create) return;
-    bindingRef.current = true;
-    void create()
-      .then((id) => {
-        if (!id) return;
-        momentIdRef.current = id;
-        if (!isMountedRef.current) return;
-        setCreatedMomentId(id);
-        if (latestRef.current !== lastSavedRef.current) {
-          setSaveState("pending");
-          queueSave();
-        }
-      })
-      .catch((error: unknown) => {
-        if (isMountedRef.current) {
-          toast.error(studioErrorMessage(error, BIND_FAILED_MESSAGE));
-        }
-      })
-      .finally(() => {
-        bindingRef.current = false;
-      });
-  }, [queueSave, setSaveState]);
-
   const handleMarkdownChange = useCallback(
     (markdown: string) => {
       latestRef.current = markdown;
@@ -289,23 +243,16 @@ export function useMomentAutosave({
         setSaveState("saved");
         return;
       }
-      if (!momentIdRef.current) {
-        if (markdown.trim()) bindMoment();
-        return;
-      }
       setSaveState("pending");
       queueSave();
     },
-    [bindMoment, cancelSettle, clearSaveTimer, queueSave, setSaveState],
+    [cancelSettle, clearSaveTimer, queueSave, setSaveState],
   );
 
   const flush = useCallback(async (): Promise<number | null> => {
     clearSaveTimer();
     await queueRef.current.catch(() => false);
     if (blockedRef.current) return null;
-    if (!momentIdRef.current) {
-      return latestRef.current.trim() ? null : acknowledgedRevisionRef.current;
-    }
     if (latestRef.current !== lastSavedRef.current) {
       const saved = await enqueue(latestRef.current, true);
       if (!saved) return null;
@@ -371,7 +318,6 @@ export function useMomentAutosave({
   }, []);
 
   return {
-    boundMomentId,
     handleMarkdownChange,
     flush,
     retry,

@@ -25,8 +25,6 @@ export type MomentEditorHandle = {
 
 /** The DOM attribute that orders editors for keyboard navigation. */
 export const STUDIO_EDITOR_ATTRIBUTE = "data-studio-editor";
-/** Registry key of the continue editor before it is bound to a moment. */
-export const STUDIO_UNBOUND_EDITOR_ID = "studio-continue-unbound";
 
 const editors = new Map<string, MomentEditorHandle>();
 

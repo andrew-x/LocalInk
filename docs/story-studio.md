@@ -31,7 +31,7 @@ AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in 
 
 ## Strict structured output
 
-`@ai-sdk/openai-compatible` defaults `strictJsonSchema` to true. Strict mode rejects or mishandles schemas with optional fields, records, and length or count bounds. So the model-output schemas (`planning-contract.ts`, `read-back-contract.ts`, `rewrite-contract.ts`) make everything required or nullable and use no records or bounds. Limits such as "three options" or "80 word summary" go in the prompt, and are enforced after parsing by the normalize/clip steps. Do not add `.optional()`, `.max()`, or `z.record()` to a model-output schema. It will fail only at runtime, per provider.
+`@ai-sdk/openai-compatible` defaults `strictJsonSchema` to true. Strict mode rejects or mishandles schemas with optional fields, records, and length or count bounds. So the model-output schemas (`planning-contract.ts`, `read-back-contract.ts`, `rewrite-contract.ts`) make everything required or nullable and use no records or bounds. Limits such as "one rewrite" or "80 word summary" go in the prompt, and are enforced after parsing by the normalize/clip steps. Do not add `.optional()`, `.max()`, or `z.record()` to a model-output schema. It will fail only at runtime, per provider.
 
 ## Moment prompt context
 
@@ -44,7 +44,7 @@ The beat prompt reads the enclosing scene's and chapter's `whatHappens` as `this
 Each moment has its own editor and its own compare-and-swap autosave. This gives exact prose-to-moment attribution (read-back, versions, and context all key off the moment) and independent revisions, so one slow save cannot fail another moment. The trade-off is that selection cannot span moments.
 
 - Before drafting, the loop flushes every editor up to and including the target (`flushMomentEditors`). The route builds context from saved prose, and the previous moment's debounced autosave may not have fired.
-- After any external load (split, keep draft, restore version) the editor's undo history is cleared. Otherwise undo would resurrect text the server already replaced, and autosave would then save it again as a duplicate. Version history is the way back.
+- After any external load (keep draft, restore version) the editor's undo history is cleared. Otherwise undo would resurrect text the server already replaced, and autosave would then save it again as a duplicate. Version history is the way back.
 
 ## Read-back
 

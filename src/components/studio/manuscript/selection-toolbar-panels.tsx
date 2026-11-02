@@ -38,16 +38,19 @@ const MODE_LABEL: Record<StudioRewriteMode, string> = {
   custom: "Ask",
 };
 
-/** The original beside the three AI options; picking one replaces the selection. */
+/** The original beside the one AI rewrite: Keep replaces the selection. */
 export function RewriteOptions({
   onClose,
-  onPick,
+  onKeep,
+  onRetry,
   panel,
 }: {
   onClose: () => void;
-  onPick: (option: string) => void;
+  onKeep: (option: string) => void;
+  onRetry: () => void;
   panel: RewritePanel;
 }) {
+  const [option] = panel.status === "ready" ? panel.options : [];
   return (
     <div className="flex w-[min(30rem,calc(100vw-3rem))] flex-col gap-2 p-2">
       <div className="flex items-center justify-between gap-2">
@@ -56,11 +59,13 @@ export function RewriteOptions({
             ✦
           </span>
           {MODE_LABEL[panel.mode]}
-          {panel.status === "loading" ? " · writing options…" : ""}
+          {panel.status === "loading" ? " · writing…" : ""}
         </p>
-        <Button onClick={onClose} size="sm" type="button" variant="ghost">
-          {panel.status === "loading" ? "Cancel" : "Close"}
-        </Button>
+        {panel.status === "loading" ? (
+          <Button onClick={onClose} size="sm" type="button" variant="ghost">
+            Cancel
+          </Button>
+        ) : null}
       </div>
       <div className="grid gap-2">
         <div className="rounded-sm border border-border/70 px-3 py-2">
@@ -69,25 +74,28 @@ export function RewriteOptions({
             {panel.captured.plain}
           </p>
         </div>
-        {panel.status === "ready"
-          ? panel.options.map((option, index) => (
-              <button
-                className="rounded-sm border border-border/70 px-3 py-2 text-left transition-colors hover:border-ring/60 hover:bg-muted focus-visible:border-ring focus-visible:outline-none"
-                // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list of three options that never reorders, and two options may share text.
-                key={index}
-                onClick={() => onPick(option)}
-                type="button"
-              >
-                <span className="mb-1 block text-caption text-muted-foreground">
-                  Option {index + 1}
-                </span>
-                <span className="block whitespace-pre-wrap font-content text-body">
-                  {option.replace(/[*_]/g, "")}
-                </span>
-              </button>
-            ))
-          : null}
+        {option !== undefined ? (
+          <div className="rounded-sm border border-studio-proposed/60 px-3 py-2">
+            <p className="mb-1 text-caption text-studio-proposed">Rewrite</p>
+            <p className="whitespace-pre-wrap font-content text-body">
+              {option.replace(/[*_]/g, "")}
+            </p>
+          </div>
+        ) : null}
       </div>
+      {option !== undefined ? (
+        <div className="flex items-center justify-end gap-2">
+          <Button onClick={onClose} size="sm" type="button" variant="ghost">
+            Close
+          </Button>
+          <Button onClick={onRetry} size="sm" type="button" variant="outline">
+            Try again
+          </Button>
+          <Button onClick={() => onKeep(option)} size="sm" type="button">
+            Keep
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

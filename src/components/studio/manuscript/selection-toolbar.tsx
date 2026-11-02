@@ -35,7 +35,6 @@ import {
   type RewritePanel,
 } from "./selection-toolbar-panels";
 import { STUDIO_MARKDOWN_TRANSFORMERS } from "./studio-markdown";
-import { useSplitMoment } from "./use-split-moment";
 
 const REWRITE_FAILED = "The rewrite could not be generated. Please try again.";
 const SELECTION_TOO_LONG =
@@ -62,29 +61,26 @@ function rangeAnchor(range: Range | null): Anchor | null {
 type SelectionToolbarPluginProps = {
   storyId: string;
   momentId: string;
-  /** The moment's autosave flush; resolves to the saved revision or null. */
-  flush: () => Promise<number | null>;
 };
 
 /**
- * Floating actions for a non-collapsed selection inside one moment: AI
- * rewrite options shown beside the original, and "Split moment here".
+ * Floating actions for a non-collapsed selection inside one moment: one AI
+ * rewrite shown beside the original, kept or retried from the panel.
  */
 export function SelectionToolbarPlugin({
-  flush,
   momentId,
   storyId,
 }: SelectionToolbarPluginProps) {
   const [editor] = useLexicalComposerContext();
-  const { isSplitting, splitHere } = useSplitMoment({
-    flush,
-    momentId,
-    storyId,
-  });
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [panel, setPanel] = useState<RewritePanel | null>(null);
   const [asking, setAsking] = useState<CapturedSelection | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // The last request, so "Try again" repeats it.
+  const lastRequestRef = useRef<{
+    mode: StudioRewriteMode;
+    instruction?: string;
+  } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const held = panel?.captured ?? asking;
   // Set synchronously with the panel state: focusing the Ask input blurs the
@@ -213,6 +209,7 @@ export function SelectionToolbarPlugin({
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      lastRequestRef.current = { mode, instruction };
       heldRef.current = captured;
       setAsking(null);
       setPanel({ status: "loading", mode, captured });
@@ -259,7 +256,13 @@ export function SelectionToolbarPlugin({
     setAsking(captured);
   };
 
-  const pickOption = (option: string) => {
+  const retryRewrite = () => {
+    const last = lastRequestRef.current;
+    if (panel?.status !== "ready" || !last) return;
+    void requestRewrite(last.mode, panel.captured, last.instruction);
+  };
+
+  const keepRewrite = (option: string) => {
     if (panel?.status !== "ready") return;
     const { captured } = panel;
     let replaced = false;
@@ -319,7 +322,12 @@ export function SelectionToolbarPlugin({
       style={style}
     >
       {panel ? (
-        <RewriteOptions onClose={close} onPick={pickOption} panel={panel} />
+        <RewriteOptions
+          onClose={close}
+          onKeep={keepRewrite}
+          onRetry={retryRewrite}
+          panel={panel}
+        />
       ) : asking ? (
         <AskForm
           onCancel={close}
@@ -359,19 +367,6 @@ export function SelectionToolbarPlugin({
             type="button"
           >
             Ask…
-          </button>
-          <span aria-hidden="true" className="mx-1 h-4 w-px bg-border" />
-          <button
-            className={TOOLBAR_BUTTON_CLASS}
-            disabled={isSplitting}
-            onClick={() => {
-              void splitHere().then((split) => {
-                if (split) setAnchor(null);
-              });
-            }}
-            type="button"
-          >
-            Split moment here
           </button>
         </div>
       )}

@@ -5,28 +5,17 @@ import { and, desc, eq } from "drizzle-orm";
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
 import type { LocalinkTx } from "@/lib/drizzle/db";
-import {
-  studioPlanItems,
-  studioProse,
-  studioProseVersions,
-} from "@/lib/drizzle/schema";
-import type {
-  StudioPlanItemDto,
-  StudioProseDto,
-  StudioProseOrigin,
-} from "@/lib/studio/contracts";
+import { studioProse, studioProseVersions } from "@/lib/drizzle/schema";
+import type { StudioProseDto, StudioProseOrigin } from "@/lib/studio/contracts";
 import { countWords } from "@/lib/studio/prose-text";
 import { generateId } from "@/lib/util";
 
 import {
   requirePlanItem,
   type StudioProseRow,
-  selectPlanItemsByIds,
-  toPlanItemDto,
   toProseDto,
   touchStudioStory,
 } from "./repository";
-import { insertPlanItem } from "./repository-plan";
 
 const MOMENT_CONFLICT =
   "This moment changed elsewhere. Your writing has been preserved locally; reload the saved moment before trying again.";
@@ -334,67 +323,4 @@ export function restoreProseVersion(
   });
   touchStudioStory(tx, storyId, now);
   return toProseDto(row);
-}
-
-export function splitMoment(
-  tx: LocalinkTx,
-  input: {
-    storyId: string;
-    momentId: string;
-    expectedRevision: number;
-    beforeMarkdown: string;
-    afterMarkdown: string;
-  },
-): { prose: StudioProseDto[]; planItems: StudioPlanItemDto[] } {
-  const { storyId, momentId } = input;
-  const moment = requirePlanItem(tx, storyId, momentId, "moment");
-  const now = day().toISOString();
-  const existing = getProseRow(tx, momentId);
-  if ((existing?.revision ?? 0) !== input.expectedRevision) {
-    throw new ActionError("CONFLICT", MOMENT_CONFLICT);
-  }
-  // Splitting is not an edit of the text, so the origin stays as it was.
-  const origin = existing?.origin ?? "author";
-  appendVersionIfChanged(tx, storyId, momentId, now);
-  const before = writeProse(tx, {
-    storyId,
-    momentId,
-    markdown: input.beforeMarkdown,
-    expectedRevision: input.expectedRevision,
-    origin,
-    now,
-    strict: true,
-  });
-  const { item, shiftedIds } = insertPlanItem(tx, {
-    storyId,
-    kind: "moment",
-    parentId: moment.parentId,
-    afterItemId: momentId,
-    title: "",
-    now,
-  });
-  // Placeholder title is not an author choice, so it stays out of authorFields.
-  tx.update(studioPlanItems)
-    .set({ title: "Untitled moment", authorFields: [] })
-    .where(eq(studioPlanItems.id, item.id))
-    .run();
-  const after = tx
-    .insert(studioProse)
-    .values({
-      momentId: item.id,
-      storyId,
-      markdown: input.afterMarkdown,
-      origin,
-      revision: 1,
-      wordCount: countWords(input.afterMarkdown),
-      updatedAt: now,
-    })
-    .returning()
-    .get();
-  touchStudioStory(tx, storyId, now);
-  const planItems = selectPlanItemsByIds(tx, storyId, [item.id, ...shiftedIds]);
-  return {
-    prose: [toProseDto(before), toProseDto(after)],
-    planItems: planItems.map(toPlanItemDto),
-  };
 }

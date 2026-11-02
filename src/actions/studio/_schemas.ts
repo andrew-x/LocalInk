@@ -220,14 +220,6 @@ export const restoreStudioProseVersionActionSchema = z.object({
   expectedRevision: revisionSchema,
 });
 
-export const splitStudioMomentActionSchema = z.object({
-  ...storyIdField,
-  momentId: id,
-  expectedRevision: revisionSchema,
-  beforeMarkdown: markdownSchema,
-  afterMarkdown: markdownSchema,
-});
-
 export const applyStudioPlanActionSchema = z.object({
   ...storyIdField,
   generationId: id,
