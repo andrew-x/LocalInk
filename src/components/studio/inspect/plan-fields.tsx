@@ -23,17 +23,9 @@ type PlanFieldsProps = {
   onDelete: (item: StudioPlanItemDto) => void;
 };
 
-type FieldKey = "title" | "whatHappens" | "howToWrite" | "tension";
+type FieldKey = "title" | "whatHappens" | "howToWrite";
 
 const KIND_LABEL = { chapter: "Chapter", scene: "Scene", moment: "Moment" };
-
-function parseTension(raw: string): number | null | undefined {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const value = Number(trimmed);
-  if (!Number.isInteger(value) || value < 1 || value > 10) return undefined;
-  return value;
-}
 
 export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
   const { state } = useStudioStore();
@@ -44,23 +36,16 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
   const save = useCallback(
     async (changed: Partial<Record<FieldKey, string>>, final: boolean) => {
       const patch: PlanItemPatch = {};
-      const keep: FieldKey[] = [];
       if (changed.title !== undefined)
         patch.title = final ? changed.title.trim() : changed.title;
       if (changed.whatHappens !== undefined)
         patch.whatHappens = changed.whatHappens;
       if (changed.howToWrite !== undefined)
         patch.howToWrite = changed.howToWrite;
-      if (changed.tension !== undefined) {
-        const tension = parseTension(changed.tension);
-        // An out-of-range value stays local until it is a valid 1 to 10.
-        if (tension === undefined) keep.push("tension");
-        else patch.tension = tension;
-      }
       if (Object.keys(patch).length > 0) {
         if ((await patchItem(item.id, patch)) === null) return false;
       }
-      return keep.length > 0 ? keep : true;
+      return true;
     },
     [item.id, patchItem],
   );
@@ -71,7 +56,6 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
       title: item.title,
       whatHappens: item.whatHappens,
       howToWrite: item.howToWrite,
-      tension: item.tension === null ? "" : String(item.tension),
     },
   });
 
@@ -196,29 +180,6 @@ export function PlanFields({ ai, item, onDelete }: PlanFieldsProps) {
           value={values.howToWrite}
         />
       </div>
-
-      {item.kind === "chapter" ? (
-        <div className="flex items-center gap-2">
-          <Label
-            className="text-caption text-muted-foreground"
-            htmlFor={fieldId("tension")}
-          >
-            Tension (1 to 10)
-          </Label>
-          <Input
-            aria-invalid={parseTension(values.tension) === undefined}
-            className="h-8 w-16"
-            id={fieldId("tension")}
-            inputMode="numeric"
-            max={10}
-            min={1}
-            onBlur={() => void flush(true)}
-            onChange={(event) => setValue("tension", event.target.value)}
-            type="number"
-            value={values.tension}
-          />
-        </div>
-      ) : null}
 
       {inherited.length > 0 || globalText ? (
         <div className="flex flex-col gap-1 text-caption text-muted-foreground">

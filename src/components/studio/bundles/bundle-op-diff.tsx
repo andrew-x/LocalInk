@@ -240,13 +240,6 @@ function buildModel(op: StudioBundleOpDto, ctx: DiffContext): DiffModel {
           names(ctx, patch.presentEntryIds),
         );
       }
-      if (patch.tension !== undefined) {
-        line(
-          "Tension",
-          live(current?.tension != null ? String(current.tension) : null),
-          patch.tension === null ? "none" : String(patch.tension),
-        );
-      }
       break;
     }
     case "plan.move":

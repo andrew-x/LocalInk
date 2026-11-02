@@ -171,7 +171,6 @@ export const updateStudioPlanItemActionSchema = z.object({
       presentEntryIds: studioIdListSchema,
       contextPinnedEntryIds: studioIdListSchema,
       contextExcludedEntryIds: studioIdListSchema,
-      tension: z.number().int().min(1).max(10).nullable(),
     })
     .partial(),
 });

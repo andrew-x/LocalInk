@@ -418,7 +418,6 @@ const CRITIQUE_CHECKLIST = [
   "Everything resolves neatly, with no loose end, residue, or unanswered cost.",
   "A retreat or breakup is driven by a contrived misunderstanding rather than by a character's own false belief.",
   "A lead does not change: their belief, want, or behavior is the same at the end as at the start.",
-  "Chapters lack planned tension dips; the tension values only climb or stay flat.",
 ];
 
 async function generateInitialPlan(
@@ -451,9 +450,9 @@ async function generateInitialPlan(
     "- structureTemplate: pick the one template from structure_templates that best fits and shape the chapters by its guidance. Choose freeform when none fits.",
     "- entries: the Bible. A character entry for every named or important person, a relationship entry for each significant pair (relatedTempIds holds the two people), places that recur, things that matter, lore only where rules matter. If the story needs a kind of entry none of those fit (a group, an event), use type custom and set customTypeLabel (for example Group); otherwise customTypeLabel is null. Use short tempIds such as c1, p1. relatedTempIds may link any entries that belong together.",
     "- entry fields: each entry has fields, an ordered list of { label, value, steerOnly, backstoryOnly }. entry_field_examples lists examples of things worth tracking for each type; they are ideas, not a required set. Choose the 4-10 fields that matter most for this entry in this story. Make them specific and concrete (for example what she hides behind jokes, who owns the deck chairs) rather than generic. Reuse the same label across entries of the same type when it fits naturally, so the Bible stays consistent. Never pad: leave out a field you have nothing specific to say about. Set steerOnly to true for fields the writing should follow but never state (what a character needs, a false belief, theme-like fields). Set backstoryOnly to true for origin or backstory fields that should not surface in present-day scenes. Otherwise both are false.",
-    "- chapters: in story order. Each has a title (short and particular, not generic), whatHappens, howToWrite, craft (keys purpose and endHook), tension (1-10), presentTempIds (entries in the chapter), and plannedChanges: the key changes the chapter causes in what an entry believes, wants, knows, feels, where it is, its status, how it looks, or anything else worth tracking, each with an aspect label, a mode, and a short value. aboutTempId is set only when the aspect concerns another entry, such as how one character feels about another; otherwise null. " +
+    "- chapters: in story order. Each has a title (short and particular, not generic), whatHappens, howToWrite, craft (keys purpose and endHook), presentTempIds (entries in the chapter), and plannedChanges: the key changes the chapter causes in what an entry believes, wants, knows, feels, where it is, its status, how it looks, or anything else worth tracking, each with an aspect label, a mode, and a short value. aboutTempId is set only when the aspect concerns another entry, such as how one character feels about another; otherwise null. " +
       ASPECT_GUIDANCE,
-    "- scenes: include a chapter's scenes only where the brain dump specified scenes for it; otherwise omit scenes. A scene has the same fields as a chapter without tension; its craft keys are wants, goesWrong, differentAfter, entry, exit.",
+    "- scenes: include a chapter's scenes only where the brain dump specified scenes for it; otherwise omit scenes. A scene has the same fields as a chapter; its craft keys are wants, goesWrong, differentAfter, entry, exit.",
     "Propose as many chapters as the story needs. Follow the brain dump's own count and order when it gives one.",
   ].join("\n");
 

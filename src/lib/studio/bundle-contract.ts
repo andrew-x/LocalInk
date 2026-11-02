@@ -203,7 +203,6 @@ export const studioBundleOpInputSchema = z.discriminatedUnion("kind", [
         craft: craftSchema,
         /** Saved ids or temp ids of entries created in the same bundle. */
         presentEntryIds: refListSchema,
-        tension: z.number().int().min(1).max(10).nullable(),
       })
       .partial(),
   }),
@@ -335,8 +334,7 @@ export type StudioBundleWorkspacePatch = {
  * - `conflict`: its baseline no longer matches, a record it names is gone,
  *   or (deletes) something inside what it deletes changed after proposal.
  * - `too-many-fields`: it would leave an entry above the field cap.
- * - `invalid`: it cannot apply as proposed (wrong nesting, tension on a
- *   non-chapter).
+ * - `invalid`: it cannot apply as proposed (wrong nesting).
  */
 export type StudioBundleIssueKind =
   | "missing-dependency"

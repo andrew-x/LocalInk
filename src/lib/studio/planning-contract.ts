@@ -163,7 +163,6 @@ export const studioInitialPlanSchema = z.object({
   ),
   chapters: z.array(
     initialSceneSchema.extend({
-      tension: z.number(),
       scenes: z.array(initialSceneSchema).nullable(),
     }),
   ),
@@ -180,7 +179,6 @@ export type StudioInitialPlan = Omit<RawInitialPlan, "entries" | "chapters"> & {
     customTypeLabel: string;
   })[];
   chapters: (StudioInitialScene & {
-    tension: number;
     scenes?: StudioInitialScene[];
   })[];
 };
@@ -213,9 +211,8 @@ export function normalizeStudioInitialPlan(
         .filter((field) => field.label && field.value)
         .slice(0, 40),
     })),
-    chapters: raw.chapters.map(({ scenes, tension, ...chapter }) => ({
+    chapters: raw.chapters.map(({ scenes, ...chapter }) => ({
       ...normalizeScene(chapter),
-      tension: Math.min(10, Math.max(1, Math.round(tension))),
       scenes:
         scenes && scenes.length > 0 ? scenes.map(normalizeScene) : undefined,
     })),

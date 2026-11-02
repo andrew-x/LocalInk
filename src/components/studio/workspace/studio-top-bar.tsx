@@ -11,7 +11,6 @@ import {
   storyGenerationModelSchema,
 } from "@/lib/story-generation-models";
 
-import { ArcStrip } from "./arc-strip";
 import { useRunStudioAction, useStudioStore } from "./use-studio-store";
 
 export function StudioTopBar() {
@@ -104,8 +103,6 @@ export function StudioTopBar() {
       >
         Bible
       </Button>
-
-      <ArcStrip />
 
       <label className="sr-only" htmlFor="studio-prose-model">
         Prose model

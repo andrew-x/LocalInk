@@ -148,7 +148,6 @@ export type StudioPlanItemDto = {
   authorFields: StudioPlanField[];
   origin: StudioPlanOrigin;
   summary: string;
-  tension: number | null;
   revision: number;
   createdAt: string;
   updatedAt: string;

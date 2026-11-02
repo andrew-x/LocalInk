@@ -263,7 +263,6 @@ export function createStudioChatReadTools({
               name: names.get(id) ?? id,
             })),
             summary: item.summary,
-            ...(item.kind === "chapter" ? { tension: item.tension } : {}),
             authorWrittenFields: item.authorFields,
           },
           ancestors: getAncestors(workspace.planItems, item.id).map(

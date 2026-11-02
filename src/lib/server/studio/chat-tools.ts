@@ -118,7 +118,6 @@ const proposePlanSchema = z.object({
         .array(z.object({ key: z.string(), value: z.string() }))
         .nullable(),
       presentEntryIds: z.array(z.string()).nullable(),
-      tension: z.number().nullable(),
     }),
   ),
 });
@@ -323,7 +322,7 @@ export function createStudioChatTools({
       description: [
         "Propose outline changes. Each item has op create, update, move, or delete; set unused keys to null.",
         "create: tempId (new:short-name), kind, parentId (null for a chapter; a chapter for a scene; a scene for a moment; saved or new: ids), afterId (a sibling to follow, or null to append), title, whatHappens, howToWrite, craft, presentEntryIds. List parents before their children.",
-        "update: itemId, then any of title, whatHappens, howToWrite, craft (merged by key), presentEntryIds (replaces the list), tension (saved chapters only, 1 to 10).",
+        "update: itemId, then any of title, whatHappens, howToWrite, craft (merged by key), presentEntryIds (replaces the list).",
         "move: itemId (saved), parentId, newIndex (0 = first among the new parent's children, counting items this proposal adds).",
         "delete: itemId (saved); removes everything inside it.",
         `Craft keys: ${CRAFT_KEYS_TEXT}.`,

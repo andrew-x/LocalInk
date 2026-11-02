@@ -242,8 +242,8 @@ function undoPlanCreate(
 /**
  * Restores the previous values unless the author has since changed a field
  * the op wrote (it is in `authorFields` and differs). An AI refresh of an
- * AI-owned field (read-back) does not block. `tension` has no ownership
- * record, so any change to it blocks.
+ * AI-owned field (read-back) does not block. A legacy `tension` key in a
+ * stored result is ignored.
  */
 function undoPlanUpdate(
   tx: LocalinkTx,
@@ -257,7 +257,9 @@ function undoPlanUpdate(
   const owned = new Set<string>(item.authorFields);
   const ownable = new Set<string>(AUTHOR_FIELD_KEYS);
   const blocked = (
-    Object.keys(result.after) as (keyof StudioPlanItemPatch)[]
+    Object.keys(result.after).filter(
+      (key) => key !== "tension",
+    ) as (keyof StudioPlanItemPatch)[]
   ).some(
     (key) =>
       !isDeepStrictEqual(item[key], result.after[key]) &&
@@ -265,6 +267,7 @@ function undoPlanUpdate(
   );
   if (blocked) return false;
   const patch: StudioPlanItemPatch = { ...result.before };
+  delete (patch as { tension?: unknown }).tension;
   if (patch.presentEntryIds) {
     patch.presentEntryIds = patch.presentEntryIds.filter((id) =>
       findEntry(tx, ctx.storyId, id),

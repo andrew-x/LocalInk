@@ -122,7 +122,6 @@ export function toPlanItemDto(row: StudioPlanItemRow): StudioPlanItemDto {
     authorFields: row.authorFields,
     origin: row.origin,
     summary: row.summary,
-    tension: row.tension,
     revision: row.revision,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

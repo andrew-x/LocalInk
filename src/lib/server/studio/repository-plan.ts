@@ -125,7 +125,6 @@ export type StudioPlanItemPatch = Partial<{
   presentEntryIds: string[];
   contextPinnedEntryIds: string[];
   contextExcludedEntryIds: string[];
-  tension: number | null;
 }>;
 
 /** Every plan field the author can own; editing one adds it to `authorFields`. */
@@ -153,13 +152,6 @@ export function patchPlanItem(
 ): StudioPlanItemDto {
   const { storyId, itemId, patch } = input;
   const current = requirePlanItem(tx, storyId, itemId);
-  if (
-    patch.tension !== undefined &&
-    patch.tension !== null &&
-    current.kind !== "chapter"
-  ) {
-    throw new ActionError("BAD_REQUEST", "Only chapters have a tension level.");
-  }
   assertEntryIds(tx, storyId, [
     ...(patch.presentEntryIds ?? []),
     ...(patch.contextPinnedEntryIds ?? []),

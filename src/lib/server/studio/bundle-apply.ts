@@ -186,6 +186,27 @@ function applyPlanCreate(
   return { createdId: item.id };
 }
 
+const PLAN_PATCH_KEYS = [
+  "title",
+  "whatHappens",
+  "howToWrite",
+  "craft",
+  "presentEntryIds",
+  "contextPinnedEntryIds",
+  "contextExcludedEntryIds",
+] as const satisfies readonly (keyof StudioPlanItemPatch)[];
+
+function pickPatchKeys(
+  patch: StudioPlanItemPatch,
+  keys: readonly (keyof StudioPlanItemPatch)[],
+): StudioPlanItemPatch {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (patch[key] !== undefined) picked[key] = patch[key];
+  }
+  return picked as StudioPlanItemPatch;
+}
+
 /** Accepted edits keep each field's ownership (`authorFields` unchanged). */
 function applyPlanUpdate(
   tx: LocalinkTx,
@@ -193,7 +214,11 @@ function applyPlanUpdate(
   op: StudioBundleOpOf<"plan.update">,
 ): Result<"plan.update"> {
   const current = requirePlanItem(tx, ctx.storyId, op.itemId);
-  const patch: StudioPlanItemPatch = { ...op.patch };
+  // Pick the known keys: ops saved before tension was removed may carry a
+  // stale `tension` key, which must never be written.
+  const patch: StudioPlanItemPatch = {
+    ...pickPatchKeys(op.patch, PLAN_PATCH_KEYS),
+  };
   if (op.patch.presentEntryIds) {
     patch.presentEntryIds = [
       ...new Set(op.patch.presentEntryIds.map((ref) => resolveRef(ctx, ref))),

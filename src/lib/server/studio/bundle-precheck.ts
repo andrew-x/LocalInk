@@ -182,9 +182,7 @@ export function findBundleSelectionIssues(
         if (!(op.patch.presentEntryIds ?? []).every(entryExists)) {
           return "conflict";
         }
-        return op.patch.tension != null && item.kind !== "chapter"
-          ? "invalid"
-          : "ok";
+        return "ok";
       }
       case "plan.move": {
         const item = rows.planItems.get(op.itemId);

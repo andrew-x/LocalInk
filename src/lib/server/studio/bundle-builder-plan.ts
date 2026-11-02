@@ -39,7 +39,6 @@ export type PlanItemInput = {
   howToWrite: string | null;
   craft: { key: string; value: string }[] | null;
   presentEntryIds: string[] | null;
-  tension: number | null;
 };
 
 const MAX_PRESENT = 100;
@@ -178,8 +177,8 @@ function createItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
       draft,
       index,
       item,
-      ["itemId", "newIndex", "tension"],
-      "create places the item with parentId and afterId; set tension later on a saved chapter",
+      ["itemId", "newIndex"],
+      "create places the item with parentId and afterId",
     )
   ) {
     return;
@@ -259,8 +258,8 @@ function updateNewItem(
       draft,
       index,
       item,
-      ["parentId", "afterId", "newIndex", "tension"],
-      "an item new in this turn keeps the place its create gave it, and tension is set on saved chapters only",
+      ["parentId", "afterId", "newIndex"],
+      "an item new in this turn keeps the place its create gave it",
     )
   ) {
     return;
@@ -341,19 +340,6 @@ function updateItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
     if (!present) return;
     patch.presentEntryIds = present;
   }
-  if (item.tension !== null) {
-    if (saved.kind !== "chapter") {
-      return draft.fail(index, "tension is only set on chapters");
-    }
-    if (
-      !Number.isInteger(item.tension) ||
-      item.tension < 1 ||
-      item.tension > 10
-    ) {
-      return draft.fail(index, "tension must be a whole number from 1 to 10");
-    }
-    patch.tension = item.tension;
-  }
   for (const key of Object.keys(patch) as (keyof typeof patch)[]) {
     if (isDeepStrictEqual(patch[key], saved[key])) delete patch[key];
   }
@@ -406,7 +392,6 @@ function moveItem(draft: BuilderDraft, item: PlanItemInput, index: number) {
         "howToWrite",
         "craft",
         "presentEntryIds",
-        "tension",
       ],
       "a move carries only itemId, parentId, and newIndex; edit with a separate update item",
     )

@@ -104,7 +104,6 @@ type NewPlanItem = {
   howToWrite: string;
   craft: Record<string, string>;
   presentEntryIds: string[];
-  tension: number | null;
   plannedChanges: PlannedChangeInput[];
 };
 
@@ -137,10 +136,7 @@ function insertAiPlanItem(
       ],
       authorFields: [],
       origin: "ai",
-      tension:
-        item.kind === "chapter" && item.tension !== null
-          ? Math.min(10, Math.max(1, Math.round(item.tension)))
-          : null,
+      tension: null,
       createdAt: now,
       updatedAt: now,
     })
@@ -364,7 +360,6 @@ function applyInitial(
         howToWrite: chapter.howToWrite,
         craft: chapter.craft,
         presentEntryIds: resolveAll(chapter.presentTempIds),
-        tension: chapter.tension,
         plannedChanges: resolveChanges(chapter.plannedChanges),
       },
       now,
@@ -384,7 +379,6 @@ function applyInitial(
           howToWrite: scene.howToWrite,
           craft: scene.craft,
           presentEntryIds: resolveAll(scene.presentTempIds),
-          tension: null,
           plannedChanges: resolveChanges(scene.plannedChanges),
         },
         now,
@@ -475,7 +469,6 @@ function applyFleshOut(
           howToWrite: item.howToWrite,
           craft: item.craft,
           presentEntryIds: item.presentEntryIds,
-          tension: null,
           plannedChanges: item.plannedChanges
             .map((change) => ({
               ...change,

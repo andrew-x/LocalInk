@@ -464,6 +464,10 @@ export const studioPlanItems = sqliteTable(
       .default(emptyJsonArraySql),
     origin: text("origin").$type<StudioPlanOrigin>().notNull().default("ai"),
     summary: text("summary").notNull().default(""),
+    // Unused: the app no longer reads or writes it (always null). The column
+    // and its CHECK stay because dropping them makes drizzle-kit rebuild this
+    // table, and inside the migrator's transaction that rebuild cascade-deletes
+    // prose, versions, changes, flags, and child items.
     tension: integer("tension"),
     revision: integer("revision").notNull().default(0),
     createdAt: text("created_at").notNull().default(currentTimestampSql),

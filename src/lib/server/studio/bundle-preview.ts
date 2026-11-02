@@ -112,7 +112,6 @@ export function previewStudioWorkspace(
         authorFields: [],
         origin: "ai",
         summary: "",
-        tension: null,
         revision: 0,
         createdAt: now,
         updatedAt: now,
