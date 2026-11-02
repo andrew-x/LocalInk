@@ -113,6 +113,13 @@
       "when": 1793635814138,
       "tag": "0015_studio-entry-suggestions",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793637474190,
+      "tag": "0016_studio-entry-suggestions-keep-on-delete",
+      "breakpoints": true
     }
   ]
 }

@@ -636,9 +636,11 @@ export const studioEntrySuggestions = sqliteTable(
     storyId: text("story_id")
       .notNull()
       .references(() => studioStories.id, { onDelete: "cascade" }),
-    momentId: text("moment_id")
-      .notNull()
-      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    // The beat that introduced the name. Nulled, not cascaded, when the beat
+    // goes: an ignored or added name must stay settled after its beat is gone.
+    momentId: text("moment_id").references(() => studioPlanItems.id, {
+      onDelete: "set null",
+    }),
     type: text("type").$type<"character" | "place">().notNull(),
     name: text("name").notNull(),
     // Normalized name. Unique per story across every status, so an ignored or

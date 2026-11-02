@@ -176,9 +176,14 @@ function removeIds(
     flags: state.flags.filter(
       (f) => !flagIds.has(f.id) && !planIds.has(f.planItemId),
     ),
-    entrySuggestions: state.entrySuggestions.filter(
-      (item) => !suggestionIds.has(item.id) && !planIds.has(item.momentId),
-    ),
+    // Like the database (ON DELETE SET NULL), a suggestion outlives its beat.
+    entrySuggestions: state.entrySuggestions
+      .filter((item) => !suggestionIds.has(item.id))
+      .map((item) =>
+        item.momentId !== null && planIds.has(item.momentId)
+          ? { ...item, momentId: null }
+          : item,
+      ),
     selectedItemId:
       state.selectedItemId && planIds.has(state.selectedItemId)
         ? null

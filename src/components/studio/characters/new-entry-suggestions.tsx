@@ -23,7 +23,8 @@ function SuggestionLine({
   chapter,
   suggestion,
 }: {
-  chapter: number;
+  /** Null once the beat that introduced the name is gone. */
+  chapter: number | null;
   suggestion: StudioEntrySuggestionDto;
 }) {
   const { state, dispatch } = useStudioStore();
@@ -55,7 +56,9 @@ function SuggestionLine({
       if (!result.entry) return;
       dispatch({ type: "openEntry", entryId: result.entry.id });
       // The description is the new entry's paragraph; the AI fills the rest.
-      if (result.entry.summary.trim()) refreshDetails(result.entry.id);
+      if (result.entryCreated && result.entry.summary.trim()) {
+        refreshDetails(result.entry.id);
+      }
     },
     [dispatch, refreshDetails, run, storyId, suggestion.id],
   );
@@ -63,7 +66,9 @@ function SuggestionLine({
   return (
     <div className="my-0.5 flex min-h-7 min-w-0 items-center gap-2 rounded-md border border-studio-proposed/45 bg-studio-proposed/8 px-2 py-0.5 font-normal text-label-sm">
       <p className="min-w-0 flex-1 truncate">
-        <span className="text-studio-proposed">New in Chapter {chapter}: </span>
+        <span className="text-studio-proposed">
+          {chapter === null ? "New: " : `New in Chapter ${chapter}: `}
+        </span>
         <span className="font-semibold">{suggestion.name}</span>
         {suggestion.description ? (
           <span className="text-muted-foreground/80">
@@ -109,20 +114,17 @@ export function NewEntrySuggestions() {
   if (entrySuggestions.length === 0) return null;
   return (
     <div className="flex flex-col pt-2">
-      {entrySuggestions.map((suggestion) => {
-        const chapter = chapterNumberOf(
-          planItems,
-          numbers,
-          suggestion.momentId,
-        );
-        return chapter === null ? null : (
-          <SuggestionLine
-            chapter={chapter}
-            key={suggestion.id}
-            suggestion={suggestion}
-          />
-        );
-      })}
+      {entrySuggestions.map((suggestion) => (
+        <SuggestionLine
+          chapter={
+            suggestion.momentId === null
+              ? null
+              : chapterNumberOf(planItems, numbers, suggestion.momentId)
+          }
+          key={suggestion.id}
+          suggestion={suggestion}
+        />
+      ))}
     </div>
   );
 }

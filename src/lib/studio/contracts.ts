@@ -199,7 +199,8 @@ export type StudioEntrySuggestionStatus = "open" | "added" | "ignored";
 export type StudioEntrySuggestionDto = {
   id: string;
   storyId: string;
-  momentId: string;
+  /** The beat that introduced the name, or null once that beat is deleted. */
+  momentId: string | null;
   type: "character" | "place";
   name: string;
   description: string;
