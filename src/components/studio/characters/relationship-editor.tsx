@@ -4,7 +4,7 @@ import { Label } from "@/components/common/label";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import type { StudioEntryDto } from "@/lib/studio/contracts";
 
-import { BibleHeading } from "./bible-field";
+import { SectionHeading } from "./section-heading";
 import { usePatchEntry } from "./use-patch-entry";
 
 export const DEFAULT_RELATIONSHIP_NAME = "New relationship";
@@ -46,10 +46,10 @@ export function RelationshipEditor({ entry }: { entry: StudioEntryDto }) {
     }));
   }
 
-  const idBase = `bible-rel-${entry.id}`;
+  const idBase = `entry-rel-${entry.id}`;
   return (
     <section aria-label="Between" className="flex flex-col gap-3">
-      <BibleHeading>Between</BibleHeading>
+      <SectionHeading>Between</SectionHeading>
       <div className="grid grid-cols-2 gap-3">
         {([0, 1] as const).map((slot) => {
           const current = slot === 0 ? first : second;

@@ -1,36 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { createStudioChange } from "@/actions/studio/create-studio-change";
-import { Button } from "@/components/common/button";
-import { Label } from "@/components/common/label";
-import {
-  ChangeForm,
-  type ChangeFormValues,
-} from "@/components/studio/shared/change-form";
 import {
   chapterNumberOf,
   chapterNumbers,
   entryNameMap,
 } from "@/components/studio/shared/inspect-labels";
-import {
-  useRunStudioAction,
-  useStudioStore,
-} from "@/components/studio/workspace/use-studio-store";
+import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { normalizeAspect } from "@/lib/studio/aspects";
 import type { StudioChangeDto, StudioEntryDto } from "@/lib/studio/contracts";
-import {
-  buildPlanTree,
-  getOrderedMoments,
-  getPlanIndex,
-} from "@/lib/studio/plan-order";
+import { buildPlanTree, getPlanIndex } from "@/lib/studio/plan-order";
 import { cn } from "@/lib/util";
 
-import { BibleHeading } from "./bible-field";
-
-const SELECT_CLASS =
-  "h-8 w-full min-w-0 rounded-md border border-input bg-card/80 px-2 text-label-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
+import { SectionHeading } from "./section-heading";
 
 type Row = {
   key: string;
@@ -41,10 +24,7 @@ type Row = {
 /** The entry's changes as one row per aspect and one column per chapter. */
 export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
   const { state, dispatch } = useStudioStore();
-  const run = useRunStudioAction();
-  const [adding, setAdding] = useState(false);
-  const [pinTo, setPinTo] = useState("");
-  const { changes, entries, planItems, selectedItemId } = state;
+  const { changes, entries, planItems } = state;
 
   const names = useMemo(() => entryNameMap(entries), [entries]);
   const numbers = useMemo(() => chapterNumbers(planItems), [planItems]);
@@ -57,8 +37,6 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
       })),
     [numbers, planItems],
   );
-  const moments = useMemo(() => getOrderedMoments(planItems), [planItems]);
-
   const rows = useMemo(() => {
     const order = getPlanIndex(planItems);
     const byRow = new Map<string, Row>();
@@ -91,58 +69,15 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
     return [...byRow.values()];
   }, [changes, entry.id, names, numbers, planItems]);
 
-  const momentOptions = useMemo(() => {
-    const index = getPlanIndex(planItems);
-    const byId = new Map(planItems.map((item) => [item.id, item]));
-    return moments.map((moment) => {
-      const scene = (index.get(moment.id)?.ancestors ?? [])
-        .map((id) => byId.get(id))
-        .find((item) => item?.kind === "scene");
-      const chapter = chapterNumberOf(planItems, numbers, moment.id);
-      return {
-        id: moment.id,
-        label: [
-          chapter ? `Ch ${chapter}` : null,
-          scene ? scene.title.trim() || "Untitled scene" : null,
-          moment.title.trim() || "Untitled moment",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-      };
-    });
-  }, [moments, numbers, planItems]);
-
-  function startAdding() {
-    const selectedMoment = moments.find((m) => m.id === selectedItemId);
-    setPinTo(selectedMoment?.id ?? moments[0]?.id ?? "");
-    setAdding(true);
-  }
-
-  async function create(values: ChangeFormValues): Promise<boolean> {
-    if (!pinTo) return false;
-    const created = await run(
-      createStudioChange({
-        storyId: state.story.id,
-        planItemId: pinTo,
-        ...values,
-      }),
-      "The change could not be saved.",
-    );
-    if (!created) return false;
-    dispatch({ type: "merge", changes: [created] });
-    setAdding(false);
-    return true;
-  }
-
   function jumpTo(planItemId: string) {
-    dispatch({ type: "closeBible" });
+    dispatch({ type: "setPlanTab", tab: "outline" });
     dispatch({ type: "select", itemId: planItemId });
   }
 
   return (
     <section aria-label="Over the story" className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-2">
-        <BibleHeading>Over the story</BibleHeading>
+        <SectionHeading>Over the story</SectionHeading>
         <span className="text-caption text-muted-foreground">
           <span aria-hidden="true">●</span> confirmed{" "}
           <span aria-hidden="true">○</span> planned
@@ -151,8 +86,8 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
 
       {rows.length === 0 ? (
         <p className="text-label-sm text-muted-foreground">
-          Nothing changes for {entry.name || "this entry"} yet. Add a change to
-          pin what becomes true, and when.
+          Nothing changes for {entry.name || "this entry"} yet. The AI records
+          changes as you write.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-md border border-border/70">
@@ -228,52 +163,6 @@ export function OverTheStory({ entry }: { entry: StudioEntryDto }) {
             </tbody>
           </table>
         </div>
-      )}
-
-      {adding ? (
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-1">
-            <Label
-              className="text-caption text-muted-foreground"
-              htmlFor={`bible-pin-${entry.id}`}
-            >
-              Pinned to
-            </Label>
-            <select
-              className={SELECT_CLASS}
-              id={`bible-pin-${entry.id}`}
-              onChange={(event) => setPinTo(event.target.value)}
-              value={pinTo}
-            >
-              {momentOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <ChangeForm
-            changes={changes}
-            entries={entries}
-            initial={{ entryId: entry.id }}
-            lockEntry
-            mode="create"
-            onCancel={() => setAdding(false)}
-            onSubmit={create}
-          />
-        </div>
-      ) : (
-        <Button
-          className="h-6 self-start px-2 text-caption text-muted-foreground"
-          disabled={moments.length === 0}
-          onClick={startAdding}
-          size="sm"
-          title={moments.length === 0 ? "Plan a moment first" : undefined}
-          type="button"
-          variant="ghost"
-        >
-          + add change
-        </Button>
       )}
     </section>
   );

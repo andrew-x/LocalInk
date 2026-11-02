@@ -1,7 +1,6 @@
 "use client";
 
-import { Button } from "@/components/common/button";
-import { BibleSheet } from "@/components/studio/bible/bible-sheet";
+import { CharactersPanel } from "@/components/studio/characters/characters-panel";
 import { ChatPanel } from "@/components/studio/chat/chat-panel";
 import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import { WritingLoopProvider } from "@/components/studio/manuscript/use-writing-loop";
@@ -21,7 +20,7 @@ type StudioWorkspaceProps = {
 };
 
 function WorkspaceLayout() {
-  const { state, dispatch } = useStudioStore();
+  const { state } = useStudioStore();
   const { readMode } = state;
 
   // "Review in chat" focuses a bundle op; the chat lives in the plan pane,
@@ -35,24 +34,7 @@ function WorkspaceLayout() {
         left={<Manuscript />}
         right={
           <PlanPane
-            characters={
-              <div className="flex flex-col items-start gap-3 p-4">
-                {/* Temporary until Task 5 replaces the Bible sheet. */}
-                <p className="text-body text-muted-foreground">
-                  Characters and places are still in the Story Bible for now.
-                </p>
-                <Button
-                  onClick={() =>
-                    dispatch({ type: "openBible", section: "overview" })
-                  }
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  Open the Bible
-                </Button>
-              </div>
-            }
+            characters={<CharactersPanel />}
             chat={<ChatPanel active={!readMode} />}
             outline={<Outline />}
           />
@@ -60,7 +42,6 @@ function WorkspaceLayout() {
         rightHidden={readMode}
         storyId={state.story.id}
       />
-      <BibleSheet />
     </div>
   );
 }

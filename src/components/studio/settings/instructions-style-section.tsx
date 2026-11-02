@@ -7,10 +7,6 @@ import { useCallback, useMemo } from "react";
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
 import { Textarea } from "@/components/common/textarea";
-import {
-  BibleFieldLabel,
-  BibleHeading,
-} from "@/components/studio/bible/bible-field";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import {
@@ -20,6 +16,7 @@ import {
   type StudioVoiceSample,
 } from "@/lib/studio/contracts";
 import { generateId } from "@/lib/util";
+import { BibleFieldLabel, BibleHeading } from "./settings-field";
 import { type StoryPatch, useSaveStory } from "./use-save-story";
 
 type Key = "instructions" | "voice" | keyof StudioStyle;

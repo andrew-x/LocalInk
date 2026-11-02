@@ -25,8 +25,6 @@ import type {
 
 import { computePlanStatuses } from "./plan-status";
 
-export type StudioBibleTarget = { section: string; entryId?: string };
-
 export type StudioPlanTab = "outline" | "characters";
 
 /**
@@ -45,8 +43,6 @@ export type StudioStoreState = StudioWorkspace & {
    */
   selectNonce: number;
   readMode: boolean;
-  /** Temporary: the Bible sheet stays until the Characters tab replaces it. */
-  bibleOpen: StudioBibleTarget | null;
   /**
    * The plan pane's tab. Chat state itself (threads, messages, the turn)
    * lives in the chat panel, not here: streamed tokens would otherwise
@@ -91,9 +87,7 @@ export type StudioStoreAction =
   | { type: "setReading"; itemId: string | null }
   | { type: "openEntry"; entryId: string | null }
   | ({ type: "focusBundleOp" } & StudioBundleOpFocus)
-  | { type: "clearBundleFocus" }
-  | ({ type: "openBible" } & StudioBibleTarget)
-  | { type: "closeBible" };
+  | { type: "clearBundleFocus" };
 
 function upsert<T>(list: T[], incoming: T[], key: (item: T) => string): T[] {
   if (incoming.length === 0) return list;
@@ -236,13 +230,6 @@ function studioReducer(
       return state.focusedBundleOp === null
         ? state
         : { ...state, focusedBundleOp: null };
-    case "openBible":
-      return {
-        ...state,
-        bibleOpen: { section: action.section, entryId: action.entryId },
-      };
-    case "closeBible":
-      return { ...state, bibleOpen: null };
   }
 }
 
@@ -269,7 +256,6 @@ export function StudioStoreProvider({
       selectedItemId: null,
       selectNonce: 0,
       readMode: false,
-      bibleOpen: null,
       planTab: "outline",
       readingItemId: null,
       openEntryId: null,

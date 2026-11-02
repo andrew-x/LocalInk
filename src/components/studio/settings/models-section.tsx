@@ -3,7 +3,6 @@
 import { useId, useState } from "react";
 
 import { updateStudioStory } from "@/actions/studio/update-studio-story";
-import { BibleHeading } from "@/components/studio/bible/bible-field";
 import {
   useRunStudioAction,
   useStudioStore,
@@ -12,6 +11,7 @@ import {
   STORY_GENERATION_MODELS,
   storyGenerationModelSchema,
 } from "@/lib/story-generation-models";
+import { BibleHeading } from "./settings-field";
 
 const SELECT_CLASS =
   "h-8 w-full max-w-72 min-w-0 rounded-md border border-input bg-card/80 px-2 text-caption shadow-xs outline-none transition-[background-color,border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:opacity-50";

@@ -3,13 +3,9 @@
 import { useCallback } from "react";
 
 import { Textarea } from "@/components/common/textarea";
-import {
-  BibleFieldLabel,
-  BibleHeading,
-  NeverSaysPill,
-} from "@/components/studio/bible/bible-field";
 import { useAutosaveFields } from "@/components/studio/shared/use-autosave-fields";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import { BibleFieldLabel, BibleHeading, NeverSaysPill } from "./settings-field";
 import { useSaveStory } from "./use-save-story";
 
 type Key = "theme";
