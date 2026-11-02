@@ -1,6 +1,6 @@
 # Story Studio
 
-Story Studio is a planning-first writing mode: Bible, chapter/scene/moment plan, and per-moment prose, with AI that drafts, plans, and reads prose back. This explains the constraints behind it, not its schema or UI. Phase 1 covers the Bible, plan, manuscript, and read-back; the plan is now edited in place in the outline. Amendment A added dynamic entry fields, free-text aspects, review bundles, and agent chat. Still not built, so do not assume them: out-of-date/fingerprint tracking (bundles compute no downstream out-of-date items) and AI-ism detection.
+Story Studio is a planning-first writing mode: characters and places, a chapter/scene/beat plan, and per-beat prose, with AI that drafts, plans, and reads prose back. The UI is two halves: a reading-first manuscript and a compact plan pane (Outline, Characters & places) with a docked AI box. This explains the constraints behind it, not its schema or UI. In the data model a "beat" is a `moment` plan item. Still not built, so do not assume them: out-of-date/fingerprint tracking (bundles compute no downstream out-of-date items) and AI-ism detection.
 
 ## Separate from existing stories
 
@@ -35,9 +35,17 @@ AI calls run in Route Handlers (`src/app/api/studio`) and stage their output in 
 
 ## Moment prompt context
 
-Nothing writes chapter or scene summaries in Phase 1; read-back writes a summary per moment. So the "story so far" is every earlier written moment's summary (its brief until read-back has run), one unprotected section each, plus any chapter or scene summary. Under budget pressure the oldest summary is dropped first, then the next-moment set-up, then voice samples. The Bible, the brief, the scene and chapter descriptions, and the previous text are never dropped (the context-too-large error fires instead).
+Nothing writes chapter or scene summaries; read-back writes a summary per moment. So the "story so far" is every earlier written moment's summary (its brief until read-back has run), one unprotected section each, plus any chapter or scene summary. Under budget pressure the oldest summary is dropped first, then the next-moment set-up, then voice samples. The character and place entries, the brief, the scene and chapter descriptions, and the previous text are never dropped (the context-too-large error fires instead).
 
-The beat prompt reads the enclosing scene's and chapter's `whatHappens` as `this_scene_in_the_authors_words` / `this_chapter_in_the_authors_words`, flagged `author="true"` when author-owned. Author-flagged text outranks AI scaffolding in the prompt's precedence. The Bible selection is the moment's present entries plus its scene's; manual pins and exclusions are stored but ignored. `how_to_write` was merged into the description by migration 0014 for author-owned rows (AI-owned `how_to_write` is left in place), so author direction written there still reaches the prompt.
+The beat prompt reads the enclosing scene's and chapter's `whatHappens` as `this_scene_in_the_authors_words` / `this_chapter_in_the_authors_words`, flagged `author="true"` when author-owned. Author-flagged text outranks AI scaffolding in the prompt's precedence. The scene and chapter descriptions are protected prompt sections because the outline is now the only place the author states direction, and a description dropped under budget pressure would silently ignore it. The character and place selection is the moment's present entries plus its scene's (a union), so a scene-level cast reaches every beat without per-beat bookkeeping. Manual pins and exclusions (`contextPinnedEntryIds`, `contextExcludedEntryIds`) are ignored but kept in the database, so the feature can come back without data loss. `how_to_write` was merged into `whatHappens` by migration 0014 for author-owned rows (AI-owned `how_to_write` is left in place), so author direction written there still reaches the prompt and still steers prose in upgraded stories.
+
+## Scene drafts
+
+Writing a scene drafts its beats in order and holds them as a draft over the manuscript until the author keeps or discards the whole scene.
+
+- Each beat after the first is drafted against the earlier beats' unkept text. The client sends only the preceding beats' generation ids, never text; the route rebuilds the overlay from staging (same rule as the AI boundary). A missing stage returns 409 `DRAFT_EXPIRED` rather than drafting against a stale tail.
+- `keepStudioSceneDraft` reads every stage first, then keeps all beats in one transaction, so a missing stage or one stale revision leaves the scene untouched. Stages are dropped only after commit, so a failed keep can be retried.
+- Staging is volatile, so after a server restart every stage is gone. Redoing one beat cannot recover that (its earlier beats are missing too); only Try again, which redraws the scene, does. The UI wording points at Try again for that reason.
 
 ## Manuscript: one Lexical editor per moment
 
@@ -57,11 +65,11 @@ Read-back summarizes a moment and reconciles it against planned changes.
 - "Settled" means dismissed, or resolved by recording it (the recorded change is still on the moment). An open unplanned flag that a new read-back does not report again with the same text is marked resolved as superseded, since it described prose that no longer exists. Superseded flags have no recorded change, so the finding can be raised again if the prose brings it back.
 - Read-back fills a moment's title only when it is blank or the default and the author does not own it.
 - A summary-only update does not bump the plan item's revision. The author cannot edit the summary, so bumping would cause pointless CAS conflicts for concurrent field saves.
-- New people and places: read-back also lists named characters or places with no Bible entry as suggestions (`studio_entry_suggestions`, not flags: flag kinds have a CHECK). Read-back still never creates entries; Add is the author's click. The unique `(story_id, name_key)` spans every status, so an ignored or added name is never suggested again, and a stale read-back inserts none.
+- New people and places: read-back also lists named characters or places with no entry as suggestions (`studio_entry_suggestions`, not flags: flag kinds have a CHECK). Read-back still never creates entries; Add is the author's click. The unique `(story_id, name_key)` spans every status, so an ignored or added name is never suggested again, and a stale read-back inserts none.
 
 ## Ownership of author text
 
-Plan items list `authorFields`, and Bible fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, empty-value proposals are ignored, and read-back never overwrites a protected plan field.
+Plan items list `authorFields`, and entry fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, empty-value proposals are ignored, and read-back never overwrites a protected plan field.
 
 An explicit pick of an AI option (a selection rewrite) counts as the author's approval and may overwrite what the author wrote. Plan flesh-out only adds children, so it never touches the text of the chapter or scene being planned. Change records with `authorEdited` are never modified by read-back, including when they are matched or moved from the parent scene.
 
@@ -69,7 +77,7 @@ An explicit pick of an AI option (a selection rewrite) counts as the author's ap
 
 Plan item and entry saves from the in-place editors go through per-record queues (`revision-slots.ts`). Each save waits for the previous save on the same record and uses the newest revision returned. Without this, two quick edits to different fields of one record would both send the same `expectedRevision`, and the second would fail as a conflict the author did not cause.
 
-A field the author has edited ignores store updates until its save lands (`useAutosaveFields`), so a flesh-out or chat accept that updates the store mid-typing cannot overwrite it. The outline follows the reading position and outside selections only while the author is not working in it: focus is outside it and its portaled menus and dialogs, and no outline editor holds unsaved text. Following would otherwise collapse the card being edited, and a save that failed after the card unmounted would lose the text.
+A field the author has edited ignores store updates until its save lands (`useAutosaveFields`), so a plan-beats result or an accepted suggestion that updates the store mid-typing cannot overwrite it. The outline follows the reading position and outside selections only while the author is not working in it: focus is outside it and its portaled menus and dialogs, and no outline editor holds unsaved text. Following would otherwise collapse the card being edited, and a save that failed after the card unmounted would lose the text.
 
 ## Dynamic entry fields
 
@@ -82,6 +90,10 @@ Entry fields are an ordered list inside the existing JSON column. Data written b
 - The 20,000-character value bound is not arbitrary: legacy values could be that long, and a tighter bound would leave them uneditable.
 - Nothing may grow an entry past 40 fields: bundle ops, AI merges (`mergeAiFields` stops appending and reports what it skipped), and author edits. The edit check compares against the stored count instead of a flat schema bound, so an entry already over the cap stays editable and can shrink. With a flat bound, an entry an earlier AI merge had pushed over the cap could not be edited at all.
 
+## Tension is unused, not dropped
+
+Tension is no longer read, written, or shown, but `studio_plan_items.tension` and its CHECK remain. Dropping them makes drizzle-kit rebuild the table, and a rebuild's `DROP TABLE` cascade-deletes prose, versions, changes, flags, and child items inside the migrator's transaction (`PRAGMA foreign_keys=OFF` is a no-op there). Old bundle ops may still carry `tension`; apply and undo ignore it. New inserts write null.
+
 ## Aspect modes
 
 Replay identity is entry + normalized label + about-entry. Two traps:
@@ -91,19 +103,23 @@ Replay identity is entry + normalized label + about-entry. Two traps:
 
 Migration gotcha: drizzle-kit's table rebuild for `0011` was wrong in two ways and the SQL was hand-fixed. It selected a column that does not exist in the old table, and it table-qualified CHECK expressions with the temporary `__new_` name, which SQLite rejects after the rename. For future rebuild migrations, apply all migrations to a scratch in-memory SQLite and check the result. Prefer designs that avoid rebuilds (plain `ADD COLUMN`, no CHECK on values likely to grow).
 
-## Review bundles
+## Review bundles (AI suggestions)
 
-A bundle is one turn's proposed changes, reviewed by the author and accepted per op.
+A bundle is one turn's proposed changes. They show in place (in the outline, characters, and manuscript) and the author accepts or dismisses them op by op, while the bundle stays pending.
 
 - Accept is a single transaction with every pre-check run first, so a conflict never leaves half a bundle applied.
-- Dependencies: deselecting a create that a selected op references is rejected.
+- Dependencies: accepting an op also accepts the pending creates it references (closure); dismissing a create dismisses its pending dependents. Ops that reference a dismissed create report `dependency-dismissed`.
+- Rebase: accepting some ops changes the rows the others were proposed against (revisions, parent, position, change baselines), which would make every later op look stale. So after each accept, ops that were conflict-free before it get their baselines rewritten from the post-write rows. Ops that were already in conflict are never rebased, or an accept could launder a real conflict. Read-back (accepting prose forces one) rebases only the ops it made stale, for the same reason; undo rebases too.
+- Descendant change-baseline rule: a change op still matches its baseline if its change was re-pinned to a descendant of the baseline's plan item with every other field equal. Read-back and flesh-out move planned changes down the tree, and that must not read as a conflict.
+- Accepting a delete (plan or entry) dismisses pending ops that target inside the deleted subtree or entry, since they could never apply.
+- Tracking ops ride along: a change op tied to a plan or prose op by target is accepted in a second phase after the visible op, and dismissed with it. It runs before the read-back so the read-back sees the records. Moves and deletes carry no tracking, and a tied op whose accept would pull in an unreviewed entry create stays in the conversation list for review.
 - Baselines: each op records what it was proposed against. Plan revisions do not move for prose saves, child adds, or moves, so deletes also compare `updatedAt` of everything in the subtree against the proposal time. Plan moves carry parent and position baselines for the same reason. The window between a tool call and the save is accepted.
 - A read action (`checkStudioBundleSelection`) reports every conflict by op id so the UI can mark ops to deselect. Accept errors alone are not enough for that.
 - Undo is ownership-based for AI scaffolding, not value-based. Accepting prose forces a read-back, which legitimately rewrites AI-owned plan text, so a value check would make the main chat flow un-undoable. The cost is that undo can discard a read-back refresh of AI text; the next read-back regenerates it.
 - Undo data (including whole-subtree delete snapshots) lives in the persisted op result, so it survives restarts.
 - Decisions are idempotent: repeating one returns `replayed`.
 - Op labels may name entries, plan items, and aspects but never field values, summaries, or prose, since they appear in toasts and conflict lists. Never log them.
-- Op ids are unique only within a bundle (each turn numbers from `op-1`), so anything that points at an op (review focus from the tree, Inspect, or manuscript) must carry the bundle id too.
+- Op ids are unique only within a bundle (each turn numbers from `op-1`), so anything that points at an op (show-where from the conversation, or an in-place suggestion) must carry the bundle id too.
 - There is no field-reorder op, a deliberate deviation from the spec's op list: new fields append and the author reorders them.
 
 ## Agent chat
@@ -111,7 +127,7 @@ A bundle is one turn's proposed changes, reviewed by the author and accepted per
 Flow: a prepare action stores the user message, a streaming route generates, the staged result is saved by a save action. The route body and the save action take ids only, for the same reason as the AI boundary above: browser text is never accepted as AI output.
 
 - One bundle per turn. If the model never calls `finalize_bundle` (step cap, forgetfulness), the route stages the accumulated ops with a fallback summary rather than silently losing proposed work. A non-`stop` finish stages nothing.
-- Aborted or failed turns persist nothing: discard deletes the prepared user message and the client puts the text back in the composer.
+- Aborted or failed turns persist nothing: discard deletes the prepared user message and the client puts the text back in the composer. The one deliberate exception: preparing a new message dismisses every pending op story-wide in the same transaction, and that dismissal is not undone if the turn is later discarded. The author moved on, and silently restoring old suggestions under a changed story would be worse than losing them. The model is told the dismissed labels only on the turn that dismissed them.
 - Prose overlay: later moments in a turn are drafted against earlier proposed prose, not stale saved prose. A turn proposes prose for one scene only. The scene is claimed synchronously, because AI SDK 6 runs tool `execute` calls concurrently and an async claim would race.
 - Write tool results carry metadata only (ids, word counts), never prose, to keep prose out of stored chat history. Within the turn the model can read its proposed prose back with `get_prose`.
 - Tool input schemas are strict-safe for the same `strictJsonSchema` reason as structured output. The builder re-validates at propose time what accept enforces and returns `{ error }` so the model retries; accept stays the authority.
@@ -119,4 +135,4 @@ Flow: a prepare action stores the user message, a streaming route generates, the
 - Output is capped per step (16k tokens) and tool inputs count toward it, so the prompt tells the model to split very large proposals across several propose calls. A truncated step ends as `length`, which discards the whole turn.
 - Budgeting trims whole oldest turns and fails loudly if the current message still does not fit. It never truncates the current message.
 - Deleting a thread rejects its pending bundles in the same transaction, because a pending bundle without its card leaves previews with no way to review.
-- Chat state lives in the panel, not the workspace store. Every store change re-renders the tree, Lexical editors, and Inspect, so per-token updates there would be costly.
+- Chat session state lives outside the workspace store. Every store change re-renders the outline, Lexical editors, and entry cards, so per-token updates there would be costly.
