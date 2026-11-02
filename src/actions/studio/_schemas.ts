@@ -234,6 +234,21 @@ export const keepStudioMomentDraftActionSchema = z.object({
   expectedRevision: revisionSchema,
 });
 
+export const keepStudioSceneDraftActionSchema = z.object({
+  ...storyIdField,
+  sceneId: id,
+  beats: z
+    .array(
+      z.object({
+        momentId: id,
+        generationId: id,
+        expectedRevision: revisionSchema,
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
 export const applyStudioReadBackActionSchema = z.object({
   ...storyIdField,
   momentId: id,

@@ -12,12 +12,14 @@ import { createLogger } from "@/lib/logger";
 import {
   StudioBadRequestError,
   StudioContextTooLargeError,
+  StudioDraftExpiredError,
   StudioNotFoundError,
 } from "./prompt-kit";
 
 export type StudioRouteErrorCode =
   | "AI_NOT_CONFIGURED"
   | "BAD_REQUEST"
+  | "DRAFT_EXPIRED"
   | "GENERATION_FAILED"
   | "STUDIO_CONTEXT_TOO_LARGE"
   | "STUDIO_NOT_FOUND"
@@ -45,6 +47,14 @@ export function toStudioRouteError(error: unknown): StudioRouteError {
       code: "STUDIO_NOT_FOUND",
       message: "This story or moment no longer exists.",
       status: 404,
+    };
+  }
+  if (error instanceof StudioDraftExpiredError) {
+    return {
+      code: "DRAFT_EXPIRED",
+      message:
+        "An earlier part of this draft is no longer available. Redo it, then continue.",
+      status: 409,
     };
   }
   if (error instanceof StudioBadRequestError) {

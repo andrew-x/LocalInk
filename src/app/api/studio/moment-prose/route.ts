@@ -5,7 +5,11 @@ import {
   buildStudioMomentPrompt,
   getStudioMomentTemperature,
 } from "@/lib/server/studio/moment-context";
-import { StudioNotFoundError } from "@/lib/server/studio/prompt-kit";
+import {
+  StudioBadRequestError,
+  StudioDraftExpiredError,
+  StudioNotFoundError,
+} from "@/lib/server/studio/prompt-kit";
 import { loadStudioWorkspace } from "@/lib/server/studio/repository";
 import {
   createStudioRouteLog,
@@ -18,12 +22,14 @@ import {
   beginStudioStage,
   failStudioStage,
   finishStudioStage,
+  getStudioStage,
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
 import {
   STUDIO_MOMENT_GENERATION_ID_HEADER,
   studioMomentProseRequestSchema,
 } from "@/lib/studio/moment-contract";
+import { getOrderedMoments } from "@/lib/studio/plan-order";
 
 export const runtime = "nodejs";
 
@@ -55,7 +61,53 @@ export async function POST(request: Request): Promise<Response> {
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
     const profile = LOCALINK_AI_MODEL_PROFILES[workspace.story.proseModel];
-    log.start({ model: profile.model, attempt: input.attempt });
+    log.start({
+      model: profile.model,
+      attempt: input.attempt,
+      precedingDrafts: input.precedingDrafts.length,
+      hasNote: Boolean(input.note),
+    });
+
+    // Earlier beats of this scene that are staged but not kept. Only ids come
+    // from the browser; their text is read from staging.
+    const moment = workspace.planItems.find(
+      (item) => item.id === input.momentId,
+    );
+    if (moment?.kind !== "moment") throw new StudioNotFoundError();
+    const beatOrder = new Map(
+      getOrderedMoments(workspace.planItems).map((item, position) => [
+        item.id,
+        position,
+      ]),
+    );
+    const planById = new Map(
+      workspace.planItems.map((item) => [item.id, item]),
+    );
+    const overlay = new Map<string, string>();
+    for (const draft of input.precedingDrafts) {
+      const earlier = planById.get(draft.momentId);
+      if (
+        earlier?.kind !== "moment" ||
+        earlier.parentId !== moment.parentId ||
+        (beatOrder.get(draft.momentId) ?? Number.POSITIVE_INFINITY) >=
+          (beatOrder.get(input.momentId) ?? 0) ||
+        overlay.has(draft.momentId)
+      ) {
+        throw new StudioBadRequestError("The prose request is invalid.");
+      }
+      try {
+        const { markdown } = getStudioStage<{ markdown: string }>({
+          storyId: input.storyId,
+          kind: "moment-prose",
+          targetId: draft.momentId,
+          generationId: draft.generationId,
+        });
+        if (!markdown.trim()) throw new StudioDraftExpiredError();
+        overlay.set(draft.momentId, markdown);
+      } catch {
+        throw new StudioDraftExpiredError();
+      }
+    }
 
     const globalInstructions = await getSystemInstructions();
     const { system, prompt, maxOutputTokens } = buildStudioMomentPrompt(
@@ -64,6 +116,8 @@ export async function POST(request: Request): Promise<Response> {
       globalInstructions,
       profile,
       input.attempt,
+      overlay.size > 0 ? overlay : undefined,
+      input.note || null,
     );
 
     const stageBinding: StudioStageBinding = {

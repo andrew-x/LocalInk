@@ -156,6 +156,7 @@ export function buildStudioMomentPrompt(
   profile: LocalinkAiModelProfile,
   attempt: StudioMomentAttempt = "first",
   proseOverlay?: ReadonlyMap<string, string>,
+  note?: string | null,
 ): { system: string; prompt: string; maxOutputTokens: number } {
   const moment = workspace.planItems.find((item) => item.id === momentId);
   if (moment?.kind !== "moment") throw new StudioNotFoundError();
@@ -407,5 +408,12 @@ export function buildStudioMomentPrompt(
     maxOutputTokens: MOMENT_BASE_OUTPUT_TOKENS,
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
-  return { system, ...budgeted };
+  // The author's one-off request goes after the budgeted prompt, as in the
+  // agent chat's prose tool. It is short and capped at the request boundary.
+  const request = xmlField("writer_request_for_this_pass", note ?? "");
+  return {
+    system,
+    ...budgeted,
+    prompt: request ? `${budgeted.prompt}\n\n${request}` : budgeted.prompt,
+  };
 }

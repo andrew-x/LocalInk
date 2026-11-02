@@ -36,6 +36,14 @@ export class StudioBadRequestError extends Error {
   }
 }
 
+/** A staged draft this request builds on is gone (expired or server restart). */
+export class StudioDraftExpiredError extends Error {
+  constructor() {
+    super("An earlier part of this draft is no longer available.");
+    this.name = "StudioDraftExpiredError";
+  }
+}
+
 export function escapeXml(text: string): string {
   return text
     .replaceAll("&", "&amp;")
