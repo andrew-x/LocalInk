@@ -8,6 +8,7 @@ import type { LocalinkTx } from "@/lib/drizzle/db";
 import {
   studioChanges,
   studioEntries,
+  studioEntrySuggestions,
   studioFlags,
   studioPlanItems,
   studioProse,
@@ -15,6 +16,7 @@ import {
 import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
+  StudioEntrySuggestionDto,
   StudioFlagDto,
   StudioFlagPayload,
   StudioPlanItemDto,
@@ -27,6 +29,7 @@ import {
   momentNeedsTitle,
   type StagedStudioReadBack,
   settledUnplannedFindings,
+  studioNameKey,
 } from "@/lib/studio/read-back-contract";
 import { generateId } from "@/lib/util";
 
@@ -38,6 +41,7 @@ import {
   requirePlanItem,
   type StudioFlagRow,
   toChangeDto,
+  toEntrySuggestionDto,
   toFlagDto,
   toPlanItemDto,
   toProseDto,
@@ -52,6 +56,8 @@ export type StudioReadBackApplyResult = {
     changes: StudioChangeDto[];
     flags: StudioFlagDto[];
     prose: StudioProseDto[];
+    /** New people and places this read-back found, as open suggestions. */
+    entrySuggestions: StudioEntrySuggestionDto[];
     /** Pending bundles whose suggestions were rebased onto this read-back. */
     bundles: StudioBundleDto[];
   };
@@ -66,7 +72,14 @@ export type StudioFlagResolveResult = {
 };
 
 function emptyPatch(): StudioReadBackApplyResult["workspacePatch"] {
-  return { planItems: [], changes: [], flags: [], prose: [], bundles: [] };
+  return {
+    planItems: [],
+    changes: [],
+    flags: [],
+    prose: [],
+    entrySuggestions: [],
+    bundles: [],
+  };
 }
 
 function selectOpenFlags(tx: LocalinkTx, storyId: string): StudioFlagRow[] {
@@ -432,6 +445,42 @@ function applyReadBackRows(
       .returning()
       .get();
     patch.planItems.push(toPlanItemDto(updated));
+  }
+
+  // 5b. New people and places. Names that became entries or suggestions since
+  // the read began (any suggestion status) are skipped: the unique name key
+  // makes the insert a no-op for those.
+  if (output.newEntries.length > 0) {
+    const takenKeys = new Set(
+      tx
+        .select({ name: studioEntries.name })
+        .from(studioEntries)
+        .where(eq(studioEntries.storyId, storyId))
+        .all()
+        .map((row) => studioNameKey(row.name)),
+    );
+    for (const candidate of output.newEntries) {
+      const nameKey = studioNameKey(candidate.name);
+      if (!nameKey || takenKeys.has(nameKey)) continue;
+      const inserted = tx
+        .insert(studioEntrySuggestions)
+        .values({
+          id: generateId("studio-entry-suggestion"),
+          storyId,
+          momentId,
+          type: candidate.type,
+          name: candidate.name,
+          nameKey,
+          description: candidate.description,
+          status: "open",
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .returning()
+        .get();
+      if (inserted) patch.entrySuggestions.push(toEntrySuggestionDto(inserted));
+    }
   }
 
   // 6. Read-back bookkeeping. Revision stays put so autosave is unaffected.

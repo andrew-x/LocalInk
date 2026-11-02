@@ -201,6 +201,7 @@ export function previewStudioWorkspace(
     changes: [...changes.values()],
     prose: workspace.prose.filter((prose) => !removedItems.has(prose.momentId)),
     flags: workspace.flags.filter((flag) => !removedItems.has(flag.planItemId)),
+    entrySuggestions: [],
     bundles: [],
   };
 }

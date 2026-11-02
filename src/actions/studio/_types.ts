@@ -3,6 +3,7 @@ import type { StudioSetupStatus } from "@/lib/studio/contracts";
 export type {
   StudioChangeDto,
   StudioEntryDto,
+  StudioEntrySuggestionDto,
   StudioFlagDto,
   StudioPlanItemDto,
   StudioProseDto,
@@ -29,7 +30,7 @@ export type {
   StudioFlagResolveResult,
   StudioReadBackApplyResult,
 } from "@/lib/server/studio/read-back-apply";
-
+export type { StudioEntrySuggestionResolveResult } from "@/lib/server/studio/repository-entry-suggestions";
 export type {
   StudioBundleDto,
   StudioBundleIssueKind,
@@ -39,7 +40,6 @@ export type {
   StudioBundleSelectionIssue,
   StudioBundleWorkspacePatch,
 } from "@/lib/studio/bundle-contract";
-
 export type {
   StudioChatDiscardResult,
   StudioChatMessageDto,
@@ -50,5 +50,4 @@ export type {
   StudioChatThreadDetail,
   StudioChatThreadDto,
 } from "@/lib/studio/chat-contract";
-
 export type { StudioRefreshedFieldsApplyResult } from "@/lib/studio/suggest-fields-contract";

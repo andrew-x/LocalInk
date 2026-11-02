@@ -27,6 +27,7 @@ import type { StudioEntryDto, StudioEntryType } from "@/lib/studio/contracts";
 
 import { EntryCard } from "./entry-card";
 import { EntryLine, sceneCountsByEntry } from "./entry-line";
+import { NewEntrySuggestions } from "./new-entry-suggestions";
 import { DEFAULT_RELATIONSHIP_NAME } from "./relationship-editor";
 
 type OtherKind = {
@@ -301,6 +302,7 @@ export function CharactersPanel() {
 
   return (
     <div className="flex flex-col px-2 pb-4">
+      <NewEntrySuggestions />
       <Group
         {...shared}
         add={

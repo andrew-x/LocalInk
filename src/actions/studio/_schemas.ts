@@ -315,3 +315,9 @@ export const studioChatThreadActionSchema = z.object({
   ...storyIdField,
   threadId: id,
 });
+
+export const resolveStudioEntrySuggestionActionSchema = z.object({
+  ...storyIdField,
+  suggestionId: id,
+  decision: z.enum(["add", "ignore"]),
+});

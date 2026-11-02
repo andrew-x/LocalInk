@@ -8,6 +8,7 @@ import {
   studioBundles,
   studioChanges,
   studioEntries,
+  studioEntrySuggestions,
   studioFlags,
   studioPlanItems,
   studioProse,
@@ -23,6 +24,7 @@ import type {
 import type {
   StudioChangeDto,
   StudioEntryDto,
+  StudioEntrySuggestionDto,
   StudioFlagDto,
   StudioFlagPayload,
   StudioPlanItemDto,
@@ -85,6 +87,42 @@ export function toStoryDto(row: StudioStoryRow): StudioStoryDto {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+export function toEntrySuggestionDto(
+  row: typeof studioEntrySuggestions.$inferSelect,
+): StudioEntrySuggestionDto {
+  return {
+    id: row.id,
+    storyId: row.storyId,
+    momentId: row.momentId,
+    type: row.type,
+    name: row.name,
+    description: row.description,
+    status: row.status,
+  };
+}
+
+/** The open suggestions a workspace carries. */
+export function listOpenEntrySuggestions(
+  db: Pick<LocalinkTx, "select">,
+  storyId: string,
+): StudioEntrySuggestionDto[] {
+  return db
+    .select()
+    .from(studioEntrySuggestions)
+    .where(
+      and(
+        eq(studioEntrySuggestions.storyId, storyId),
+        eq(studioEntrySuggestions.status, "open"),
+      ),
+    )
+    .orderBy(
+      asc(studioEntrySuggestions.createdAt),
+      asc(studioEntrySuggestions.id),
+    )
+    .all()
+    .map(toEntrySuggestionDto);
 }
 
 export function toEntryDto(row: StudioEntryRow): StudioEntryDto {
@@ -301,6 +339,7 @@ export function loadStudioWorkspace(storyId: string): StudioWorkspace | null {
 
   return {
     story: toStoryDto(story),
+    entrySuggestions: listOpenEntrySuggestions(db, storyId),
     entries: entries.map(toEntryDto),
     planItems: planItems.map(toPlanItemDto),
     changes: changes.map(toChangeDto),

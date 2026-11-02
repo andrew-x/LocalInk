@@ -193,6 +193,19 @@ export type StudioFlagDto = {
   updatedAt: string;
 };
 
+export type StudioEntrySuggestionStatus = "open" | "added" | "ignored";
+
+/** A named person or place the prose introduced that has no Bible entry yet. */
+export type StudioEntrySuggestionDto = {
+  id: string;
+  storyId: string;
+  momentId: string;
+  type: "character" | "place";
+  name: string;
+  description: string;
+  status: StudioEntrySuggestionStatus;
+};
+
 export type StudioWorkspace = {
   story: StudioStoryDto;
   entries: StudioEntryDto[];
@@ -200,6 +213,8 @@ export type StudioWorkspace = {
   changes: StudioChangeDto[];
   prose: StudioProseDto[];
   flags: StudioFlagDto[];
+  /** Open new-character and new-place suggestions only. */
+  entrySuggestions: StudioEntrySuggestionDto[];
   /** Pending bundles plus the most recent accepted ones (for undo). */
   bundles: StudioBundleDto[];
 };

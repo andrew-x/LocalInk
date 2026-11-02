@@ -126,6 +126,7 @@ export function loadBuilderSnapshot(storyId: string): BuilderSnapshot {
       flags: [...rows.flags.values()]
         .map(toFlagDto)
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      entrySuggestions: [],
       bundles: [],
     };
     return {

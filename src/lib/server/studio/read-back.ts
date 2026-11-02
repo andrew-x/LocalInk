@@ -2,6 +2,7 @@ import "server-only";
 
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
+import { getDb } from "@/lib/drizzle/db";
 import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
 import type {
   StudioChangeDto,
@@ -15,10 +16,10 @@ import {
   normalizeStudioReadBack,
   type StudioReadBackOutput,
   settledUnplannedFindings,
+  studioNameKey,
   studioReadBackOutputSchema,
 } from "@/lib/studio/read-back-contract";
 import { computeStateGoingIn } from "@/lib/studio/state";
-
 import {
   ASPECT_GUIDANCE,
   aspectExamplesBlock,
@@ -30,6 +31,7 @@ import {
   xmlField,
   xmlGroup,
 } from "./prompt-kit";
+import { listEntrySuggestionKeys } from "./repository-entry-suggestions";
 
 const MODEL = DEFAULT_STORY_GENERATION_MODEL;
 const PROFILE = LOCALINK_AI_MODEL_PROFILES[MODEL];
@@ -48,6 +50,7 @@ const SYSTEM_PROMPT = [
     ASPECT_GUIDANCE +
     " Set aboutEntryId only when the aspect concerns another entry (how one feels about another), otherwise null. Write value as a short statement of the new state.",
   "- An entry's state_going_in and everything in already_reviewed are already established or already reviewed by the author. Never report them as unplanned, even reworded or restated; report only a real change away from them.",
+  "- newEntries: named people or places in this prose with no entry in the known_names list. Only characters (people) and places that have a proper name, appear in the prose, and are likely to matter again. Skip crowds, unnamed roles, objects, and anything already named in known_names, including by nickname or spelling variant. Give each a name exactly as the prose writes it, a type, and a one-sentence description of who or what it is, drawn only from the prose. Usually none.",
   "- presentEntryIds: entries that are actually in the moment (on the page, not merely mentioned).",
   "- whatHappens: one to three plain sentences on what actually happens in the prose.",
   "- summary: a neutral recap of what happened and what changed, at most 80 words.",
@@ -172,6 +175,13 @@ export async function runStudioReadBack(
     momentId,
   );
 
+  const suggestionRows = listEntrySuggestionKeys(getDb(), workspace.story.id);
+  const suggestionNames = suggestionRows.map((row) => row.name);
+  const knownNameKeys = new Set([
+    ...workspace.entries.map((entry) => studioNameKey(entry.name)),
+    ...suggestionRows.map((row) => row.nameKey),
+  ]);
+
   const authorFlag = (field: (typeof moment.authorFields)[number]) =>
     moment.authorFields.includes(field) ? "true" : undefined;
   const present = moment.presentEntryIds
@@ -268,6 +278,13 @@ export async function runStudioReadBack(
       trackedAspectsBlock(entries, workspace.changes, workspace.planItems),
     ),
     section("aspect-examples", aspectExamplesBlock(workspace.changes)),
+    section(
+      "known-names",
+      xmlGroup("known_names", [
+        ...workspace.entries.map((entry) => xmlField("name", entry.name)),
+        ...suggestionNames.map((name) => xmlField("name", name)),
+      ]),
+    ),
     section("prose", xmlField("prose", markdown)),
   ];
 
@@ -300,6 +317,7 @@ export async function runStudioReadBack(
       matchableChangeIds: new Set(offeredChanges.map((change) => change.id)),
       momentChangeIds: new Set(momentChanges.map((change) => change.id)),
       wantsTitle,
+      knownNameKeys,
     },
   );
   return {

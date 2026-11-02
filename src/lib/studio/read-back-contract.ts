@@ -18,6 +18,16 @@ const id = z.string().trim().min(1).max(128);
 /** Read-back fills a moment title only when it is blank or this default. */
 export const STUDIO_DEFAULT_MOMENT_TITLE = "Untitled moment";
 const MAX_TITLE_CHARS = 200;
+const MAX_NEW_ENTRIES = 3;
+const MAX_NEW_ENTRY_DESCRIPTION_CHARS = 200;
+
+/**
+ * The key a name is compared by: lowercased, trimmed, whitespace collapsed.
+ * The same folding read-back uses when it matches entry names in prose.
+ */
+export function studioNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 export const studioReadBackRequestSchema = z.object({
   storyId: id,
@@ -50,6 +60,13 @@ export const studioReadBackOutputSchema = z.object({
       value: z.string(),
     }),
   ),
+  newEntries: z.array(
+    z.object({
+      name: z.string(),
+      type: z.enum(["character", "place"]),
+      description: z.string(),
+    }),
+  ),
 });
 
 export type StudioReadBackOutput = z.infer<typeof studioReadBackOutputSchema>;
@@ -75,6 +92,8 @@ export function normalizeStudioReadBack(
     momentChangeIds: Set<string>;
     /** False drops any title the model returned anyway. */
     wantsTitle: boolean;
+    /** `studioNameKey` of every entry name and every suggestion, any status. */
+    knownNameKeys: Set<string>;
   },
 ): StudioReadBackOutput {
   const unique = (ids: string[], valid: Set<string>) => [
@@ -117,6 +136,24 @@ export function normalizeStudioReadBack(
     ];
   });
 
+  const knownKeys = new Set(allowed.knownNameKeys);
+  const newEntries: StudioReadBackOutput["newEntries"] = [];
+  for (const candidate of raw.newEntries) {
+    const name = candidate.name.trim().replace(/\s+/g, " ");
+    const key = studioNameKey(name);
+    if (!key || knownKeys.has(key)) continue;
+    knownKeys.add(key);
+    newEntries.push({
+      name,
+      type: candidate.type,
+      description: candidate.description
+        .trim()
+        .slice(0, MAX_NEW_ENTRY_DESCRIPTION_CHARS)
+        .trim(),
+    });
+    if (newEntries.length >= MAX_NEW_ENTRIES) break;
+  }
+
   return {
     summary: raw.summary.trim(),
     title: allowed.wantsTitle
@@ -127,6 +164,7 @@ export function normalizeStudioReadBack(
     matchedChangeIds,
     missingChangeIds,
     unplannedChanges,
+    newEntries,
   };
 }
 

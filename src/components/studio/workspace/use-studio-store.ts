@@ -16,6 +16,7 @@ import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 import type {
   StudioChangeDto,
   StudioEntryDto,
+  StudioEntrySuggestionDto,
   StudioFlagDto,
   StudioPlanItemDto,
   StudioProseDto,
@@ -64,6 +65,7 @@ export type StudioRemovedIds = {
   entryIds?: string[];
   changeIds?: string[];
   flagIds?: string[];
+  entrySuggestionIds?: string[];
 };
 
 export type StudioStoreAction =
@@ -74,6 +76,8 @@ export type StudioStoreAction =
       changes?: StudioChangeDto[];
       prose?: StudioProseDto[];
       flags?: StudioFlagDto[];
+      /** Open ones are kept; a settled one drops out of the store. */
+      entrySuggestions?: StudioEntrySuggestionDto[];
       story?: StudioStoryDto;
       bundles?: StudioBundleDto[];
       /** Dropped after the upserts, like a "remove" (bundle patches). */
@@ -123,6 +127,25 @@ function freshBundles(
   return incoming.filter((b) => b.updatedAt >= (updatedAt.get(b.id) ?? ""));
 }
 
+/** Upserts open suggestions and drops any incoming one that is settled. */
+function mergeEntrySuggestions(
+  current: StudioEntrySuggestionDto[],
+  incoming: StudioEntrySuggestionDto[],
+): StudioEntrySuggestionDto[] {
+  if (incoming.length === 0) return current;
+  const settled = new Set(
+    incoming.filter((item) => item.status !== "open").map((item) => item.id),
+  );
+  const next = upsert(
+    current,
+    incoming.filter((item) => item.status === "open"),
+    (item) => item.id,
+  );
+  return settled.size === 0
+    ? next
+    : next.filter((item) => !settled.has(item.id));
+}
+
 function removeIds(
   state: StudioStoreState,
   action: StudioRemovedIds,
@@ -131,11 +154,13 @@ function removeIds(
   const entryIds = new Set(action.entryIds);
   const changeIds = new Set(action.changeIds);
   const flagIds = new Set(action.flagIds);
+  const suggestionIds = new Set(action.entrySuggestionIds);
   if (
     planIds.size === 0 &&
     entryIds.size === 0 &&
     changeIds.size === 0 &&
-    flagIds.size === 0
+    flagIds.size === 0 &&
+    suggestionIds.size === 0
   ) {
     return state;
   }
@@ -150,6 +175,9 @@ function removeIds(
     prose: state.prose.filter((p) => !planIds.has(p.momentId)),
     flags: state.flags.filter(
       (f) => !flagIds.has(f.id) && !planIds.has(f.planItemId),
+    ),
+    entrySuggestions: state.entrySuggestions.filter(
+      (item) => !suggestionIds.has(item.id) && !planIds.has(item.momentId),
     ),
     selectedItemId:
       state.selectedItemId && planIds.has(state.selectedItemId)
@@ -180,6 +208,10 @@ function studioReducer(
           (p) => p.momentId,
         ),
         flags: upsert(state.flags, action.flags ?? [], (f) => f.id),
+        entrySuggestions: mergeEntrySuggestions(
+          state.entrySuggestions,
+          action.entrySuggestions ?? [],
+        ),
         bundles: upsert(
           state.bundles,
           freshBundles(state.bundles, action.bundles ?? []),

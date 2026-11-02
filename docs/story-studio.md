@@ -57,6 +57,7 @@ Read-back summarizes a moment and reconciles it against planned changes.
 - "Settled" means dismissed, or resolved by recording it (the recorded change is still on the moment). An open unplanned flag that a new read-back does not report again with the same text is marked resolved as superseded, since it described prose that no longer exists. Superseded flags have no recorded change, so the finding can be raised again if the prose brings it back.
 - Read-back fills a moment's title only when it is blank or the default and the author does not own it.
 - A summary-only update does not bump the plan item's revision. The author cannot edit the summary, so bumping would cause pointless CAS conflicts for concurrent field saves.
+- New people and places: read-back also lists named characters or places with no Bible entry as suggestions (`studio_entry_suggestions`, not flags: flag kinds have a CHECK). Read-back still never creates entries; Add is the author's click. The unique `(story_id, name_key)` spans every status, so an ignored or added name is never suggested again, and a stale read-back inserts none.
 
 ## Ownership of author text
 

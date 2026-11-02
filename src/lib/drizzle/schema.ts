@@ -32,6 +32,7 @@ import type {
   StudioChangeMode,
   StudioChangeSource,
   StudioChangeStatus,
+  StudioEntrySuggestionStatus,
   StudioEntryType,
   StudioFlagKind,
   StudioFlagPayload,
@@ -624,6 +625,42 @@ export const studioFlags = sqliteTable(
     check(
       "studio_flags_status_check",
       sql`${table.status} IN ('open', 'resolved', 'dismissed')`,
+    ),
+  ],
+);
+
+export const studioEntrySuggestions = sqliteTable(
+  "studio_entry_suggestions",
+  {
+    id: text("id").primaryKey(),
+    storyId: text("story_id")
+      .notNull()
+      .references(() => studioStories.id, { onDelete: "cascade" }),
+    momentId: text("moment_id")
+      .notNull()
+      .references(() => studioPlanItems.id, { onDelete: "cascade" }),
+    type: text("type").$type<"character" | "place">().notNull(),
+    name: text("name").notNull(),
+    // Normalized name. Unique per story across every status, so an ignored or
+    // added name is never suggested again.
+    nameKey: text("name_key").notNull(),
+    description: text("description").notNull().default(""),
+    // No CHECK: values may grow without a table rebuild.
+    status: text("status")
+      .$type<StudioEntrySuggestionStatus>()
+      .notNull()
+      .default("open"),
+    createdAt: text("created_at").notNull().default(currentTimestampSql),
+    updatedAt: text("updated_at").notNull().default(currentTimestampSql),
+  },
+  (table) => [
+    uniqueIndex("studio_entry_suggestions_story_name_idx").on(
+      table.storyId,
+      table.nameKey,
+    ),
+    index("studio_entry_suggestions_story_status_idx").on(
+      table.storyId,
+      table.status,
     ),
   ],
 );
