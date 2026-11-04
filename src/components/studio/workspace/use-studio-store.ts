@@ -58,6 +58,16 @@ export type StudioStoreState = StudioWorkspace & {
   focusedBundleOp: StudioBundleOpFocus | null;
   /** Bumped by every focusBundleOp, so refocusing the same op re-highlights. */
   bundleFocusNonce: number;
+  /** The passage being tuned from the manuscript, or null. */
+  voiceTune: StudioVoiceTune | null;
+};
+
+/** A passage the author says sounds off, waiting in the Voice tab's card. */
+export type StudioVoiceTune = {
+  id: string;
+  momentId: string;
+  selectedText: string;
+  complaint: string;
 };
 
 export type StudioRemovedIds = {
@@ -91,7 +101,9 @@ export type StudioStoreAction =
   | { type: "setReading"; itemId: string | null }
   | { type: "openEntry"; entryId: string | null }
   | ({ type: "focusBundleOp" } & StudioBundleOpFocus)
-  | { type: "clearBundleFocus" };
+  | { type: "clearBundleFocus" }
+  | { type: "start-voice-tune"; tune: StudioVoiceTune }
+  | { type: "clear-voice-tune" };
 
 function upsert<T>(list: T[], incoming: T[], key: (item: T) => string): T[] {
   if (incoming.length === 0) return list;
@@ -267,6 +279,10 @@ function studioReducer(
       return state.focusedBundleOp === null
         ? state
         : { ...state, focusedBundleOp: null };
+    case "start-voice-tune":
+      return { ...state, voiceTune: action.tune, planTab: "voice" };
+    case "clear-voice-tune":
+      return state.voiceTune === null ? state : { ...state, voiceTune: null };
   }
 }
 
@@ -298,6 +314,7 @@ export function StudioStoreProvider({
       openEntryId: null,
       focusedBundleOp: null,
       bundleFocusNonce: 0,
+      voiceTune: null,
     }),
   );
   const value = useMemo(() => ({ state, dispatch }), [state]);

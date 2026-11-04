@@ -5,6 +5,7 @@ import type {
   StudioVoiceMoment,
   StudioVoicePick,
 } from "@/lib/studio/contracts";
+import { STUDIO_REWRITE_MAX_SELECTION_CHARS } from "@/lib/studio/rewrite-contract";
 import { STUDIO_VOICE_LIMITS, type StudioVoiceOp } from "@/lib/studio/voice";
 
 const id = z.string().trim().min(1).max(128);
@@ -27,6 +28,13 @@ export const studioVoiceFeedbackRequestSchema = z.object({
   storyId: id,
   kind,
   sample: z.union([z.object({ generationId: id }), z.object({ sampleId: id })]),
+  complaint: z.string().trim().min(1).max(STUDIO_VOICE_COMPLAINT_MAX_CHARS),
+});
+
+export const studioVoiceTuneRequestSchema = z.object({
+  storyId: id,
+  momentId: id,
+  selectedText: z.string().min(1).max(STUDIO_REWRITE_MAX_SELECTION_CHARS),
   complaint: z.string().trim().min(1).max(STUDIO_VOICE_COMPLAINT_MAX_CHARS),
 });
 
@@ -56,6 +64,13 @@ export const voiceChangesOutputSchema = z.object({
   ),
   newNotes: z.array(z.string()),
 });
+
+/** A rewrite under the proposed voice, with the voice changes behind it. */
+export type StudioVoiceTunePreview = {
+  generationId: string;
+  rewrite: string;
+  ops: StudioVoiceOp[];
+};
 
 export type StudioVoicePicksPreview = {
   generationId: string;

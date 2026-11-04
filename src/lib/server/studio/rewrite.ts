@@ -2,7 +2,10 @@ import "server-only";
 
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
-import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
+import {
+  DEFAULT_STORY_GENERATION_MODEL,
+  type StoryGenerationModel,
+} from "@/lib/story-generation-models";
 import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type { StudioWorkspace } from "@/lib/studio/contracts";
 import { getInstructionStack } from "@/lib/studio/instructions";
@@ -34,8 +37,6 @@ import {
   voiceSamplesPromptSection,
 } from "./voice-prompt";
 
-const MODEL = DEFAULT_STORY_GENERATION_MODEL;
-const PROFILE = LOCALINK_AI_MODEL_PROFILES[MODEL];
 const TEMPERATURE = 0.9;
 const MIN_OUTPUT_TOKENS = 1_200;
 const OUTPUT_TOKENS_PER_SELECTION_CHAR = 1;
@@ -88,7 +89,9 @@ export async function generateStudioRewrite(
   abortSignal?: AbortSignal,
   globalInstructions = "",
   voiceOverride?: StudioVoiceOverride,
+  model: StoryGenerationModel = DEFAULT_STORY_GENERATION_MODEL,
 ): Promise<StudioRewriteResponse> {
+  const profile = LOCALINK_AI_MODEL_PROFILES[model];
   const moment = workspace.planItems.find(
     (item) => item.id === request.momentId,
   );
@@ -186,17 +189,17 @@ export async function generateStudioRewrite(
   const budgeted = budgetPrompt({
     system: SYSTEM_PROMPT,
     sections,
-    contextWindowTokens: PROFILE.contextWindowTokens,
+    contextWindowTokens: profile.contextWindowTokens,
     maxOutputTokens: Math.max(
       MIN_OUTPUT_TOKENS,
       request.selectedText.length *
         OUTPUT_TOKENS_PER_SELECTION_CHAR *
         STUDIO_REWRITE_OPTION_COUNT,
     ),
-    reasoningAllowance: PROFILE.reasoningOutputTokenAllowance,
+    reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   const result = await generateLocalinkObject({
-    model: MODEL,
+    model,
     system: SYSTEM_PROMPT,
     prompt: budgeted.prompt,
     maxOutputTokens: budgeted.maxOutputTokens,

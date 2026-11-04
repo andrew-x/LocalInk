@@ -14,6 +14,7 @@ import { useVoiceFeedback } from "./use-voice-feedback";
 import { VoiceEmptyState } from "./voice-empty-state";
 import { VoiceSamples } from "./voice-samples";
 import { VoiceSettingsColumn } from "./voice-settings-column";
+import { VoiceTuneCard } from "./voice-tune-card";
 
 export { useUpdateVoice } from "./use-update-voice";
 export { useVoiceDrafts } from "./use-voice-drafts";
@@ -79,43 +80,48 @@ export function VoicePanel({ layout, footer }: VoicePanelProps) {
   if (!isStudioVoiceSetUp(story)) return <VoiceEmptyState />;
 
   return (
-    <div
-      className={cn(
-        layout === "wide"
-          ? "grid min-h-0 grid-cols-[400px_1fr]"
-          : "flex flex-col",
-      )}
-    >
+    <>
+      {state.voiceTune ? (
+        <VoiceTuneCard key={state.voiceTune.id} tune={state.voiceTune} />
+      ) : null}
       <div
         className={cn(
-          "px-4 py-4",
           layout === "wide"
-            ? "border-border border-r"
-            : "border-border border-b",
+            ? "grid min-h-0 grid-cols-[400px_1fr]"
+            : "flex flex-col",
         )}
       >
-        <VoiceSettingsColumn
-          fromFeedback={fromFeedback}
-          onChoose={(op) => void choose(op)}
-          onOps={(ops) => void updateVoice(ops)}
-        />
+        <div
+          className={cn(
+            "px-4 py-4",
+            layout === "wide"
+              ? "border-border border-r"
+              : "border-border border-b",
+          )}
+        >
+          <VoiceSettingsColumn
+            fromFeedback={fromFeedback}
+            onChoose={(op) => void choose(op)}
+            onOps={(ops) => void updateVoice(ops)}
+          />
+        </div>
+        <div
+          className={cn(
+            "flex min-h-0 flex-col px-4 py-4",
+            layout === "wide" && "px-6",
+          )}
+        >
+          <VoiceSamples
+            draftApi={draftApi}
+            footer={footer}
+            moments={moments}
+            onFeedback={sendFeedback}
+            onSelect={setSelectedKind}
+            samples={story.voiceSamples}
+            selected={selected}
+          />
+        </div>
       </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-col px-4 py-4",
-          layout === "wide" && "px-6",
-        )}
-      >
-        <VoiceSamples
-          draftApi={draftApi}
-          footer={footer}
-          moments={moments}
-          onFeedback={sendFeedback}
-          onSelect={setSelectedKind}
-          samples={story.voiceSamples}
-          selected={selected}
-        />
-      </div>
-    </div>
+    </>
   );
 }

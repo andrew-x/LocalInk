@@ -1,16 +1,10 @@
 "use client";
 
-import {
-  $convertSelectionToMarkdownString,
-  $generateNodesFromMarkdownString,
-} from "@lexical/markdown";
+import { $convertSelectionToMarkdownString } from "@lexical/markdown";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import {
-  $getNodeByKey,
   $getSelection,
-  $isParagraphNode,
   $isRangeSelection,
-  $setSelection,
   COMMAND_PRIORITY_LOW,
   KEY_ESCAPE_COMMAND,
 } from "lexical";
@@ -23,11 +17,18 @@ import {
   studioErrorMessage,
 } from "@/components/studio/studio-fetch";
 import {
+  dropVoiceTune,
+  dropVoiceTunesForMoment,
+  registerVoiceTune,
+} from "@/components/studio/voice/voice-tune-bridge";
+import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import {
   STUDIO_REWRITE_MAX_SELECTION_CHARS,
   type StudioRewriteMode,
   type StudioRewriteResponse,
 } from "@/lib/studio/rewrite-contract";
-
+import { generateId } from "@/lib/util";
+import { replaceCapturedSelection } from "./selection-replace";
 import {
   AskForm,
   type CapturedSelection,
@@ -72,9 +73,12 @@ export function SelectionToolbarPlugin({
   storyId,
 }: SelectionToolbarPluginProps) {
   const [editor] = useLexicalComposerContext();
+  const { state, dispatch } = useStudioStore();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [panel, setPanel] = useState<RewritePanel | null>(null);
   const [asking, setAsking] = useState<CapturedSelection | null>(null);
+  // "Ask…" and "Voice is off…" share the inline form.
+  const [askingVoice, setAskingVoice] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   // The last request, so "Try again" repeats it.
   const lastRequestRef = useRef<{
@@ -93,6 +97,7 @@ export function SelectionToolbarPlugin({
     abortRef.current = null;
     setPanel(null);
     setAsking(null);
+    setAskingVoice(false);
   }, []);
 
   // Follow the live selection, or the held one while a panel is open.
@@ -173,6 +178,9 @@ export function SelectionToolbarPlugin({
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  // A tuning card can only replace a passage whose editor is still mounted.
+  useEffect(() => () => dropVoiceTunesForMoment(momentId), [momentId]);
+
   const capture = useCallback((): CapturedSelection | null => {
     const native = window.getSelection();
     const range =
@@ -249,11 +257,41 @@ export function SelectionToolbarPlugin({
     if (captured) void requestRewrite(mode, captured);
   };
 
-  const startAsk = () => {
+  const startAsk = (voice = false) => {
     const captured = capture();
     if (!captured) return;
     heldRef.current = captured;
+    setAskingVoice(voice);
     setAsking(captured);
+  };
+
+  const startVoiceTune = (captured: CapturedSelection, complaint: string) => {
+    if (captured.markdown.length > STUDIO_REWRITE_MAX_SELECTION_CHARS) {
+      toast.error(SELECTION_TOO_LONG);
+      return;
+    }
+    // One tune at a time: the new one replaces the old.
+    if (state.voiceTune) dropVoiceTune(state.voiceTune.id);
+    const id = generateId("voice-tune");
+    registerVoiceTune({
+      id,
+      momentId,
+      replace: (markdown) => {
+        const replaced = replaceCapturedSelection(editor, captured, markdown);
+        if (replaced) editor.focus();
+        return replaced;
+      },
+    });
+    dispatch({
+      type: "start-voice-tune",
+      tune: {
+        id,
+        momentId,
+        selectedText: captured.markdown,
+        complaint,
+      },
+    });
+    close();
   };
 
   const retryRewrite = () => {
@@ -265,36 +303,7 @@ export function SelectionToolbarPlugin({
   const keepRewrite = (option: string) => {
     if (panel?.status !== "ready") return;
     const { captured } = panel;
-    let replaced = false;
-    editor.update(
-      () => {
-        try {
-          const selection = captured.selection.clone();
-          if (
-            !$getNodeByKey(selection.anchor.key) ||
-            !$getNodeByKey(selection.focus.key) ||
-            selection.getTextContent() !== captured.plain
-          ) {
-            return;
-          }
-          $setSelection(selection);
-          const nodes = $generateNodesFromMarkdownString(
-            option,
-            STUDIO_MARKDOWN_TRANSFORMERS,
-          );
-          const [first] = nodes;
-          if (nodes.length === 1 && $isParagraphNode(first)) {
-            selection.insertNodes(first.getChildren());
-          } else {
-            selection.insertNodes(nodes);
-          }
-          replaced = true;
-        } catch {
-          replaced = false;
-        }
-      },
-      { discrete: true },
-    );
+    const replaced = replaceCapturedSelection(editor, captured, option);
     close();
     if (!replaced) toast.error(SELECTION_CHANGED);
     editor.focus();
@@ -329,12 +338,22 @@ export function SelectionToolbarPlugin({
           panel={panel}
         />
       ) : asking ? (
-        <AskForm
-          onCancel={close}
-          onSubmit={(instruction) =>
-            void requestRewrite("custom", asking, instruction)
-          }
-        />
+        askingVoice ? (
+          <AskForm
+            ariaLabel="What's off about how this sounds?"
+            onCancel={close}
+            onSubmit={(complaint) => startVoiceTune(asking, complaint)}
+            placeholder="What's off?"
+            submitLabel="Tune"
+          />
+        ) : (
+          <AskForm
+            onCancel={close}
+            onSubmit={(instruction) =>
+              void requestRewrite("custom", asking, instruction)
+            }
+          />
+        )
       ) : (
         <div className="flex items-center gap-0.5">
           <button
@@ -363,10 +382,17 @@ export function SelectionToolbarPlugin({
           </button>
           <button
             className={TOOLBAR_BUTTON_CLASS}
-            onClick={startAsk}
+            onClick={() => startAsk()}
             type="button"
           >
             Ask…
+          </button>
+          <button
+            className={TOOLBAR_BUTTON_CLASS}
+            onClick={() => startAsk(true)}
+            type="button"
+          >
+            Voice is off…
           </button>
         </div>
       )}

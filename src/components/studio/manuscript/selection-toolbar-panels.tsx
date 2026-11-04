@@ -114,11 +114,17 @@ type AskFormValues = z.infer<typeof askFormSchema>;
 
 /** "Ask…": a custom instruction. It submits to the rewrite route, so plain useForm. */
 export function AskForm({
+  ariaLabel = "How should the passage change?",
   onCancel,
   onSubmit,
+  placeholder = "How should it change?",
+  submitLabel = "Rewrite",
 }: {
+  ariaLabel?: string;
   onCancel: () => void;
   onSubmit: (instruction: string) => void;
+  placeholder?: string;
+  submitLabel?: string;
 }) {
   const form = useForm<AskFormValues>({
     defaultValues: { instruction: "" },
@@ -135,15 +141,15 @@ export function AskForm({
         <Input
           aria-describedby={error ? "studio-ask-error" : undefined}
           aria-invalid={Boolean(error)}
-          aria-label="How should the passage change?"
+          aria-label={ariaLabel}
           autoFocus
           className="h-8"
           maxLength={STUDIO_REWRITE_MAX_INSTRUCTION_CHARS}
-          placeholder="How should it change?"
+          placeholder={placeholder}
           {...form.register("instruction")}
         />
         <Button size="sm" type="submit">
-          Rewrite
+          {submitLabel}
         </Button>
         <Button onClick={onCancel} size="sm" type="button" variant="ghost">
           Cancel
