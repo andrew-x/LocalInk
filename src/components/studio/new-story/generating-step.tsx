@@ -61,7 +61,7 @@ export function GeneratingStep({
         if (controller.signal.aborted) return;
 
         if (result.data) {
-          router.push(`/studio/${result.data.story.id}`);
+          router.push(`/studio/${result.data.story.id}?voice=setup`);
           return;
         }
         message =

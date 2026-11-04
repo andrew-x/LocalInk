@@ -7,14 +7,17 @@ import { getSystemInstructions } from "@/lib/server/app-settings";
 
 type StudioWorkspacePageProps = {
   params: Promise<{ studioStoryId: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 };
 
 export default async function StudioWorkspacePage({
   params,
+  searchParams,
 }: StudioWorkspacePageProps) {
   await connection();
 
   const { studioStoryId } = await params;
+  const { voice } = await searchParams;
   const workspace = await getStudioWorkspace(studioStoryId);
 
   if (!workspace) notFound();
@@ -30,6 +33,7 @@ export default async function StudioWorkspacePage({
         globalInstructions={globalInstructions}
         initial={workspace}
         key={workspace.story.id}
+        voiceSetup={voice === "setup"}
       />
     </main>
   );

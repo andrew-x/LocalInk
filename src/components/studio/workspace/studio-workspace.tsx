@@ -8,6 +8,7 @@ import { Manuscript } from "@/components/studio/manuscript/manuscript";
 import { WritingLoopProvider } from "@/components/studio/manuscript/use-writing-loop";
 import { Outline } from "@/components/studio/outline/outline";
 import { OutlineOpenProvider } from "@/components/studio/outline/use-outline-open";
+import { VoiceSetupView } from "@/components/studio/voice/voice-setup-view";
 import type { StudioWorkspace as StudioWorkspaceData } from "@/lib/studio/contracts";
 
 import { PlanPane } from "./plan-pane";
@@ -20,9 +21,10 @@ import { StudioStoreProvider, useStudioStore } from "./use-studio-store";
 type StudioWorkspaceProps = {
   globalInstructions: string;
   initial: StudioWorkspaceData;
+  voiceSetup?: boolean;
 };
 
-function WorkspaceLayout() {
+function WorkspaceLayout({ voiceSetup }: { voiceSetup: boolean }) {
   const { state } = useStudioStore();
   const { readMode } = state;
 
@@ -32,19 +34,23 @@ function WorkspaceLayout() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StudioTopBar />
-      <StudioSplit
-        left={<Manuscript />}
-        right={
-          <PlanPane
-            aiBox={<AiBox />}
-            characters={<CharactersPanel />}
-            conversation={<ConversationPanel />}
-            outline={<Outline />}
-          />
-        }
-        rightHidden={readMode}
-        storyId={state.story.id}
-      />
+      {voiceSetup ? (
+        <VoiceSetupView storyId={state.story.id} />
+      ) : (
+        <StudioSplit
+          left={<Manuscript />}
+          right={
+            <PlanPane
+              aiBox={<AiBox />}
+              characters={<CharactersPanel />}
+              conversation={<ConversationPanel />}
+              outline={<Outline />}
+            />
+          }
+          rightHidden={readMode}
+          storyId={state.story.id}
+        />
+      )}
     </div>
   );
 }
@@ -52,6 +58,7 @@ function WorkspaceLayout() {
 export function StudioWorkspace({
   globalInstructions,
   initial,
+  voiceSetup = false,
 }: StudioWorkspaceProps) {
   return (
     <StudioStoreProvider initial={{ ...initial, globalInstructions }}>
@@ -63,7 +70,7 @@ export function StudioWorkspace({
             <OutlineOpenProvider>
               {/* The AI conversation; the manuscript's chat draft sends through it. */}
               <ChatSessionProvider>
-                <WorkspaceLayout />
+                <WorkspaceLayout voiceSetup={voiceSetup} />
               </ChatSessionProvider>
             </OutlineOpenProvider>
           </PlanAiProvider>
