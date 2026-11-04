@@ -7,7 +7,7 @@ import { xmlField, xmlGroup } from "./prompt-kit";
 
 /** Shared by the beat prompt and the rewrite prompt. */
 export const STUDIO_PROSE_RULE_LINES: readonly string[] = [
-  "- Stay in the moment. Fights, chases, intimate scenes between adults, and other big moments play out on the page as they happen, beat by beat, through the narrator's senses and thoughts. Do not skip ahead, summarize, cut away, or fade to black.",
+  "- Stay in the moment. Fights, chases, sex scenes, and other big moments play out on the page as they happen, beat by beat, through the narrator's senses and thoughts. Do not skip ahead, summarize, cut away, or fade to black.",
   "- Match intensity to the stakes. Small moments stay small; big moments get full, vivid treatment on the page.",
   '- `voice` is how this story sounds: its genre, the writer\'s own words (author="true"), their picks, and notes. Follow it over your own taste. Plain or rich language comes from it, not from you.',
   "- `voice_samples` are passages the writer approved to show the voice. Match their voice, never their content, events, or names. The sample whose kind fits this moment is the closest guide.",
