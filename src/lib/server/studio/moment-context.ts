@@ -393,7 +393,7 @@ export function buildStudioMomentPrompt(
         "voice_samples",
         samples.map((sample) =>
           xmlField("sample", sample.text, {
-            label: sample.label.trim() || undefined,
+            label: sample.kind.trim() || undefined,
           }),
         ),
       ),

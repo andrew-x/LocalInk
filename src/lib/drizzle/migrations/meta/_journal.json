@@ -120,6 +120,20 @@
       "when": 1793637474190,
       "tag": "0016_studio-entry-suggestions-keep-on-delete",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793755980200,
+      "tag": "0017_studio-voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793756005582,
+      "tag": "0018_studio-voice-carry-over",
+      "breakpoints": true
     }
   ]
 }

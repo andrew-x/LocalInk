@@ -11,9 +11,8 @@ import {
   studioEntryFieldSchema,
   studioEntryFieldsSchema,
   studioIdListSchema,
-  studioStyleSchema,
-  studioVoiceSamplesSchema,
 } from "@/lib/studio/contracts";
+import { STUDIO_VOICE_LIMITS } from "@/lib/studio/voice";
 
 const id = z.string().trim().min(1).max(128);
 const nullableId = id.nullable();
@@ -46,7 +45,7 @@ export const createStudioStoryFormSchema = z.object({
     .trim()
     .min(1, "Add a brain dump so the studio has something to plan from.")
     .max(40_000, "The brain dump must be 40,000 characters or fewer."),
-  voiceSamples: studioVoiceSamplesSchema.optional(),
+  instructions: z.string().max(8000).optional(),
 });
 
 export type CreateStudioStoryFormValues = z.infer<
@@ -67,16 +66,55 @@ export const updateStudioStoryActionSchema = z.object({
       title: z.string().trim().min(1).max(120),
       overview: z.string().max(20_000),
       instructions: z.string().max(8000),
-      style: studioStyleSchema,
       theme: z.string().max(2000),
       structureTemplate: structureTemplateSchema,
       structureNotes: z.string().max(8000),
-      voiceSamples: studioVoiceSamplesSchema,
       proseModel: storyGenerationModelSchema,
       // Only configured profiles, all of which support tool calling.
       chatModel: storyGenerationModelSchema,
     })
     .partial(),
+});
+
+const voiceNoteTextSchema = z.string().max(STUDIO_VOICE_LIMITS.noteChars);
+
+export const studioVoiceOpSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("choose"),
+    pickId: id,
+    optionId: nullableId,
+    custom: z.string().max(STUDIO_VOICE_LIMITS.customChars).nullable(),
+  }),
+  z.object({ kind: z.literal("remove-pick"), pickId: id }),
+  z.object({
+    kind: z.literal("add-note"),
+    text: voiceNoteTextSchema,
+    origin: z.enum(["author", "ai"]),
+  }),
+  z.object({
+    kind: z.literal("edit-note"),
+    noteId: id,
+    text: voiceNoteTextSchema,
+  }),
+  z.object({ kind: z.literal("remove-note"), noteId: id }),
+  z.object({
+    kind: z.literal("set-genre"),
+    genre: z
+      .array(z.string().max(STUDIO_VOICE_LIMITS.genreLabelChars))
+      .max(STUDIO_VOICE_LIMITS.genreLabels),
+  }),
+  z.object({
+    kind: z.literal("add-moment"),
+    label: z.string().max(STUDIO_VOICE_LIMITS.kindChars),
+  }),
+  z.object({ kind: z.literal("remove-moment"), momentId: id }),
+  z.object({ kind: z.literal("confirm-sample"), sampleId: id }),
+  z.object({ kind: z.literal("remove-sample"), sampleId: id }),
+]);
+
+export const updateStudioVoiceActionSchema = z.object({
+  ...storyIdField,
+  ops: z.array(studioVoiceOpSchema).min(1).max(20),
 });
 
 export const deleteStudioStoryActionSchema = z.object(storyIdField);

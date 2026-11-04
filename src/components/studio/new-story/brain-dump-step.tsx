@@ -1,8 +1,7 @@
 "use client";
 
 import { useHookFormAction } from "@next-safe-action/adapter-react-hook-form/hooks";
-import { Plus, Trash2 } from "lucide-react";
-import { Controller, useFieldArray } from "react-hook-form";
+import { Controller } from "react-hook-form";
 import { toast } from "sonner";
 
 import {
@@ -15,11 +14,6 @@ import { Input } from "@/components/common/input";
 import { Label } from "@/components/common/label";
 import { Textarea } from "@/components/common/textarea";
 import { formResolver } from "@/lib/schemas/resolve";
-import {
-  STUDIO_MAX_VOICE_SAMPLE_CHARS,
-  STUDIO_MAX_VOICE_SAMPLES,
-} from "@/lib/studio/contracts";
-import { generateId } from "@/lib/util";
 
 type BrainDumpStepProps = {
   onCreated: (story: { id: string; title: string }) => void;
@@ -42,30 +36,16 @@ export function BrainDumpStep({ onCreated }: BrainDumpStepProps) {
     formResolver(createStudioStoryFormSchema),
     {
       formProps: {
-        defaultValues: { title: "", brainDump: "", voiceSamples: [] },
+        defaultValues: { title: "", brainDump: "", instructions: "" },
       },
     },
   );
-  const samples = useFieldArray({
-    control: form.control,
-    // The default key name would overwrite each sample's own `id`.
-    keyName: "fieldKey",
-    name: "voiceSamples",
-  });
   const rootError = form.formState.errors.root?.message;
 
   async function handleCreate(values: CreateStudioStoryFormValues) {
     form.clearErrors("root");
 
-    const voiceSamples = (values.voiceSamples ?? [])
-      .filter((sample) => sample.text.trim())
-      .map((sample, index) => ({
-        id: sample.id,
-        label: sample.label.trim() || `Sample ${index + 1}`,
-        text: sample.text,
-      }));
-
-    const result = await action.executeAsync({ ...values, voiceSamples });
+    const result = await action.executeAsync(values);
     if (result.data) {
       onCreated({ id: result.data.id, title: result.data.title });
       return;
@@ -149,74 +129,32 @@ export function BrainDumpStep({ onCreated }: BrainDumpStepProps) {
         )}
       />
 
-      <div className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-heading">Writing samples</h2>
-            <p className="text-label text-muted-foreground">
-              Optional. Add a passage that sounds like you so drafts can match
-              your voice.
-            </p>
-          </div>
-          {samples.fields.length < STUDIO_MAX_VOICE_SAMPLES ? (
-            <Button
-              leftSection={<Plus aria-hidden="true" />}
-              onClick={() =>
-                samples.append({
-                  id: generateId("studio-voice"),
-                  label: "",
-                  text: "",
-                })
+      <Controller
+        control={form.control}
+        name="instructions"
+        render={({ field, fieldState }) => (
+          <div className="grid gap-2">
+            <Label htmlFor="studio-instructions">How should it sound?</Label>
+            <Textarea
+              {...field}
+              aria-describedby={
+                fieldState.error ? "studio-instructions-error" : undefined
               }
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Add a writing sample
-            </Button>
-          ) : null}
-        </div>
-
-        {samples.fields.map((sample, index) => (
-          <div
-            className="grid gap-3 rounded-lg border border-border/80 bg-card/45 p-4"
-            key={sample.fieldKey}
-          >
-            <div className="flex items-end gap-2">
-              <div className="grid flex-1 gap-2">
-                <Label htmlFor={`studio-sample-label-${index}`}>Label</Label>
-                <Input
-                  {...form.register(`voiceSamples.${index}.label`)}
-                  autoComplete="off"
-                  id={`studio-sample-label-${index}`}
-                  maxLength={80}
-                  placeholder={`Sample ${index + 1}`}
-                />
-              </div>
-              <Button
-                aria-label={`Remove writing sample ${index + 1}`}
-                onClick={() => samples.remove(index)}
-                size="icon"
-                tooltip="Remove sample"
-                type="button"
-                variant="ghost"
-              >
-                <Trash2 aria-hidden="true" />
-              </Button>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor={`studio-sample-text-${index}`}>Text</Label>
-              <Textarea
-                {...form.register(`voiceSamples.${index}.text`)}
-                autoComplete="off"
-                className="min-h-32 font-content"
-                id={`studio-sample-text-${index}`}
-                maxLength={STUDIO_MAX_VOICE_SAMPLE_CHARS}
-              />
-            </div>
+              aria-invalid={fieldState.invalid || undefined}
+              autoComplete="off"
+              className="min-h-24 font-content"
+              id="studio-instructions"
+              maxLength={8000}
+              placeholder="Who's telling it and how they talk, how close the reader should be, anything it must never do."
+              value={field.value ?? ""}
+            />
+            <FieldError
+              id="studio-instructions-error"
+              message={fieldState.error?.message}
+            />
           </div>
-        ))}
-      </div>
+        )}
+      />
 
       {rootError ? (
         <p

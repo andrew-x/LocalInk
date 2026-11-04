@@ -31,7 +31,7 @@ import {
   type StudioStoryDto,
   type StudioStructureTemplateId,
   type StudioStyle,
-  type StudioVoiceSample,
+  type StudioVoice,
 } from "@/lib/studio/contracts";
 import {
   cleanFieldLabel,
@@ -39,6 +39,7 @@ import {
   refreshAiFields,
   type StudioFieldRefreshOp,
 } from "@/lib/studio/entry-fields";
+import { markStaleSamples } from "@/lib/studio/voice";
 import { generateId } from "@/lib/util";
 
 import {
@@ -61,7 +62,7 @@ export function insertStudioStory(
   input: {
     title: string;
     brainDump: string;
-    voiceSamples?: StudioVoiceSample[];
+    instructions?: string;
   },
 ): StudioStoryDto {
   const now = day().toISOString();
@@ -72,7 +73,8 @@ export function insertStudioStory(
       id: generateId("studio-story"),
       title: input.title,
       brainDump: input.brainDump,
-      voiceSamples: input.voiceSamples ?? [],
+      instructions: input.instructions ?? "",
+      voiceSamples: [],
       proseModel: DEFAULT_STORY_GENERATION_MODEL,
       chatModel: DEFAULT_STORY_GENERATION_MODEL,
       style: { ...EMPTY_STUDIO_STYLE },
@@ -92,7 +94,8 @@ export type StudioStoryPatch = Partial<{
   theme: string;
   structureTemplate: StudioStructureTemplateId;
   structureNotes: string;
-  voiceSamples: StudioVoiceSample[];
+  genre: string[];
+  voice: StudioVoice;
   proseModel: StoryGenerationModel;
   chatModel: StoryGenerationModel;
 }>;
@@ -103,10 +106,25 @@ export function patchStudioStory(
   storyId: string,
   patch: StudioStoryPatch,
 ): StudioStoryDto {
-  requireStudioStory(tx, storyId);
+  const current = requireStudioStory(tx, storyId);
+  const changesVoice = patch.genre !== undefined || patch.voice !== undefined;
+  const voiceSamples = changesVoice
+    ? markStaleSamples(
+        { genre: current.genre, voice: current.voice },
+        {
+          genre: patch.genre ?? current.genre,
+          voice: patch.voice ?? current.voice,
+          samples: current.voiceSamples,
+        },
+      )
+    : undefined;
   const row = tx
     .update(studioStories)
-    .set({ ...patch, updatedAt: day().toISOString() })
+    .set({
+      ...patch,
+      ...(voiceSamples ? { voiceSamples } : {}),
+      updatedAt: day().toISOString(),
+    })
     .where(eq(studioStories.id, storyId))
     .returning()
     .get();

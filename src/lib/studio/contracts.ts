@@ -85,7 +85,46 @@ export type StudioStyle = {
   notes: string;
 };
 
-export type StudioVoiceSample = { id: string; label: string; text: string };
+export type StudioVoiceOption = { id: string; label: string; hint: string };
+
+export type StudioVoicePick = {
+  id: string;
+  label: string;
+  question: string;
+  why: string;
+  options: StudioVoiceOption[];
+  suggestedOptionId: string;
+  chosenOptionId: string | null;
+  custom: string | null;
+};
+
+export type StudioVoiceNote = {
+  id: string;
+  text: string;
+  origin: "author" | "ai";
+};
+
+export type StudioVoiceMoment = {
+  id: string;
+  kind: string;
+  planItemId: string | null;
+};
+
+export type StudioVoice = {
+  picks: StudioVoicePick[];
+  notes: StudioVoiceNote[];
+  moments: StudioVoiceMoment[];
+};
+
+/** `kind` is the tab key: unique per story, case-insensitive. */
+export type StudioVoiceSample = {
+  id: string;
+  kind: string;
+  text: string;
+  planItemId: string | null;
+  source: "author" | "ai";
+  stale: boolean;
+};
 
 export type StudioFlagPayload =
   | {
@@ -104,6 +143,8 @@ export type StudioStoryDto = {
   overview: string;
   instructions: string;
   style: StudioStyle;
+  genre: string[];
+  voice: StudioVoice;
   theme: string;
   structureTemplate: StudioStructureTemplateId;
   structureNotes: string;
@@ -220,9 +261,6 @@ export type StudioWorkspace = {
   bundles: StudioBundleDto[];
 };
 
-export const STUDIO_MAX_VOICE_SAMPLES = 3;
-export const STUDIO_MAX_VOICE_SAMPLE_CHARS = 4000;
-
 export const studioChangeModeSchema = z.enum(["set", "add"]);
 
 /** Stored aspect labels: 1-60 characters once trimmed. */
@@ -235,16 +273,6 @@ export const studioStyleSchema = z.object({
   avoid: z.string(),
   notes: z.string(),
 });
-
-export const studioVoiceSamplesSchema = z
-  .array(
-    z.object({
-      id: z.string().min(1),
-      label: z.string(),
-      text: z.string().max(STUDIO_MAX_VOICE_SAMPLE_CHARS),
-    }),
-  )
-  .max(STUDIO_MAX_VOICE_SAMPLES);
 
 export const studioFieldsSchema = z.record(
   z.string(),
@@ -276,4 +304,10 @@ export const EMPTY_STUDIO_STYLE: StudioStyle = {
   pacing: "",
   avoid: "",
   notes: "",
+};
+
+export const EMPTY_STUDIO_VOICE: StudioVoice = {
+  picks: [],
+  notes: [],
+  moments: [],
 };

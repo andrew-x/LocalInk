@@ -360,7 +360,7 @@ function voiceSamplesBlock(workspace: StudioWorkspace): string {
   return xmlGroup(
     "voice_samples",
     workspace.story.voiceSamples.map((sample) =>
-      xmlField("sample", sample.text, { label: sample.label || undefined }),
+      xmlField("sample", sample.text, { label: sample.kind || undefined }),
     ),
   );
 }

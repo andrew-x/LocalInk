@@ -44,6 +44,7 @@ import type {
   StudioSetupStatus,
   StudioStructureTemplateId,
   StudioStyle,
+  StudioVoice,
   StudioVoiceSample,
 } from "@/lib/studio/contracts";
 
@@ -339,12 +340,21 @@ export const studioStories = sqliteTable(
     title: text("title").notNull(),
     overview: text("overview").notNull().default(""),
     instructions: text("instructions").notNull().default(""),
+    // Unused since the voice redesign (like `tension`); kept so no table rebuild is needed.
     style: text("style", { mode: "json" })
       .$type<StudioStyle>()
       .notNull()
       .default(
         sql`'{"povAndTense":"","register":"","pacing":"","avoid":"","notes":""}'`,
       ),
+    genre: text("genre", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default(emptyJsonArraySql),
+    voice: text("voice", { mode: "json" })
+      .$type<StudioVoice>()
+      .notNull()
+      .default(sql`'{"picks":[],"notes":[],"moments":[]}'`),
     theme: text("theme").notNull().default(""),
     structureTemplate: text("structure_template")
       .$type<StudioStructureTemplateId>()
