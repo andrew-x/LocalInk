@@ -124,6 +124,19 @@ A bundle is one turn's proposed changes. They show in place (in the outline, cha
 - Op ids are unique only within a bundle (each turn numbers from `op-1`), so anything that points at an op (show-where from the conversation, or an in-place suggestion) must carry the bundle id too.
 - There is no field-reorder op, a deliberate deviation from the spec's op list: new fields append and the author reorders them.
 
+## Voice
+
+Voice lives on the story (`genre`, `voice`, `voice_samples`, `instructions`); the design reasoning is below. Migrations 0017 (columns) and 0018 (carry-over) hold the data side.
+
+- `studio_stories.style` is a dead column: nothing reads or writes it, but `studio_stories` must only ever gain `ADD COLUMN`. Dropping it makes drizzle-kit rebuild the table, and the rebuild's `DROP TABLE` cascade-deletes every story's plan, prose, and entries (same trap as tension above). Migration 0018 carried old style boxes over as AI notes and pasted samples as kept samples, so nothing was lost.
+- Kept samples are the anchors of the voice: prompts carry them because exemplars steer prose better than descriptions of it. Picks and notes describe; samples show.
+- A sample goes stale only when genre or an effective pick changes. Notes and *In your words* deliberately do not trigger it: they are small, frequent edits, and marking every sample stale on each one would make the anchors disappear from prompts almost constantly. The cost is that a note can drift from a sample until the next pick change or an explicit "Still sounds right".
+- *In your words* holds author text only. Planning used to fill it, which made the author's own words indistinguishable from AI output and let a re-plan overwrite them, so planning stopped; AI-originated guidance goes in notes with `origin: "ai"`.
+- The under-18 rule is fixed text in every prose prompt, not a setting. A toggle could be switched off by a note, a pick, or a sample that happens to pull that way.
+- Right after onboarding the plan usually has only chapters, so samples are set at a beat when one fits and otherwise at a scene or chapter.
+- Tuning from a passage always rewrites that passage, even when the complaint produces zero voice changes, so the author never gets a silent no-op. The rewrite is not added as a sample.
+- AI box voice suggestions are `story.update` ops with whole-value `voice` and `genre` patches. They show in place on the Voice tab as one group per op, and an op that also patches other settings keeps its row in the conversation list.
+
 ## Agent chat
 
 Flow: a prepare action stores the user message, a streaming route generates, the staged result is saved by a save action. The route body and the save action take ids only, for the same reason as the AI boundary above: browser text is never accepted as AI output.
