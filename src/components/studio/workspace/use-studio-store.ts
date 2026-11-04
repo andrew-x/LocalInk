@@ -280,7 +280,13 @@ function studioReducer(
         ? state
         : { ...state, focusedBundleOp: null };
     case "start-voice-tune":
-      return { ...state, voiceTune: action.tune, planTab: "voice" };
+      // Hide plan hides the pane that holds the Voice tab.
+      return {
+        ...state,
+        voiceTune: action.tune,
+        planTab: "voice",
+        readMode: false,
+      };
     case "clear-voice-tune":
       return state.voiceTune === null ? state : { ...state, voiceTune: null };
   }

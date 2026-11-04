@@ -77,13 +77,22 @@ export function VoicePanel({ layout, footer }: VoicePanelProps) {
     }
   }
 
-  if (!isStudioVoiceSetUp(story)) return <VoiceEmptyState />;
+  const tuneCard = state.voiceTune ? (
+    <VoiceTuneCard key={state.voiceTune.id} tune={state.voiceTune} />
+  ) : null;
+
+  if (!isStudioVoiceSetUp(story)) {
+    return (
+      <>
+        {tuneCard}
+        <VoiceEmptyState />
+      </>
+    );
+  }
 
   return (
     <>
-      {state.voiceTune ? (
-        <VoiceTuneCard key={state.voiceTune.id} tune={state.voiceTune} />
-      ) : null}
+      {tuneCard}
       <div
         className={cn(
           layout === "wide"
