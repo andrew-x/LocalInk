@@ -41,6 +41,17 @@ const PREVIOUS_TEXT_PARAGRAPHS = 2;
 const AGAIN_TEMPERATURE_BOOST = 0.13;
 const MAX_TEMPERATURE = 1;
 
+/** The beat prompt's Avoid list; the voice sample prompt shares it. */
+export const STUDIO_AVOID_LINES = [
+  "Avoid:",
+  "- Naming an emotion the prose already shows through action, speech, or perception.",
+  '- Stock phrasing such as "something shifted" or "a breath I didn\'t know I was holding".',
+  '- "Not X, but Y" contrasts.',
+  "- Summarizing or restating what just happened.",
+  "- Tidy epiphanies or lessons learned.",
+  "- Runs of one-line paragraphs.",
+];
+
 const SYSTEM_PROMPT = [
   "You write one moment of a longer piece of fiction at a time. The prompt gives you the story's instructions and voice, the Bible entries in play, summaries of what came before, the text immediately before this moment, and a brief for this moment.",
   "",
@@ -58,13 +69,7 @@ const SYSTEM_PROMPT = [
   STUDIO_LENGTH_RULE,
   "- Output the prose only. No title, heading, notes, preamble, options, or commentary.",
   "",
-  "Avoid:",
-  "- Naming an emotion the prose already shows through action, speech, or perception.",
-  '- Stock phrasing such as "something shifted" or "a breath I didn\'t know I was holding".',
-  '- "Not X, but Y" contrasts.',
-  "- Summarizing or restating what just happened.",
-  "- Tidy epiphanies or lessons learned.",
-  "- Runs of one-line paragraphs.",
+  ...STUDIO_AVOID_LINES,
 ].join("\n");
 
 /**

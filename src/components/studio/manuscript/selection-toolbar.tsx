@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
+import { useSetConversationOpen } from "@/components/studio/ai-box/use-chat-session";
 import {
   postStudioJson,
   studioErrorMessage,
@@ -74,6 +75,7 @@ export function SelectionToolbarPlugin({
 }: SelectionToolbarPluginProps) {
   const [editor] = useLexicalComposerContext();
   const { state, dispatch } = useStudioStore();
+  const setConversationOpen = useSetConversationOpen();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [panel, setPanel] = useState<RewritePanel | null>(null);
   const [asking, setAsking] = useState<CapturedSelection | null>(null);
@@ -282,6 +284,8 @@ export function SelectionToolbarPlugin({
         return replaced;
       },
     });
+    // The conversation overlay covers the plan pane that holds the card.
+    setConversationOpen(false);
     dispatch({
       type: "start-voice-tune",
       tune: {

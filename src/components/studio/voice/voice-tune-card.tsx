@@ -51,7 +51,14 @@ export function VoiceTuneCard({ tune }: { tune: StudioVoiceTune }) {
   const updateVoice = useUpdateVoice();
   const chapter = useChapterLabel(tune.momentId);
   const storyId = state.story.id;
-  const [status, setStatus] = useState<TuneStatus>({ phase: "writing" });
+  const [status, setStatus] = useState<TuneStatus>(
+    tune.preview
+      ? { phase: "ready", preview: tune.preview }
+      : { phase: "writing" },
+  );
+  // A finished preview survives a remount (a tab switch) in the store.
+  const savedPreviewRef = useRef(tune.preview ?? null);
+  savedPreviewRef.current = tune.preview ?? null;
   const [keeping, setKeeping] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -60,6 +67,7 @@ export function VoiceTuneCard({ tune }: { tune: StudioVoiceTune }) {
     const controller = new AbortController();
     abortRef.current = controller;
     setStatus({ phase: "writing" });
+    dispatch({ type: "set-voice-tune-preview", id: tune.id, preview: null });
     try {
       const preview = await postStudioJson<StudioVoiceTunePreview>(
         "/api/studio/voice/tune",
@@ -73,22 +81,30 @@ export function VoiceTuneCard({ tune }: { tune: StudioVoiceTune }) {
       );
       if (abortRef.current !== controller) return;
       setStatus({ phase: "ready", preview });
+      dispatch({ type: "set-voice-tune-preview", id: tune.id, preview });
     } catch (error) {
       if (controller.signal.aborted) return;
       setStatus({ phase: "failed" });
       toast.error(studioErrorMessage(error, TUNE_FAILED));
     }
-  }, [storyId, tune.complaint, tune.momentId, tune.selectedText]);
+  }, [
+    dispatch,
+    storyId,
+    tune.complaint,
+    tune.id,
+    tune.momentId,
+    tune.selectedText,
+  ]);
 
   useEffect(() => {
-    void run();
+    if (!savedPreviewRef.current) void run();
     return () => abortRef.current?.abort();
   }, [run]);
 
   const cancel = () => {
     abortRef.current?.abort();
     dropVoiceTune(tune.id);
-    dispatch({ type: "clear-voice-tune" });
+    dispatch({ type: "clear-voice-tune", id: tune.id });
   };
 
   const keep = async (preview: StudioVoiceTunePreview) => {
@@ -120,11 +136,16 @@ export function VoiceTuneCard({ tune }: { tune: StudioVoiceTune }) {
         });
       }
     }
-    if (!replaced) {
-      toast("The passage changed, so only the voice was updated.");
+    // A failed apply already toasted "Couldn't update the voice.".
+    if (!replaced && result) {
+      toast(
+        preview.ops.length > 0
+          ? "The passage changed, so only the voice was updated."
+          : "The passage changed, so nothing was updated.",
+      );
     }
     setKeeping(false);
-    dispatch({ type: "clear-voice-tune" });
+    dispatch({ type: "clear-voice-tune", id: tune.id });
   };
 
   const preview = status.phase === "ready" ? status.preview : null;

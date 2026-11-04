@@ -27,7 +27,7 @@ export const runtime = "nodejs";
 
 const ACTION_NAME = "studio-voice-tune";
 const TUNE_INSTRUCTION =
-  "Rewrite this passage so it fits the voice. Keep what happens.";
+  "Rewrite this passage so it fits the voice. Keep what happens. This is a one-off request for this passage only. The writer said:";
 
 export async function POST(request: Request): Promise<Response> {
   const ids: Record<string, string | undefined> = {};
@@ -89,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
         momentId: input.momentId,
         selectedText: input.selectedText,
         mode: "custom",
-        instruction: TUNE_INSTRUCTION,
+        instruction: `${TUNE_INSTRUCTION} ${input.complaint.trim()}`,
       },
       request.signal,
       globalInstructions,

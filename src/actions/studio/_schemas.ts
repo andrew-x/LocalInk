@@ -94,7 +94,7 @@ export const studioVoiceOpSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("edit-note"),
     noteId: id,
-    text: voiceNoteTextSchema,
+    text: z.string().max(STUDIO_VOICE_LIMITS.editedNoteChars),
   }),
   z.object({ kind: z.literal("remove-note"), noteId: id }),
   z.object({

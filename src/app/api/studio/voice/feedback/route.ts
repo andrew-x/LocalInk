@@ -69,7 +69,16 @@ export async function POST(request: Request): Promise<Response> {
           generationId: input.sample.generationId,
         }).text;
       } catch (error) {
-        if (error instanceof ActionError) throw new StudioNotFoundError();
+        if (error instanceof ActionError) {
+          const expired: StudioRouteError = {
+            code: "DRAFT_EXPIRED",
+            message:
+              "This sample is no longer available. Use ↻ to write it again.",
+            status: 409,
+          };
+          log.end("error", expired.code);
+          return studioErrorResponse(expired);
+        }
         throw error;
       }
     } else {

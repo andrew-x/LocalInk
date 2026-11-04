@@ -1,3 +1,4 @@
+import { getSystemInstructions } from "@/lib/server/app-settings";
 import { StudioNotFoundError } from "@/lib/server/studio/prompt-kit";
 import { loadStudioWorkspace } from "@/lib/server/studio/repository";
 import {
@@ -62,6 +63,7 @@ export async function POST(request: Request): Promise<Response> {
       workspace,
       { kind: input.kind, planItemId: input.planItemId },
       request.signal,
+      await getSystemInstructions(),
     );
     finishStudioStage(binding, attemptId, staged);
 

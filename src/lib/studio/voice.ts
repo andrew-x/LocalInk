@@ -17,6 +17,8 @@ export const STUDIO_VOICE_LIMITS = {
   customChars: 300,
   notes: 20,
   noteChars: 300,
+  /** Notes carried over from the old style field were never length-limited. */
+  editedNoteChars: 8_000,
   moments: 6,
   kindChars: 60,
   sampleChars: 2_000,
@@ -82,14 +84,21 @@ export function effectivePickChoice(pick: StudioVoicePick): {
   return { option, custom: null };
 }
 
-/** Genre plus each pick's effective choice. Notes never count. */
+/**
+ * Genre plus each pick whose effective choice is not its suggested default.
+ * Picks resting at their default are left out so adding or removing one (for
+ * example "Ask me more") does not make kept samples stale. Notes never count.
+ */
 export function studioVoiceFingerprint(
   genre: string[],
   voice: StudioVoice,
 ): string {
-  const parts = voice.picks.map((pick) => {
+  const parts = voice.picks.flatMap((pick) => {
     const { option, custom } = effectivePickChoice(pick);
-    return [pick.id, custom !== null ? `c:${custom}` : `o:${option?.id ?? ""}`];
+    if (custom === null && option?.id === pick.suggestedOptionId) return [];
+    return [
+      [pick.id, custom !== null ? `c:${custom}` : `o:${option?.id ?? ""}`],
+    ];
   });
   return hashText(JSON.stringify([genre, parts]));
 }
@@ -140,7 +149,7 @@ export function applyStudioVoiceOps(
         break;
       }
       case "edit-note": {
-        const text = clip(op.text, STUDIO_VOICE_LIMITS.noteChars);
+        const text = clip(op.text, STUDIO_VOICE_LIMITS.editedNoteChars);
         if (!text) break;
         notes = notes.map((note) =>
           note.id === op.noteId ? { ...note, text } : note,

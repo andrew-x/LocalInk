@@ -3,7 +3,11 @@ import "server-only";
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import type { StudioStoryDto } from "@/lib/studio/contracts";
-import { STUDIO_VOICE_LIMITS, type StudioVoiceOp } from "@/lib/studio/voice";
+import {
+  effectivePickChoice,
+  STUDIO_VOICE_LIMITS,
+  type StudioVoiceOp,
+} from "@/lib/studio/voice";
 import { voiceChangesOutputSchema } from "@/lib/studio/voice-contract";
 
 import {
@@ -144,6 +148,16 @@ function normalizeStudioVoiceChanges(
         ? change.optionId
         : null;
     if (!custom && !optionId) continue;
+    // Re-choosing what is already in effect changes nothing.
+    const was = effectivePickChoice(pick);
+    const will = effectivePickChoice({
+      ...pick,
+      chosenOptionId: optionId,
+      custom,
+    });
+    if (was.custom === will.custom && was.option?.id === will.option?.id) {
+      continue;
+    }
     touched.add(pick.id);
     ops.push({ kind: "choose", pickId: pick.id, optionId, custom });
   }

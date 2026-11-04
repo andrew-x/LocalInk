@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { Input } from "@/components/common/input";
 import {
@@ -34,12 +34,16 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
   const groupName = useId();
   const [menuOpen, setMenuOpen] = useState(false);
   const [writing, setWriting] = useState(false);
+  // Escape unmounts the input, and the blur that follows must not save it.
+  const done = useRef(false);
   const { option, custom } = effectivePickChoice(pick);
   const pending = usePickSuggestion(pick.id);
   const suggestedOptionId = pending?.choice.optionId ?? null;
   const suggestedCustom = pending?.choice.custom ?? null;
 
   function submitCustom(text: string) {
+    if (done.current) return;
+    done.current = true;
     setWriting(false);
     const trimmed = text.trim();
     if (!trimmed || trimmed === custom) return;
@@ -155,6 +159,7 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
             className={MENU_ITEM_CLASS}
             onClick={() => {
               setMenuOpen(false);
+              done.current = false;
               setWriting(true);
             }}
             type="button"
@@ -193,6 +198,7 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
               event.currentTarget.blur();
             } else if (event.key === "Escape") {
               event.preventDefault();
+              done.current = true;
               setWriting(false);
             }
           }}

@@ -72,6 +72,9 @@ export function VoiceSetupView({ storyId }: VoiceSetupViewProps) {
           >
             <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
             Getting a few questions ready…
+            <Button onClick={leave} variant="ghost">
+              Skip for now
+            </Button>
           </div>
         )}
       </div>

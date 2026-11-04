@@ -52,7 +52,7 @@ function NoteItem({
           defaultValue={note.text}
           key={note.text}
           label="Voice note"
-          maxLength={STUDIO_VOICE_LIMITS.noteChars}
+          maxLength={STUDIO_VOICE_LIMITS.editedNoteChars}
           onBlur={(event) => {
             const text = event.currentTarget.value.trim();
             if (!text) {

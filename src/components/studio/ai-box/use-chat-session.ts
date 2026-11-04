@@ -121,6 +121,9 @@ export type ChatSend = (content: string) => Promise<ChatSendResult>;
 
 const ChatSessionContext = createContext<ChatSession | null>(null);
 const ChatSendContext = createContext<ChatSend | null>(null);
+const ConversationOpenContext = createContext<((open: boolean) => void) | null>(
+  null,
+);
 
 /**
  * The story's AI conversation: threads, the open thread's messages and
@@ -559,7 +562,11 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
   return createElement(
     ChatSendContext.Provider,
     { value: send },
-    createElement(ChatSessionContext.Provider, { value: session }, children),
+    createElement(
+      ConversationOpenContext.Provider,
+      { value: setConversationOpen },
+      createElement(ChatSessionContext.Provider, { value: session }, children),
+    ),
   );
 }
 
@@ -584,6 +591,20 @@ export function useChatSend(): ChatSend {
   const value = useContext(ChatSendContext);
   if (!value) {
     throw new Error("useChatSend must be used inside ChatSessionProvider.");
+  }
+  return value;
+}
+
+/**
+ * Opens or closes the conversation overlay. The setter is stable, so callers
+ * outside the AI box (the manuscript) do not re-render on streamed frames.
+ */
+export function useSetConversationOpen(): (open: boolean) => void {
+  const value = useContext(ConversationOpenContext);
+  if (!value) {
+    throw new Error(
+      "useSetConversationOpen must be used inside ChatSessionProvider.",
+    );
   }
   return value;
 }

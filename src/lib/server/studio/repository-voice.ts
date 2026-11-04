@@ -36,12 +36,19 @@ export function patchStudioVoice(
     ops,
     generateId,
   );
+  // A sample the same batch confirms stays fresh even when the batch changes
+  // the voice (an undo restores picks and re-confirms what it made stale).
+  const confirmed = new Set(
+    ops.flatMap((op) => (op.kind === "confirm-sample" ? [op.sampleId] : [])),
+  );
   const row = tx
     .update(studioStories)
     .set({
       genre: next.genre,
       voice: next.voice,
-      voiceSamples: markStaleSamples(prev, next),
+      voiceSamples: markStaleSamples(prev, next).map((sample) =>
+        confirmed.has(sample.id) ? { ...sample, stale: false } : sample,
+      ),
       updatedAt: day().toISOString(),
     })
     .where(eq(studioStories.id, storyId))
@@ -141,7 +148,8 @@ export function keepStagedStudioVoiceSample(
     sample,
   ];
   const moments = current.voice.moments.map((moment) =>
-    sameKind(moment.kind, staged.kind) && moment.planItemId === null
+    sameKind(moment.kind, staged.kind) &&
+    (moment.planItemId === null || staged.planItemId === null)
       ? { ...moment, planItemId: staged.planItemId }
       : moment,
   );
@@ -184,6 +192,16 @@ export function applyStagedStudioVoiceChanges(
   for (const note of story.voice.notes) {
     if (!knownNotes.has(note.id)) {
       undoOps.push({ kind: "remove-note", noteId: note.id });
+    }
+  }
+  // Undo restores the picks, so it also restores the samples the apply made
+  // stale; otherwise every tab would keep saying "Written before your changes".
+  const staleNow = new Map(
+    story.voiceSamples.map((sample) => [sample.id, sample.stale]),
+  );
+  for (const sample of before.voiceSamples) {
+    if (!sample.stale && staleNow.get(sample.id) === true) {
+      undoOps.push({ kind: "confirm-sample", sampleId: sample.id });
     }
   }
   return { story, undoOps };

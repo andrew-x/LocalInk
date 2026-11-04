@@ -19,7 +19,7 @@ import {
   studioRewriteOptionsSchema,
 } from "@/lib/studio/rewrite-contract";
 import { computeStateGoingIn } from "@/lib/studio/state";
-import { promptVoiceSamples } from "@/lib/studio/voice";
+import { markStaleSamples, promptVoiceSamples } from "@/lib/studio/voice";
 
 import { selectMomentEntryIds } from "./moment-context";
 import {
@@ -125,6 +125,21 @@ export async function generateStudioRewrite(
   const instruction =
     request.mode === "custom" ? (request.instruction ?? "").trim() : "";
   const paragraph = surroundingParagraph(markdown, request.selectedText);
+  // Under a proposed voice, samples written in the old one are stale: they
+  // would pull the preview back toward the voice being corrected.
+  const voiceForPrompt = voiceOverride
+    ? {
+        voice: voiceOverride.voice,
+        voiceSamples: markStaleSamples(
+          { genre: workspace.story.genre, voice: workspace.story.voice },
+          {
+            genre: voiceOverride.genre,
+            voice: voiceOverride.voice,
+            samples: workspace.story.voiceSamples,
+          },
+        ),
+      }
+    : workspace.story;
 
   const sections: StudioPromptSection[] = [
     section(
@@ -144,7 +159,7 @@ export async function generateStudioRewrite(
           genre: voiceOverride?.genre ?? workspace.story.genre,
           voice: voiceOverride?.voice ?? workspace.story.voice,
         }),
-        voiceSamplesPromptSection(promptVoiceSamples(workspace.story)),
+        voiceSamplesPromptSection(promptVoiceSamples(voiceForPrompt)),
       ]
         .filter(Boolean)
         .join("\n"),

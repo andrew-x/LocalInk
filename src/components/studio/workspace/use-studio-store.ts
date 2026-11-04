@@ -24,6 +24,8 @@ import type {
   StudioWorkspace,
 } from "@/lib/studio/contracts";
 
+import type { StudioVoiceTunePreview } from "@/lib/studio/voice-contract";
+
 import { computePlanStatuses } from "./plan-status";
 
 export type StudioPlanTab = "outline" | "characters" | "voice";
@@ -68,6 +70,8 @@ export type StudioVoiceTune = {
   momentId: string;
   selectedText: string;
   complaint: string;
+  /** The finished preview, kept so a remount does not run the model again. */
+  preview?: StudioVoiceTunePreview | null;
 };
 
 export type StudioRemovedIds = {
@@ -103,7 +107,12 @@ export type StudioStoreAction =
   | ({ type: "focusBundleOp" } & StudioBundleOpFocus)
   | { type: "clearBundleFocus" }
   | { type: "start-voice-tune"; tune: StudioVoiceTune }
-  | { type: "clear-voice-tune" };
+  | {
+      type: "set-voice-tune-preview";
+      id: string;
+      preview: StudioVoiceTunePreview | null;
+    }
+  | { type: "clear-voice-tune"; id: string };
 
 function upsert<T>(list: T[], incoming: T[], key: (item: T) => string): T[] {
   if (incoming.length === 0) return list;
@@ -287,8 +296,18 @@ function studioReducer(
         planTab: "voice",
         readMode: false,
       };
+    case "set-voice-tune-preview":
+      return state.voiceTune?.id === action.id
+        ? {
+            ...state,
+            voiceTune: { ...state.voiceTune, preview: action.preview },
+          }
+        : state;
     case "clear-voice-tune":
-      return state.voiceTune === null ? state : { ...state, voiceTune: null };
+      // Finishing an older tune must not clear a newer one.
+      return state.voiceTune?.id === action.id
+        ? { ...state, voiceTune: null }
+        : state;
   }
 }
 
