@@ -51,3 +51,4 @@ export type {
   StudioChatThreadDto,
 } from "@/lib/studio/chat-contract";
 export type { StudioRefreshedFieldsApplyResult } from "@/lib/studio/suggest-fields-contract";
+export type { StudioVoiceChangesApplyResult } from "@/lib/studio/voice-contract";

@@ -359,3 +359,22 @@ export const resolveStudioEntrySuggestionActionSchema = z.object({
   suggestionId: id,
   decision: z.enum(["add", "ignore"]),
 });
+
+export const applyStudioVoicePicksActionSchema = z.object({
+  ...storyIdField,
+  generationId: id,
+});
+
+export const keepStudioVoiceSampleActionSchema = z.object({
+  ...storyIdField,
+  kind: z.string().trim().min(1).max(STUDIO_VOICE_LIMITS.kindChars),
+  generationId: id,
+});
+
+export const applyStudioVoiceChangesActionSchema = z.object({
+  ...storyIdField,
+  generationId: id,
+  source: z.enum(["feedback", "tune"]),
+  /** Feedback: the sample kind. Tune: the moment id. */
+  targetId: id,
+});
