@@ -44,7 +44,7 @@ export function SceneDraftGroup({
         className={cn(
           "mb-1 block select-none font-sans font-semibold text-[0.6875rem] text-studio-proposed uppercase tracking-[0.1em]",
           // In the margin once the manuscript pane is wide enough for it.
-          "@3xl/manuscript:absolute @3xl/manuscript:top-3 @3xl/manuscript:right-full @3xl/manuscript:mr-4 @3xl/manuscript:mb-0",
+          "@4xl/manuscript:absolute @4xl/manuscript:top-3 @4xl/manuscript:right-full @4xl/manuscript:mr-4 @4xl/manuscript:mb-0",
         )}
       >
         Draft

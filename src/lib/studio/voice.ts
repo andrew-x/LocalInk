@@ -21,7 +21,7 @@ export const STUDIO_VOICE_LIMITS = {
   editedNoteChars: 8_000,
   moments: 6,
   kindChars: 60,
-  sampleChars: 2_000,
+  sampleChars: 4_000,
 } as const;
 
 /** Most kept samples a prompt carries. */

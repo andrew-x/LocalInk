@@ -1,8 +1,12 @@
 import type { InitialConfigType } from "@lexical/react/LexicalComposer";
 
-/** Book type for every manuscript block: editors and drafts. */
+/**
+ * Book type for every manuscript block: editors and drafts. 19px Literata on
+ * the manuscript column's measure gives about 65-70 characters a line;
+ * `text-pretty` avoids one-word last lines.
+ */
 export const STUDIO_PROSE_CLASS =
-  "font-content text-[1.125rem] leading-[1.8] text-foreground/95";
+  "font-content text-[1.1875rem] leading-[1.75] text-foreground/95 text-pretty";
 
 /**
  * Book paragraphs: no gap, first-line indent. Moments stack seamlessly, so

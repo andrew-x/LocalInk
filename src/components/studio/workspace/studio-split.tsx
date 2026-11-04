@@ -11,7 +11,7 @@ import {
 
 import { cn } from "@/lib/util";
 
-const DEFAULT_SHARE = 0.6;
+const DEFAULT_SHARE = 0.64;
 const MIN_SHARE = 0.4;
 const MAX_SHARE = 0.75;
 const KEY_STEP = 0.02;

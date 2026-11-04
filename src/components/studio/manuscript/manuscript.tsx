@@ -195,7 +195,7 @@ export function Manuscript() {
     // The full-width container lets draft labels sit in the margin when there is room.
     <div className="@container/manuscript">
       <div
-        className="mx-auto max-w-[38rem] px-6 pt-16 pb-[40vh] font-content"
+        className="mx-auto max-w-[44rem] px-6 pt-16 pb-[40vh] font-content"
         ref={containerRef}
       >
         {layout.blocks.map((block) => {
