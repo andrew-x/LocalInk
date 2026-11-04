@@ -15,6 +15,8 @@ import {
 } from "@/lib/studio/voice";
 import { cn } from "@/lib/util";
 
+import { usePickSuggestion, VoiceSuggestionButtons } from "./voice-suggestions";
+
 type ChooseOp = Extract<StudioVoiceOp, { kind: "choose" }>;
 
 type PickRowProps = {
@@ -33,6 +35,9 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [writing, setWriting] = useState(false);
   const { option, custom } = effectivePickChoice(pick);
+  const pending = usePickSuggestion(pick.id);
+  const suggestedOptionId = pending?.choice.optionId ?? null;
+  const suggestedCustom = pending?.choice.custom ?? null;
 
   function submitCustom(text: string) {
     setWriting(false);
@@ -48,7 +53,14 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="grid grid-cols-[5.75rem_1fr_auto] items-center gap-2">
+      <div
+        className={cn(
+          "grid items-center gap-2",
+          pending
+            ? "grid-cols-[5.75rem_1fr_auto_auto]"
+            : "grid-cols-[5.75rem_1fr_auto]",
+        )}
+      >
         <span className="text-label-sm font-normal text-muted-foreground">
           {pick.label}
         </span>
@@ -85,6 +97,8 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
                     selected
                       ? "bg-primary/20 font-semibold text-foreground"
                       : "text-muted-foreground hover:bg-muted/60",
+                    candidate.id === suggestedOptionId &&
+                      "bg-studio-proposed/12 text-foreground ring-2 ring-studio-proposed ring-inset",
                   )}
                   key={candidate.id}
                   title={candidate.hint || undefined}
@@ -104,6 +118,9 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
                     type="radio"
                   />
                   {candidate.label}
+                  {candidate.id === suggestedOptionId ? (
+                    <span className="sr-only"> (suggested change)</span>
+                  ) : null}
                   {candidate.id === pick.suggestedOptionId ? (
                     <span
                       aria-label="Suggested"
@@ -116,6 +133,9 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
             })}
           </div>
         )}
+        {pending ? (
+          <VoiceSuggestionButtons suggestion={pending.suggestion} />
+        ) : null}
         <OutlineMenu
           contentClassName="w-64"
           label={`More for ${pick.label}`}
@@ -153,6 +173,12 @@ export function PickRow({ pick, onChoose, onRemove }: PickRowProps) {
           </button>
         </OutlineMenu>
       </div>
+      {suggestedCustom !== null ? (
+        <p className="ml-[6.25rem] rounded-md border border-studio-proposed/45 bg-studio-proposed/8 px-2 py-0.5 text-caption">
+          <span className="text-studio-proposed">Suggested: </span>
+          {suggestedCustom}
+        </p>
+      ) : null}
       {writing ? (
         <Input
           aria-label={`Your own answer for ${pick.label}`}

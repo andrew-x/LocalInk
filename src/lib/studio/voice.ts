@@ -234,6 +234,54 @@ export function isStudioVoiceSetUp(story: {
   return story.voice.picks.length > 0 || story.voiceSamples.length > 0;
 }
 
+function sameChoice(a: StudioVoicePick, b: StudioVoicePick): boolean {
+  const x = effectivePickChoice(a);
+  const y = effectivePickChoice(b);
+  return x.custom === y.custom && x.option?.id === y.option?.id;
+}
+
+/**
+ * The ops that turn `before` into `after`, for a whole-value voice patch.
+ * Picks are compared by their effective choice; picks that only exist in
+ * `after` cannot be expressed as an op and are left out.
+ */
+export function diffStudioVoice(
+  before: StudioVoice,
+  after: StudioVoice,
+): StudioVoiceOp[] {
+  const ops: StudioVoiceOp[] = [];
+  for (const pick of after.picks) {
+    const was = before.picks.find((candidate) => candidate.id === pick.id);
+    if (was && !sameChoice(was, pick)) {
+      ops.push({
+        kind: "choose",
+        pickId: pick.id,
+        optionId: pick.chosenOptionId,
+        custom: pick.custom,
+      });
+    }
+  }
+  for (const pick of before.picks) {
+    if (!after.picks.some((candidate) => candidate.id === pick.id)) {
+      ops.push({ kind: "remove-pick", pickId: pick.id });
+    }
+  }
+  for (const note of after.notes) {
+    const was = before.notes.find((candidate) => candidate.id === note.id);
+    if (!was) {
+      ops.push({ kind: "add-note", text: note.text, origin: note.origin });
+    } else if (was.text !== note.text) {
+      ops.push({ kind: "edit-note", noteId: note.id, text: note.text });
+    }
+  }
+  for (const note of before.notes) {
+    if (!after.notes.some((candidate) => candidate.id === note.id)) {
+      ops.push({ kind: "remove-note", noteId: note.id });
+    }
+  }
+  return ops;
+}
+
 function describeChoice(pick: StudioVoicePick): string {
   const { option, custom } = effectivePickChoice(pick);
   return custom ?? option?.label ?? "Not set";

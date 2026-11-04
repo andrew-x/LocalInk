@@ -14,7 +14,7 @@ import type {
   StudioProseDto,
   StudioVoice,
 } from "@/lib/studio/contracts";
-import { describeStudioVoiceOp, type StudioVoiceOp } from "@/lib/studio/voice";
+import { describeStudioVoiceOp, diffStudioVoice } from "@/lib/studio/voice";
 import { cn } from "@/lib/util";
 
 import { type WordDiffSegment, wordDiff } from "./word-diff";
@@ -61,35 +61,7 @@ function formatValue(value: unknown): string {
 
 /** Human lines for what a voice patch changes, never raw JSON. */
 function describeVoiceChange(before: StudioVoice, after: StudioVoice) {
-  const ops: StudioVoiceOp[] = [];
-  for (const pick of after.picks) {
-    const was = before.picks.find((candidate) => candidate.id === pick.id);
-    if (
-      was &&
-      (was.chosenOptionId !== pick.chosenOptionId || was.custom !== pick.custom)
-    ) {
-      ops.push({
-        kind: "choose",
-        pickId: pick.id,
-        optionId: pick.chosenOptionId,
-        custom: pick.custom,
-      });
-    }
-  }
-  for (const note of after.notes) {
-    const was = before.notes.find((candidate) => candidate.id === note.id);
-    if (!was)
-      ops.push({ kind: "add-note", text: note.text, origin: note.origin });
-    else if (was.text !== note.text) {
-      ops.push({ kind: "edit-note", noteId: note.id, text: note.text });
-    }
-  }
-  for (const note of before.notes) {
-    if (!after.notes.some((candidate) => candidate.id === note.id)) {
-      ops.push({ kind: "remove-note", noteId: note.id });
-    }
-  }
-  return ops.flatMap((op) => {
+  return diffStudioVoice(before, after).flatMap((op) => {
     const text = describeStudioVoiceOp(op, before);
     return text ? [text] : [];
   });

@@ -12,6 +12,7 @@ import { GenreChips } from "./genre-chips";
 import { PickRow } from "./pick-row";
 import { useAskForMoreVoicePicks } from "./use-start-voice-setup";
 import { VoiceNotes } from "./voice-notes";
+import { GenreSuggestion, InstructionsSuggestion } from "./voice-suggestions";
 
 type ChooseOp = Extract<StudioVoiceOp, { kind: "choose" }>;
 
@@ -60,6 +61,7 @@ export function VoiceSettingsColumn({
         genre={story.genre}
         onChange={(genre) => onOps([{ kind: "set-genre", genre }])}
       />
+      <GenreSuggestion genre={story.genre} />
       <div className="flex flex-col gap-1">
         <p className="font-bold text-[10.5px] text-muted-foreground uppercase tracking-[0.09em]">
           In your words
@@ -73,6 +75,7 @@ export function VoiceSettingsColumn({
           placeholder="How should it sound? Loose sentences are fine."
           value={values.instructions}
         />
+        <InstructionsSuggestion current={story.instructions} />
       </div>
       <div className="flex flex-col gap-2">
         <p className="font-bold text-[10.5px] text-muted-foreground uppercase tracking-[0.09em]">

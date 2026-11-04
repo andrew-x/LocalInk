@@ -14,6 +14,7 @@ import { useVoiceFeedback } from "./use-voice-feedback";
 import { VoiceEmptyState } from "./voice-empty-state";
 import { VoiceSamples } from "./voice-samples";
 import { VoiceSettingsColumn } from "./voice-settings-column";
+import { VoiceSuggestionGroups } from "./voice-suggestions";
 import { VoiceTuneCard } from "./voice-tune-card";
 
 export { useUpdateVoice } from "./use-update-voice";
@@ -85,6 +86,7 @@ export function VoicePanel({ layout, footer }: VoicePanelProps) {
     return (
       <>
         {tuneCard}
+        <VoiceSuggestionGroups />
         <VoiceEmptyState />
       </>
     );
@@ -93,6 +95,7 @@ export function VoicePanel({ layout, footer }: VoicePanelProps) {
   return (
     <>
       {tuneCard}
+      <VoiceSuggestionGroups />
       <div
         className={cn(
           layout === "wide"

@@ -6,6 +6,7 @@ import {
   resolveStudioBundleRef,
   type StudioBundleDto,
   type StudioBundleOpDto,
+  storyPatchKeys,
 } from "@/lib/studio/bundle-contract";
 import type { StudioPlanKind } from "@/lib/studio/contracts";
 
@@ -46,6 +47,12 @@ export type BundlePreview = {
   entryOpsByEntryId: Map<string, StudioBundleOpDto[]>;
   proposedEntries: StudioBundleOpDtoOf<"entry.create">[];
   /**
+   * Pending story.update ops whose patch touches voice, genre or
+   * instructions; the Voice tab shows them. An op that also patches other
+   * keys is here too, and its row in the conversation list stays.
+   */
+  voiceOps: StudioBundleOpDtoOf<"story.update">[];
+  /**
    * Pending prose ops shown as the chat's scene draft, keyed by the saved
    * moment, or by a proposed beat's temp id when that beat sits in a saved
    * scene (the manuscript places it among the scene's beats).
@@ -66,6 +73,7 @@ const EMPTY: BundlePreview = {
   proposedPlanItems: [],
   entryOpsByEntryId: new Map(),
   proposedEntries: [],
+  voiceOps: [],
   proseOpsByMomentId: new Map(),
   otherOps: [],
 };
@@ -78,6 +86,13 @@ const PLAN_UPDATE_KEYS = [
   "craft",
   "presentEntryIds",
 ] as const satisfies readonly (keyof StudioBundleOpDtoOf<"plan.update">["patch"])[];
+
+/** The story.update keys the Voice tab shows in place. */
+const VOICE_STORY_KEYS: ReadonlySet<string> = new Set([
+  "voice",
+  "genre",
+  "instructions",
+]);
 
 function push<T>(map: Map<string, T[]>, key: string, value: T) {
   const list = map.get(key);
@@ -122,6 +137,7 @@ export function buildBundlePreview(bundles: StudioBundleDto[]): BundlePreview {
     proposedPlanItems: [],
     entryOpsByEntryId: new Map(),
     proposedEntries: [],
+    voiceOps: [],
     proseOpsByMomentId: new Map(),
     otherOps: [],
   };
@@ -168,6 +184,13 @@ export function buildBundlePreview(bundles: StudioBundleDto[]): BundlePreview {
       case "entry.update":
       case "entry.delete":
         push(preview.entryOpsByEntryId, op.entryId, op);
+        break;
+      case "story.update":
+        if (storyPatchKeys(op.patch).some((key) => VOICE_STORY_KEYS.has(key))) {
+          preview.voiceOps.push(op);
+        } else {
+          preview.otherOps.push(op);
+        }
         break;
       case "prose.write": {
         const momentId = resolve(op.momentRef);

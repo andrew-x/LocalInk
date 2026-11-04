@@ -21,6 +21,7 @@ type Place =
   /** Open this saved line (or nothing, for a new chapter) and reveal the op. */
   | { kind: "outline"; selectId: string | null }
   | { kind: "entry"; entryId: string | null }
+  | { kind: "voice" }
   | { kind: "manuscript" }
   | { kind: "conversation" };
 
@@ -68,6 +69,8 @@ function placeOf(
     case "entry.update":
     case "entry.delete":
       return { kind: "entry", entryId: op.entryId };
+    case "story.update":
+      return { kind: "voice" };
     case "prose.write":
       return { kind: "manuscript" };
     default:
@@ -133,6 +136,11 @@ export function useSuggestionFocus() {
         } else {
           dispatch({ type: "setPlanTab", tab: "characters" });
         }
+        revealElement(anchor, 6);
+        return;
+      case "voice":
+        session.setConversationOpen(false);
+        dispatch({ type: "setPlanTab", tab: "voice" });
         revealElement(anchor, 6);
         return;
       case "manuscript":
