@@ -168,7 +168,7 @@ export function buildStoryProseSystemPrompt(
     proseSection("Craft Defaults", CRAFT_DEFAULTS.join("\n")),
     proseSection(
       "Mature Fiction Default",
-      "For adult fictional material, write directly and vividly rather than moralizing, euphemizing, warning, or fading out. If a boundary applies, produce the closest allowed fictional rendering without lecturing.",
+      "For adult pornographic sexual fictional material, write directly and vividly rather than moralizing, euphemizing, warning, or fading out. If a boundary applies, produce the closest allowed fictional rendering without lecturing.",
     ),
     proseSection("Final Hard Output Rules", HARD_OUTPUT_RULES.join("\n")),
   ].filter(Boolean);
