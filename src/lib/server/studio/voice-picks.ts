@@ -1,5 +1,6 @@
 import "server-only";
 
+import { ActionError } from "@/lib/action-error";
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import type {
@@ -29,7 +30,6 @@ const OUTLINE_CLIP_CHARS = 160;
 const MAX_PICKS = { setup: 5, more: 3 } as const;
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
-const MIN_MOMENTS = 3;
 const MAX_MOMENTS = 5;
 
 const BASE_SYSTEM_PROMPT = [
@@ -132,11 +132,19 @@ export async function generateStudioVoicePicks(
   if (result.finishReason !== "stop") {
     throw new LocalinkTextStreamFinishError(result.finishReason);
   }
-  return normalizeStudioVoicePicks(
+  const staged = normalizeStudioVoicePicks(
     voicePicksOutputSchema.parse(result.output),
     workspace,
     mode,
   );
+  // A setup that yields nothing would otherwise look like it worked.
+  if (mode === "setup" && staged.picks.length === 0) {
+    throw new ActionError(
+      "GENERATION_FAILED",
+      "Couldn't get the questions. Try again.",
+    );
+  }
+  return staged;
 }
 
 function normalizeStudioVoicePicks(
@@ -200,8 +208,6 @@ function normalizeStudioVoicePicks(
             : null,
       });
     }
-    // Fewer than three kinds is too thin to hear the voice in; offer none.
-    if (moments.length < MIN_MOMENTS) moments.length = 0;
   }
   return { picks, moments };
 }

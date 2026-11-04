@@ -1,5 +1,8 @@
 import { ActionError } from "@/lib/action-error";
-import { StudioNotFoundError } from "@/lib/server/studio/prompt-kit";
+import {
+  StudioBadRequestError,
+  StudioNotFoundError,
+} from "@/lib/server/studio/prompt-kit";
 import { loadStudioWorkspace } from "@/lib/server/studio/repository";
 import {
   createStudioRouteLog,
@@ -91,6 +94,11 @@ export async function POST(request: Request): Promise<Response> {
       { story, sampleText, complaint: input.complaint },
       request.signal,
     );
+    if (ops.length === 0) {
+      throw new StudioBadRequestError(
+        "Couldn't turn that note into a change. Try saying it another way.",
+      );
+    }
     const staged: StagedStudioVoiceChanges = { ops };
     finishStudioStage(binding, attemptId, staged);
 
