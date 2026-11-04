@@ -71,6 +71,69 @@
       "when": 1791808065155,
       "tag": "0009_story-chat-detail-proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793491248223,
+      "tag": "0010_studio-core",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1793553993665,
+      "tag": "0011_studio-dynamic-aspects",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793555603012,
+      "tag": "0012_studio-bundles",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793558505059,
+      "tag": "0013_studio-chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1793625968147,
+      "tag": "0014_studio-merge-how-to-write",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1793635814138,
+      "tag": "0015_studio-entry-suggestions",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1793637474190,
+      "tag": "0016_studio-entry-suggestions-keep-on-delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1793755980200,
+      "tag": "0017_studio-voice",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1793756005582,
+      "tag": "0018_studio-voice-carry-over",
+      "breakpoints": true
     }
   ]
 }

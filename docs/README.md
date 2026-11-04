@@ -11,6 +11,7 @@ Read this index first for repo-context questions, then only the relevant explana
 - [Database](database.md): local data isolation, migration behavior, and data provenance.
 - [AI prose generation](ai-prose-generation.md): prompt, context, draft-safety, and provider decisions.
 - [AI image generation](ai-image-generation.md): provider privacy, capability verification, and local persistence.
+- [Story Studio](story-studio.md): separation from stories, computed story state, AI staging boundary, strict schemas, and ownership rules.
 - [Styling](styling.md): token and Sass/Tailwind integration traps.
 - [External references](devdocs-index.md): sources supporting non-obvious project decisions.
 

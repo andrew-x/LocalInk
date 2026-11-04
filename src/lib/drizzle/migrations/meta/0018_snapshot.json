@@ -1,0 +1,2165 @@
+{
+  "id": "5ccd88bd-3b78-4e4a-a8cd-29bd71b325d5",
+  "prevId": "fa8312d2-023d-4324-a38b-cc337c98027e",
+  "version": "6",
+  "dialect": "sqlite",
+  "tables": {
+    "chapters": {
+      "name": "chapters",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_revision": {
+          "name": "content_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "synopsis": {
+          "name": "synopsis",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "synopsis_source_hash": {
+          "name": "synopsis_source_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "synopsis_updated_at": {
+          "name": "synopsis_updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "chapters_story_position_idx": {
+          "name": "chapters_story_position_idx",
+          "columns": ["story_id", "position"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "chapters_story_id_stories_id_fk": {
+          "name": "chapters_story_id_stories_id_fk",
+          "tableFrom": "chapters",
+          "columnsFrom": ["story_id"],
+          "tableTo": "stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "generated_images": {
+      "name": "generated_images",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider_response_id": {
+          "name": "provider_response_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "original_prompt": {
+          "name": "original_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "style_preset": {
+          "name": "style_preset",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "style_prompt": {
+          "name": "style_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "aspect_ratio": {
+          "name": "aspect_ratio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_size": {
+          "name": "image_size",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "width": {
+          "name": "width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "height": {
+          "name": "height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_relative_path": {
+          "name": "file_relative_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_size": {
+          "name": "file_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "generated_images_created_at_idx": {
+          "name": "generated_images_created_at_idx",
+          "columns": ["created_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "metadata": {
+      "name": "metadata",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "stories": {
+      "name": "stories",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "characters": {
+          "name": "characters",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "backstory": {
+          "name": "backstory",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "locations": {
+          "name": "locations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "style": {
+          "name": "style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "system_instructions": {
+          "name": "system_instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "voice_exemplars": {
+          "name": "voice_exemplars",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "story_chat_detail_proposals": {
+      "name": "story_chat_detail_proposals",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "changes": {
+          "name": "changes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "story_chat_detail_proposals_generation_unique": {
+          "name": "story_chat_detail_proposals_generation_unique",
+          "columns": ["generation_id"],
+          "isUnique": true
+        },
+        "story_chat_detail_proposals_message_unique": {
+          "name": "story_chat_detail_proposals_message_unique",
+          "columns": ["message_id"],
+          "isUnique": true
+        },
+        "story_chat_detail_proposals_chat_idx": {
+          "name": "story_chat_detail_proposals_chat_idx",
+          "columns": ["chat_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_chat_detail_proposals_story_id_stories_id_fk": {
+          "name": "story_chat_detail_proposals_story_id_stories_id_fk",
+          "tableFrom": "story_chat_detail_proposals",
+          "columnsFrom": ["story_id"],
+          "tableTo": "stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "story_chat_detail_proposals_chat_id_story_chats_id_fk": {
+          "name": "story_chat_detail_proposals_chat_id_story_chats_id_fk",
+          "tableFrom": "story_chat_detail_proposals",
+          "columnsFrom": ["chat_id"],
+          "tableTo": "story_chats",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "story_chat_detail_proposals_message_id_story_chat_messages_id_fk": {
+          "name": "story_chat_detail_proposals_message_id_story_chat_messages_id_fk",
+          "tableFrom": "story_chat_detail_proposals",
+          "columnsFrom": ["message_id"],
+          "tableTo": "story_chat_messages",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "story_chat_detail_proposals_status_check": {
+          "name": "story_chat_detail_proposals_status_check",
+          "value": "\"story_chat_detail_proposals\".\"status\" IN ('pending', 'accepted', 'rejected', 'undone')"
+        }
+      }
+    },
+    "story_chat_edit_proposals": {
+      "name": "story_chat_edit_proposals",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chapters": {
+          "name": "chapters",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "story_chat_edit_proposals_generation_unique": {
+          "name": "story_chat_edit_proposals_generation_unique",
+          "columns": ["generation_id"],
+          "isUnique": true
+        },
+        "story_chat_edit_proposals_message_unique": {
+          "name": "story_chat_edit_proposals_message_unique",
+          "columns": ["message_id"],
+          "isUnique": true
+        },
+        "story_chat_edit_proposals_chat_idx": {
+          "name": "story_chat_edit_proposals_chat_idx",
+          "columns": ["chat_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_chat_edit_proposals_story_id_stories_id_fk": {
+          "name": "story_chat_edit_proposals_story_id_stories_id_fk",
+          "tableFrom": "story_chat_edit_proposals",
+          "columnsFrom": ["story_id"],
+          "tableTo": "stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "story_chat_edit_proposals_chat_id_story_chats_id_fk": {
+          "name": "story_chat_edit_proposals_chat_id_story_chats_id_fk",
+          "tableFrom": "story_chat_edit_proposals",
+          "columnsFrom": ["chat_id"],
+          "tableTo": "story_chats",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "story_chat_edit_proposals_message_id_story_chat_messages_id_fk": {
+          "name": "story_chat_edit_proposals_message_id_story_chat_messages_id_fk",
+          "tableFrom": "story_chat_edit_proposals",
+          "columnsFrom": ["message_id"],
+          "tableTo": "story_chat_messages",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "story_chat_edit_proposals_status_check": {
+          "name": "story_chat_edit_proposals_status_check",
+          "value": "\"story_chat_edit_proposals\".\"status\" IN ('pending', 'accepted', 'rejected', 'undone')"
+        }
+      }
+    },
+    "story_chat_messages": {
+      "name": "story_chat_messages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_visible": {
+          "name": "is_visible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "story_chat_messages_chat_position_unique": {
+          "name": "story_chat_messages_chat_position_unique",
+          "columns": ["chat_id", "position"],
+          "isUnique": true
+        },
+        "story_chat_messages_generation_idx": {
+          "name": "story_chat_messages_generation_idx",
+          "columns": ["generation_id"],
+          "isUnique": false
+        },
+        "story_chat_messages_story_idx": {
+          "name": "story_chat_messages_story_idx",
+          "columns": ["story_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_chat_messages_story_id_stories_id_fk": {
+          "name": "story_chat_messages_story_id_stories_id_fk",
+          "tableFrom": "story_chat_messages",
+          "columnsFrom": ["story_id"],
+          "tableTo": "stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "story_chat_messages_chat_id_story_chats_id_fk": {
+          "name": "story_chat_messages_chat_id_story_chats_id_fk",
+          "tableFrom": "story_chat_messages",
+          "columnsFrom": ["chat_id"],
+          "tableTo": "story_chats",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "story_chat_messages_role_check": {
+          "name": "story_chat_messages_role_check",
+          "value": "\"story_chat_messages\".\"role\" IN ('system', 'user', 'assistant')"
+        },
+        "story_chat_messages_visibility_role_check": {
+          "name": "story_chat_messages_visibility_role_check",
+          "value": "\n        CASE\n          WHEN \"story_chat_messages\".\"is_visible\" = 0 THEN \"story_chat_messages\".\"role\" = 'system'\n          ELSE \"story_chat_messages\".\"role\" IN ('user', 'assistant')\n        END\n      "
+        }
+      }
+    },
+    "story_chats": {
+      "name": "story_chats",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "story_chats_story_updated_idx": {
+          "name": "story_chats_story_updated_idx",
+          "columns": ["story_id", "updated_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "story_chats_story_id_stories_id_fk": {
+          "name": "story_chats_story_id_stories_id_fk",
+          "tableFrom": "story_chats",
+          "columnsFrom": ["story_id"],
+          "tableTo": "stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "studio_bundles": {
+      "name": "studio_bundles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "operations": {
+          "name": "operations",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_bundles_generation_unique": {
+          "name": "studio_bundles_generation_unique",
+          "columns": ["generation_id"],
+          "isUnique": true
+        },
+        "studio_bundles_story_status_idx": {
+          "name": "studio_bundles_story_status_idx",
+          "columns": ["story_id", "status"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_bundles_story_id_studio_stories_id_fk": {
+          "name": "studio_bundles_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_bundles",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_bundles_status_check": {
+          "name": "studio_bundles_status_check",
+          "value": "\"studio_bundles\".\"status\" IN ('pending', 'accepted', 'partially-accepted', 'rejected', 'undone')"
+        }
+      }
+    },
+    "studio_changes": {
+      "name": "studio_changes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "about_entry_id": {
+          "name": "about_entry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "aspect": {
+          "name": "aspect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'set'"
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_item_id": {
+          "name": "plan_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_edited": {
+          "name": "author_edited",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_changes_story_plan_item_idx": {
+          "name": "studio_changes_story_plan_item_idx",
+          "columns": ["story_id", "plan_item_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_changes_story_id_studio_stories_id_fk": {
+          "name": "studio_changes_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_changes",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_changes_entry_id_studio_entries_id_fk": {
+          "name": "studio_changes_entry_id_studio_entries_id_fk",
+          "tableFrom": "studio_changes",
+          "columnsFrom": ["entry_id"],
+          "tableTo": "studio_entries",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_changes_about_entry_id_studio_entries_id_fk": {
+          "name": "studio_changes_about_entry_id_studio_entries_id_fk",
+          "tableFrom": "studio_changes",
+          "columnsFrom": ["about_entry_id"],
+          "tableTo": "studio_entries",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "set null"
+        },
+        "studio_changes_plan_item_id_studio_plan_items_id_fk": {
+          "name": "studio_changes_plan_item_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_changes",
+          "columnsFrom": ["plan_item_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_changes_mode_check": {
+          "name": "studio_changes_mode_check",
+          "value": "\"studio_changes\".\"mode\" IN ('set', 'add')"
+        },
+        "studio_changes_source_check": {
+          "name": "studio_changes_source_check",
+          "value": "\"studio_changes\".\"source\" IN ('planned', 'read-back', 'author')"
+        },
+        "studio_changes_status_check": {
+          "name": "studio_changes_status_check",
+          "value": "\"studio_changes\".\"status\" IN ('planned', 'confirmed')"
+        }
+      }
+    },
+    "studio_chat_messages": {
+      "name": "studio_chat_messages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_id": {
+          "name": "thread_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content": {
+          "name": "content",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "steps": {
+          "name": "steps",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "bundle_id": {
+          "name": "bundle_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generation_id": {
+          "name": "generation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_chat_messages_thread_position_unique": {
+          "name": "studio_chat_messages_thread_position_unique",
+          "columns": ["thread_id", "position"],
+          "isUnique": true
+        },
+        "studio_chat_messages_generation_role_unique": {
+          "name": "studio_chat_messages_generation_role_unique",
+          "columns": ["generation_id", "role"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "studio_chat_messages_thread_id_studio_chat_threads_id_fk": {
+          "name": "studio_chat_messages_thread_id_studio_chat_threads_id_fk",
+          "tableFrom": "studio_chat_messages",
+          "columnsFrom": ["thread_id"],
+          "tableTo": "studio_chat_threads",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_chat_messages_role_check": {
+          "name": "studio_chat_messages_role_check",
+          "value": "\"studio_chat_messages\".\"role\" IN ('user', 'assistant')"
+        }
+      }
+    },
+    "studio_chat_threads": {
+      "name": "studio_chat_threads",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_chat_threads_story_updated_idx": {
+          "name": "studio_chat_threads_story_updated_idx",
+          "columns": ["story_id", "updated_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_chat_threads_story_id_studio_stories_id_fk": {
+          "name": "studio_chat_threads_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_chat_threads",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "studio_entries": {
+      "name": "studio_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "custom_type_label": {
+          "name": "custom_type_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "fields": {
+          "name": "fields",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "related_entry_ids": {
+          "name": "related_entry_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_entries_story_type_position_idx": {
+          "name": "studio_entries_story_type_position_idx",
+          "columns": ["story_id", "type", "position"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_entries_story_id_studio_stories_id_fk": {
+          "name": "studio_entries_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_entries",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_entries_type_check": {
+          "name": "studio_entries_type_check",
+          "value": "\"studio_entries\".\"type\" IN ('character', 'relationship', 'place', 'thing', 'lore', 'custom')"
+        }
+      }
+    },
+    "studio_entry_suggestions": {
+      "name": "studio_entry_suggestions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "moment_id": {
+          "name": "moment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name_key": {
+          "name": "name_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_entry_suggestions_story_name_idx": {
+          "name": "studio_entry_suggestions_story_name_idx",
+          "columns": ["story_id", "name_key"],
+          "isUnique": true
+        },
+        "studio_entry_suggestions_story_status_idx": {
+          "name": "studio_entry_suggestions_story_status_idx",
+          "columns": ["story_id", "status"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_entry_suggestions_story_id_studio_stories_id_fk": {
+          "name": "studio_entry_suggestions_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_entry_suggestions",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_entry_suggestions_moment_id_studio_plan_items_id_fk": {
+          "name": "studio_entry_suggestions_moment_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_entry_suggestions",
+          "columnsFrom": ["moment_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "set null"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "studio_flags": {
+      "name": "studio_flags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plan_item_id": {
+          "name": "plan_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload": {
+          "name": "payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'open'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_flags_story_status_idx": {
+          "name": "studio_flags_story_status_idx",
+          "columns": ["story_id", "status"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_flags_story_id_studio_stories_id_fk": {
+          "name": "studio_flags_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_flags",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_flags_plan_item_id_studio_plan_items_id_fk": {
+          "name": "studio_flags_plan_item_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_flags",
+          "columnsFrom": ["plan_item_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_flags_kind_check": {
+          "name": "studio_flags_kind_check",
+          "value": "\"studio_flags\".\"kind\" IN ('unplanned-change', 'missing-planned-change')"
+        },
+        "studio_flags_status_check": {
+          "name": "studio_flags_status_check",
+          "value": "\"studio_flags\".\"status\" IN ('open', 'resolved', 'dismissed')"
+        }
+      }
+    },
+    "studio_plan_items": {
+      "name": "studio_plan_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "what_happens": {
+          "name": "what_happens",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "how_to_write": {
+          "name": "how_to_write",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "craft": {
+          "name": "craft",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "present_entry_ids": {
+          "name": "present_entry_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "context_pinned_entry_ids": {
+          "name": "context_pinned_entry_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "context_excluded_entry_ids": {
+          "name": "context_excluded_entry_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "author_fields": {
+          "name": "author_fields",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'ai'"
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "tension": {
+          "name": "tension",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_plan_items_story_parent_position_idx": {
+          "name": "studio_plan_items_story_parent_position_idx",
+          "columns": ["story_id", "parent_id", "position"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_plan_items_story_id_studio_stories_id_fk": {
+          "name": "studio_plan_items_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_plan_items",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_plan_items_parent_id_studio_plan_items_id_fk": {
+          "name": "studio_plan_items_parent_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_plan_items",
+          "columnsFrom": ["parent_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_plan_items_kind_check": {
+          "name": "studio_plan_items_kind_check",
+          "value": "\"studio_plan_items\".\"kind\" IN ('chapter', 'scene', 'moment')"
+        },
+        "studio_plan_items_origin_check": {
+          "name": "studio_plan_items_origin_check",
+          "value": "\"studio_plan_items\".\"origin\" IN ('ai', 'author')"
+        },
+        "studio_plan_items_tension_check": {
+          "name": "studio_plan_items_tension_check",
+          "value": "\"studio_plan_items\".\"tension\" IS NULL OR (\"studio_plan_items\".\"kind\" = 'chapter' AND \"studio_plan_items\".\"tension\" BETWEEN 1 AND 10)"
+        }
+      }
+    },
+    "studio_prose": {
+      "name": "studio_prose",
+      "columns": {
+        "moment_id": {
+          "name": "moment_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "markdown": {
+          "name": "markdown",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "word_count": {
+          "name": "word_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "read_back_source_hash": {
+          "name": "read_back_source_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "read_back_sentence_hashes": {
+          "name": "read_back_sentence_hashes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_prose_story_idx": {
+          "name": "studio_prose_story_idx",
+          "columns": ["story_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_prose_moment_id_studio_plan_items_id_fk": {
+          "name": "studio_prose_moment_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_prose",
+          "columnsFrom": ["moment_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_prose_story_id_studio_stories_id_fk": {
+          "name": "studio_prose_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_prose",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_prose_origin_check": {
+          "name": "studio_prose_origin_check",
+          "value": "\"studio_prose\".\"origin\" IN ('ai', 'author', 'ai-edited')"
+        }
+      }
+    },
+    "studio_prose_versions": {
+      "name": "studio_prose_versions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "story_id": {
+          "name": "story_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "moment_id": {
+          "name": "moment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "markdown": {
+          "name": "markdown",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "word_count": {
+          "name": "word_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "studio_prose_versions_moment_created_idx": {
+          "name": "studio_prose_versions_moment_created_idx",
+          "columns": ["moment_id", "created_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "studio_prose_versions_story_id_studio_stories_id_fk": {
+          "name": "studio_prose_versions_story_id_studio_stories_id_fk",
+          "tableFrom": "studio_prose_versions",
+          "columnsFrom": ["story_id"],
+          "tableTo": "studio_stories",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        },
+        "studio_prose_versions_moment_id_studio_plan_items_id_fk": {
+          "name": "studio_prose_versions_moment_id_studio_plan_items_id_fk",
+          "tableFrom": "studio_prose_versions",
+          "columnsFrom": ["moment_id"],
+          "tableTo": "studio_plan_items",
+          "columnsTo": ["id"],
+          "onUpdate": "no action",
+          "onDelete": "cascade"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_prose_versions_origin_check": {
+          "name": "studio_prose_versions_origin_check",
+          "value": "\"studio_prose_versions\".\"origin\" IN ('ai', 'author', 'ai-edited')"
+        }
+      }
+    },
+    "studio_stories": {
+      "name": "studio_stories",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "overview": {
+          "name": "overview",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "instructions": {
+          "name": "instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "style": {
+          "name": "style",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{\"povAndTense\":\"\",\"register\":\"\",\"pacing\":\"\",\"avoid\":\"\",\"notes\":\"\"}'"
+        },
+        "genre": {
+          "name": "genre",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "voice": {
+          "name": "voice",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{\"picks\":[],\"notes\":[],\"moments\":[]}'"
+        },
+        "theme": {
+          "name": "theme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "structure_template": {
+          "name": "structure_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'freeform'"
+        },
+        "structure_notes": {
+          "name": "structure_notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "brain_dump": {
+          "name": "brain_dump",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "voice_samples": {
+          "name": "voice_samples",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "prose_model": {
+          "name": "prose_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'deepseek-v4-1-flash-1017-uncensored'"
+        },
+        "chat_model": {
+          "name": "chat_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'deepseek-v4-1-flash-1017-uncensored'"
+        },
+        "setup_status": {
+          "name": "setup_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "studio_stories_structure_template_check": {
+          "name": "studio_stories_structure_template_check",
+          "value": "\"studio_stories\".\"structure_template\" IN ('romance', 'coming-of-age', 'quiet', 'freeform')"
+        },
+        "studio_stories_setup_status_check": {
+          "name": "studio_stories_setup_status_check",
+          "value": "\"studio_stories\".\"setup_status\" IN ('draft', 'planned')"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
