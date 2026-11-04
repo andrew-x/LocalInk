@@ -7,15 +7,14 @@ import {
   DialogTitle,
 } from "@/components/common/dialog";
 
-import { InstructionsStyleSection } from "./instructions-style-section";
 import { ModelsSection } from "./models-section";
 import { StructureSection } from "./structure-section";
 import { ThemeSection } from "./theme-section";
 
 /**
- * Story-level settings: theme, instructions, style, voice samples (inside the
- * instructions section), structure and models. The premise lives in the
- * outline, not here.
+ * Story-level settings: theme, structure and models. The voice (including
+ * "In your words") lives on the Studio Voice tab, and the premise in the
+ * outline.
  */
 export function StorySettingsDialog({
   open,
@@ -32,13 +31,12 @@ export function StorySettingsDialog({
             Story settings
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Theme, instructions and style, voice samples, structure and models
-            for this story. Changes save as you type.
+            Theme, structure and models for this story. Changes save as you
+            type.
           </DialogDescription>
         </div>
         <div className="flex min-h-0 flex-1 flex-col gap-8 overflow-y-auto px-5 py-5">
           <ThemeSection />
-          <InstructionsStyleSection />
           <StructureSection />
           <ModelsSection />
         </div>

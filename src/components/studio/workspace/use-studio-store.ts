@@ -26,7 +26,7 @@ import type {
 
 import { computePlanStatuses } from "./plan-status";
 
-export type StudioPlanTab = "outline" | "characters";
+export type StudioPlanTab = "outline" | "characters" | "voice";
 
 /**
  * One op of a proposal. Op ids are unique only within their bundle (every turn

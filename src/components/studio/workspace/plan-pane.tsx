@@ -2,6 +2,7 @@
 
 import { type KeyboardEvent, type ReactNode, useId, useRef } from "react";
 
+import { VoicePanel } from "@/components/studio/voice/voice-panel";
 import { cn } from "@/lib/util";
 
 import { type StudioPlanTab, useStudioStore } from "./use-studio-store";
@@ -9,6 +10,7 @@ import { type StudioPlanTab, useStudioStore } from "./use-studio-store";
 const PLAN_TABS: { id: StudioPlanTab; label: string }[] = [
   { id: "outline", label: "Outline" },
   { id: "characters", label: "Characters & places" },
+  { id: "voice", label: "Voice" },
 ];
 
 type PlanPaneProps = {
@@ -21,9 +23,9 @@ type PlanPaneProps = {
 };
 
 /**
- * Outline | Characters & places tabs over the plan, with the AI box docked
- * at the bottom and the conversation opening over the tabs. Both tab panels
- * stay mounted (hidden) so their state survives, and the whole pane stays
+ * Outline | Characters & places | Voice tabs over the plan, with the AI box docked
+ * at the bottom and the conversation opening over the tabs. The outline and characters
+ * panels stay mounted (hidden) so their state survives, and the whole pane stays
  * mounted while the plan is hidden.
  */
 export function PlanPane({
@@ -42,6 +44,7 @@ export function PlanPane({
       tab: `${idBase}-characters-tab`,
       panel: `${idBase}-characters-panel`,
     },
+    voice: { tab: `${idBase}-voice-tab`, panel: `${idBase}-voice-panel` },
   };
 
   function activate(tab: StudioPlanTab) {
@@ -131,6 +134,20 @@ export function PlanPane({
           role="tabpanel"
         >
           {characters}
+        </div>
+        <div
+          aria-labelledby={ids.voice.tab}
+          className={cn(
+            "min-h-0 flex-1 flex-col overflow-y-auto",
+            planTab === "voice" ? "flex" : "hidden",
+          )}
+          hidden={planTab !== "voice"}
+          id={ids.voice.panel}
+          role="tabpanel"
+        >
+          {/* Mounted only while shown: opening it writes samples, so a hidden
+              panel must not. Unkept drafts are dropped when it closes. */}
+          {planTab === "voice" ? <VoicePanel layout="stacked" /> : null}
         </div>
         {conversation}
       </div>

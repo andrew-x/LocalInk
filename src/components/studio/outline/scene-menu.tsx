@@ -33,11 +33,14 @@ const FLUSH_FAILED =
 /** A small "⋯" menu trigger and list, shared by scene cards and chapters. */
 export function OutlineMenu({
   children,
+  contentClassName,
   label,
   onOpenChange,
   open,
 }: {
   children: ReactNode;
+  /** Overrides the list's default width and padding. */
+  contentClassName?: string;
   label: string;
   onOpenChange: (open: boolean) => void;
   open: boolean;
@@ -55,7 +58,10 @@ export function OutlineMenu({
           <MoreHorizontal aria-hidden="true" className="size-3.5" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="flex w-44 flex-col p-1">
+      <PopoverContent
+        align="end"
+        className={cn("flex w-44 flex-col p-1", contentClassName)}
+      >
         {children}
       </PopoverContent>
     </Popover>
