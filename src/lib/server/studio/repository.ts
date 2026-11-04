@@ -75,7 +75,6 @@ export function toStoryDto(row: StudioStoryRow): StudioStoryDto {
     title: row.title,
     overview: row.overview,
     instructions: row.instructions,
-    style: row.style,
     genre: row.genre,
     voice: row.voice,
     theme: row.theme,

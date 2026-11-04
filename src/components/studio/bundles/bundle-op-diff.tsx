@@ -12,7 +12,9 @@ import type {
   StudioEntryDto,
   StudioPlanItemDto,
   StudioProseDto,
+  StudioVoice,
 } from "@/lib/studio/contracts";
+import { describeStudioVoiceOp, type StudioVoiceOp } from "@/lib/studio/voice";
 import { cn } from "@/lib/util";
 
 import { type WordDiffSegment, wordDiff } from "./word-diff";
@@ -44,29 +46,53 @@ type DiffContext = {
 const STORY_KEY_LABEL: Record<string, string> = {
   overview: "Overview",
   instructions: "Instructions",
-  style: "Style",
+  genre: "Genre",
+  voice: "Voice",
   theme: "Theme",
   structureTemplate: "Structure",
   structureNotes: "Structure notes",
 };
 
-const STYLE_KEY_LABEL: Record<string, string> = {
-  povAndTense: "Point of view and tense",
-  register: "Register",
-  pacing: "Pacing",
-  avoid: "Avoid",
-  notes: "Notes",
-};
-
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
-  if (value && typeof value === "object") {
-    return Object.entries(value)
-      .filter(([, v]) => typeof v === "string" && v.trim())
-      .map(([k, v]) => `${STYLE_KEY_LABEL[k] ?? k}: ${v}`)
-      .join("\n");
-  }
+  if (Array.isArray(value)) return value.join(", ");
   return value === undefined || value === null ? "" : String(value);
+}
+
+/** Human lines for what a voice patch changes, never raw JSON. */
+function describeVoiceChange(before: StudioVoice, after: StudioVoice) {
+  const ops: StudioVoiceOp[] = [];
+  for (const pick of after.picks) {
+    const was = before.picks.find((candidate) => candidate.id === pick.id);
+    if (
+      was &&
+      (was.chosenOptionId !== pick.chosenOptionId || was.custom !== pick.custom)
+    ) {
+      ops.push({
+        kind: "choose",
+        pickId: pick.id,
+        optionId: pick.chosenOptionId,
+        custom: pick.custom,
+      });
+    }
+  }
+  for (const note of after.notes) {
+    const was = before.notes.find((candidate) => candidate.id === note.id);
+    if (!was)
+      ops.push({ kind: "add-note", text: note.text, origin: note.origin });
+    else if (was.text !== note.text) {
+      ops.push({ kind: "edit-note", noteId: note.id, text: note.text });
+    }
+  }
+  for (const note of before.notes) {
+    if (!after.notes.some((candidate) => candidate.id === note.id)) {
+      ops.push({ kind: "remove-note", noteId: note.id });
+    }
+  }
+  return ops.flatMap((op) => {
+    const text = describeStudioVoiceOp(op, before);
+    return text ? [text] : [];
+  });
 }
 
 function formatCraft(craft: Record<string, string>): string {
@@ -143,8 +169,18 @@ function buildModel(op: StudioBundleOpDto, ctx: DiffContext): DiffModel {
   switch (op.kind) {
     case "story.update":
       for (const [key, value] of Object.entries(op.patch)) {
+        // Keys from retired settings (such as the old style) are skipped.
+        if (!(key in STORY_KEY_LABEL)) continue;
+        if (key === "voice") {
+          const before = op.baseline.voice;
+          if (!before || !op.patch.voice) continue;
+          for (const text of describeVoiceChange(before, op.patch.voice)) {
+            line("Voice", null, text);
+          }
+          continue;
+        }
         line(
-          STORY_KEY_LABEL[key] ?? key,
+          STORY_KEY_LABEL[key],
           formatValue((op.baseline as Record<string, unknown>)[key]),
           formatValue(value),
         );

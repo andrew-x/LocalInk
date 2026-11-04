@@ -56,7 +56,7 @@ function sameKind(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
-function cleanGenre(genre: string[]): string[] {
+export function cleanGenre(genre: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const raw of genre) {

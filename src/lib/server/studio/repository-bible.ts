@@ -19,7 +19,6 @@ import {
   type StoryGenerationModel,
 } from "@/lib/story-generation-models";
 import {
-  EMPTY_STUDIO_STYLE,
   STUDIO_MAX_ENTRY_FIELDS,
   type StudioAspect,
   type StudioChangeDto,
@@ -30,7 +29,6 @@ import {
   type StudioFlagDto,
   type StudioStoryDto,
   type StudioStructureTemplateId,
-  type StudioStyle,
   type StudioVoice,
 } from "@/lib/studio/contracts";
 import {
@@ -77,7 +75,6 @@ export function insertStudioStory(
       voiceSamples: [],
       proseModel: DEFAULT_STORY_GENERATION_MODEL,
       chatModel: DEFAULT_STORY_GENERATION_MODEL,
-      style: { ...EMPTY_STUDIO_STYLE },
       createdAt: now,
       updatedAt: now,
     })
@@ -90,7 +87,6 @@ export type StudioStoryPatch = Partial<{
   title: string;
   overview: string;
   instructions: string;
-  style: StudioStyle;
   theme: string;
   structureTemplate: StudioStructureTemplateId;
   structureNotes: string;

@@ -17,6 +17,8 @@ import {
   type StudioPlanNode,
 } from "@/lib/studio/plan-order";
 
+import { effectivePickChoice } from "@/lib/studio/voice";
+
 import { clip } from "./bundle-draft";
 import { xmlField, xmlGroup } from "./prompt-kit";
 
@@ -24,7 +26,7 @@ import { xmlField, xmlGroup } from "./prompt-kit";
  * Prompt text for the Studio agent chat: the system prompt, the story
  * context block (overview, outline, what the author is looking at), and
  * the thread history. Genre-neutral: the story's own
- * instructions and style carry its voice.
+ * genre, words, picks and notes carry its voice.
  */
 
 const BEHAVIOUR = [
@@ -63,10 +65,12 @@ export function buildStudioChatSystemPrompt({
       `The writer's standing preferences for all their stories. Follow them unless the current request says otherwise:\n${global}`,
     );
   }
-  const story = xmlField("story_instructions", storyInstructions);
+  const story = xmlField("in_your_words", storyInstructions, {
+    author: "true",
+  });
   if (story) {
     sections.push(
-      `The writer's instructions for this story's writing. Apply them to anything you plan or write for it:\n${story}`,
+      `In your words: the writer's own instructions for this story's writing. Apply them to anything you plan or write for it:\n${story}`,
     );
   }
   return sections.join("\n\n");
@@ -151,6 +155,11 @@ export function buildStudioChatContextBlock(
     context.lookingAtItemId === null
       ? undefined
       : workspace.planItems.find((item) => item.id === context.lookingAtItemId);
+  const picks = story.voice.picks.flatMap((pick) => {
+    const { option, custom } = effectivePickChoice(pick);
+    const choice = custom ?? option?.label ?? "";
+    return choice.trim() ? [xmlField("pick", `${pick.label}: ${choice}`)] : [];
+  });
   const blocks: string[] = [
     xmlGroup(
       "story",
@@ -158,13 +167,12 @@ export function buildStudioChatContextBlock(
         xmlField("overview", story.overview),
         xmlField("theme", story.theme),
         xmlField("structure_notes", story.structureNotes),
-        xmlGroup("style", [
-          xmlField("pov_and_tense", story.style.povAndTense),
-          xmlField("register", story.style.register),
-          xmlField("pacing", story.style.pacing),
-          xmlField("avoid", story.style.avoid),
-          xmlField("notes", story.style.notes),
-        ]),
+        xmlField("genre", story.genre.join(", ")),
+        xmlGroup("picks", picks),
+        xmlGroup(
+          "notes",
+          story.voice.notes.map((note) => xmlField("note", note.text)),
+        ),
       ],
       { title: story.title, structure: story.structureTemplate },
     ),

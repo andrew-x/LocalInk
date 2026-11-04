@@ -11,7 +11,7 @@ import {
   type StudioBundleOp,
   type StudioBundleOpKind,
   type StudioBundleOpOf,
-  type StudioBundleStoryPatch,
+  storyPatchKeys,
 } from "@/lib/studio/bundle-contract";
 import { applyFieldOps, normalizeEntryFields } from "@/lib/studio/entry-fields";
 
@@ -76,10 +76,11 @@ function applyStoryUpdate(
   op: StudioBundleOpOf<"story.update">,
 ): Result<"story.update"> {
   const story = requireStudioStory(tx, ctx.storyId);
-  const keys = Object.keys(op.patch) as (keyof StudioBundleStoryPatch)[];
+  const keys = storyPatchKeys(op.patch);
+  const patch = pickKeys(op.patch, keys);
   const before = pickKeys(story, keys);
-  patchStudioStory(tx, ctx.storyId, op.patch);
-  return { before, after: op.patch };
+  if (keys.length > 0) patchStudioStory(tx, ctx.storyId, patch);
+  return { before, after: patch };
 }
 
 /** New entries and their fields are AI-written. */

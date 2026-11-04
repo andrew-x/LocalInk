@@ -12,7 +12,6 @@ import {
   type StudioEntryField,
   type StudioEntryType,
   type StudioStructureTemplateId,
-  type StudioStyle,
 } from "@/lib/studio/contracts";
 import {
   applyFieldOps,
@@ -20,6 +19,12 @@ import {
   normalizeFieldLabel,
   type StudioFieldOp,
 } from "@/lib/studio/entry-fields";
+import {
+  applyStudioVoiceOps,
+  cleanGenre,
+  type StudioVoiceOp,
+} from "@/lib/studio/voice";
+import { generateId } from "@/lib/util";
 
 import {
   type BuilderDraft,
@@ -45,12 +50,15 @@ export type StorySettingsInput = {
   theme: string | null;
   structureTemplate: StudioStructureTemplateId | null;
   structureNotes: string | null;
-  style: {
-    povAndTense: string | null;
-    register: string | null;
-    pacing: string | null;
-    avoid: string | null;
-    notes: string | null;
+  genre: string[] | null;
+  voice: {
+    choose: {
+      pickId: string;
+      optionId: string | null;
+      custom: string | null;
+    }[];
+    addNotes: string[];
+    removeNoteIds: string[];
   } | null;
 };
 
@@ -87,7 +95,8 @@ const STORY_TEXT_LIMITS = {
 const STORY_KEY_LABELS: Record<keyof StudioBundleStoryPatch, string> = {
   overview: "overview",
   instructions: "instructions",
-  style: "style",
+  genre: "genre",
+  voice: "voice",
   theme: "theme",
   structureTemplate: "structure",
   structureNotes: "structure notes",
@@ -136,14 +145,42 @@ export function proposeStorySettings(
       baseline.structureTemplate = story.structureTemplate;
     }
   }
-  if (input.style !== null) {
-    const next: StudioStyle = { ...(patch.style ?? story.style) };
-    for (const key of Object.keys(next) as (keyof StudioStyle)[]) {
-      const value = input.style[key];
-      if (value !== null) next[key] = value.trim();
+  if (input.genre !== null) {
+    patch.genre = cleanGenre(input.genre);
+    if (!("genre" in baseline)) baseline.genre = story.genre;
+  }
+  if (input.voice !== null) {
+    const current = patch.voice ?? story.voice;
+    const ops: StudioVoiceOp[] = [];
+    for (const choice of input.voice.choose) {
+      if (!current.picks.some((pick) => pick.id === choice.pickId)) {
+        draft.errors.push(
+          `there is no voice pick with id ${quoted(choice.pickId, "id")}; ids come from get_overview`,
+        );
+        continue;
+      }
+      ops.push({ kind: "choose", ...choice });
     }
-    patch.style = next;
-    if (!("style" in baseline)) baseline.style = story.style;
+    for (const text of input.voice.addNotes) {
+      if (text.trim()) ops.push({ kind: "add-note", text, origin: "ai" });
+    }
+    for (const noteId of input.voice.removeNoteIds) {
+      if (!current.notes.some((note) => note.id === noteId)) {
+        draft.errors.push(
+          `there is no voice note with id ${quoted(noteId, "id")}; ids come from get_overview`,
+        );
+        continue;
+      }
+      ops.push({ kind: "remove-note", noteId });
+    }
+    if (ops.length > 0) {
+      patch.voice = applyStudioVoiceOps(
+        { genre: story.genre, voice: current, samples: [] },
+        ops,
+        generateId,
+      ).voice;
+      if (!("voice" in baseline)) baseline.voice = story.voice;
+    }
   }
   if (draft.errors.length > 0) return;
 

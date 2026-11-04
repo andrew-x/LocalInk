@@ -10,7 +10,7 @@ import {
   type StudioStoryDto,
   studioAspectSchema,
   studioChangeModeSchema,
-  studioStyleSchema,
+  studioVoiceSchema,
 } from "@/lib/studio/contracts";
 
 /**
@@ -82,7 +82,8 @@ const storyPatchSchema = z
   .object({
     overview: z.string().max(20_000),
     instructions: z.string().max(8000),
-    style: studioStyleSchema,
+    genre: z.array(z.string().max(40)).max(4),
+    voice: studioVoiceSchema,
     theme: z.string().max(2000),
     structureTemplate: z.enum([
       "romance",
@@ -98,7 +99,8 @@ const storyBaselineSchema = z
   .object({
     overview: z.string(),
     instructions: z.string(),
-    style: studioStyleSchema,
+    genre: z.array(z.string()),
+    voice: studioVoiceSchema,
     theme: z.string(),
     structureTemplate: z.enum([
       "romance",
@@ -282,6 +284,20 @@ export const studioBundleOpsInputSchema = z
 export type StudioBundleOpInput = z.infer<typeof studioBundleOpInputSchema>;
 export type StudioBundleOpKind = StudioBundleOpInput["kind"];
 export type StudioBundleStoryPatch = z.infer<typeof storyPatchSchema>;
+
+/**
+ * The keys of a stored story patch that still mean something. Pending ops
+ * proposed before the voice redesign may carry a `style` key; stored ops are
+ * not re-parsed, so readers use this to treat such keys as absent.
+ */
+export function storyPatchKeys(
+  patch: StudioBundleStoryPatch,
+): (keyof StudioBundleStoryPatch)[] {
+  const known = new Set<string>(Object.keys(storyPatchSchema.shape));
+  return Object.keys(patch).filter((key) =>
+    known.has(key),
+  ) as (keyof StudioBundleStoryPatch)[];
+}
 export type StudioBundleChangeBaseline = z.infer<typeof changeBaselineSchema>;
 export type StudioBundleChangePatch = z.infer<typeof changePatchSchema>;
 

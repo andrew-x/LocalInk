@@ -25,6 +25,7 @@ import {
   type StagedStudioPlan,
   type StudioInitialPlan,
 } from "@/lib/studio/planning-contract";
+import { cleanGenre, markStaleSamples } from "@/lib/studio/voice";
 import { generateId } from "@/lib/util";
 
 import {
@@ -199,20 +200,19 @@ function applyInitial(
   const story = requireStudioStory(tx, storyId);
 
   // Only fill what is still empty; the author's values are never replaced.
-  const style = { ...story.style };
-  for (const key of Object.keys(style) as (keyof typeof style)[]) {
-    if (!style[key].trim()) style[key] = clip(plan.style[key], MAX_TEXT);
-  }
+  const genre = story.genre.length > 0 ? story.genre : cleanGenre(plan.genre);
+  const voiceSamples = markStaleSamples(
+    { genre: story.genre, voice: story.voice },
+    { genre, voice: story.voice, samples: story.voiceSamples },
+  );
   tx.update(studioStories)
     .set({
       overview: story.overview.trim()
         ? story.overview
         : clip(plan.overview, MAX_TEXT),
-      instructions: story.instructions.trim()
-        ? story.instructions
-        : clip(plan.instructions, 8_000),
       theme: story.theme.trim() ? story.theme : clip(plan.theme, 2_000),
-      style,
+      genre,
+      voiceSamples,
       // "freeform" is the default, so it is the only value safe to replace.
       structureTemplate:
         story.structureTemplate === "freeform"

@@ -64,13 +64,18 @@ const proposeStorySettingsSchema = z.object({
   theme: nullableText,
   structureTemplate: structureTemplateSchema.nullable(),
   structureNotes: nullableText,
-  style: z
+  genre: z.array(z.string()).nullable(),
+  voice: z
     .object({
-      povAndTense: nullableText,
-      register: nullableText,
-      pacing: nullableText,
-      avoid: nullableText,
-      notes: nullableText,
+      choose: z.array(
+        z.object({
+          pickId: z.string(),
+          optionId: z.string().nullable(),
+          custom: z.string().nullable(),
+        }),
+      ),
+      addNotes: z.array(z.string()),
+      removeNoteIds: z.array(z.string()),
     })
     .nullable(),
 });
@@ -303,7 +308,7 @@ export function createStudioChatTools({
     ...read.tools,
     propose_story_settings: tool({
       description:
-        "Propose changes to story settings: overview, instructions, theme, structureTemplate, structureNotes, and style (povAndTense, register, pacing, avoid, notes). null leaves a setting unchanged; a given text replaces it entirely. Read get_overview first.",
+        "Propose changes to story settings: overview, instructions, theme, structureTemplate, structureNotes, genre (1 to 4 short shelf labels such as YA or Romance; replaces the list), and voice. null leaves a setting unchanged; a given text replaces it entirely. voice changes how the story sounds: choose sets a voice pick (pickId from get_overview, then optionId of one of its options, or custom text of your own with optionId null; both null returns it to the suggested option), addNotes adds short notes about the voice, removeNoteIds removes notes (ids from get_overview). Use empty lists for parts you do not change. Read get_overview first for the current picks and notes.",
       inputSchema: proposeStorySettingsSchema,
       execute: async (input) => charge(builder.proposeStorySettings(input)),
     }),
@@ -344,7 +349,7 @@ export function createStudioChatTools({
     }),
     write_moments: tool({
       description:
-        'Write prose for moments (saved ids, or new: moments proposed this turn), all in one scene; prose is limited to one scene per turn. Moments are written in story order, each continuing from the one before, using the story\'s prose model, instructions, and style. guidance is an optional note for this pass ("" for none). Returns word counts; the prose goes into the proposal, and get_prose can read it back.',
+        'Write prose for moments (saved ids, or new: moments proposed this turn), all in one scene; prose is limited to one scene per turn. Moments are written in story order, each continuing from the one before, using the story\'s prose model, instructions, and voice. guidance is an optional note for this pass ("" for none). Returns word counts; the prose goes into the proposal, and get_prose can read it back.',
       inputSchema: writeMomentsSchema,
       execute: writeMoments,
     }),

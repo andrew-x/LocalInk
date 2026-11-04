@@ -1,10 +1,7 @@
 import { z } from "zod";
 
 import { ActionError } from "@/lib/action-error";
-import {
-  studioChangeModeSchema,
-  studioStyleSchema,
-} from "@/lib/studio/contracts";
+import { studioChangeModeSchema } from "@/lib/studio/contracts";
 
 const id = z.string().trim().min(1).max(128);
 
@@ -119,8 +116,7 @@ const initialSceneSchema = z.object({
 
 export const studioInitialPlanSchema = z.object({
   overview: z.string(),
-  instructions: z.string(),
-  style: studioStyleSchema,
+  genre: z.array(z.string()),
   theme: z.string(),
   structureTemplate: z.enum(["romance", "coming-of-age", "quiet", "freeform"]),
   entries: z.array(

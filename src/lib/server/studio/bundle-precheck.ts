@@ -10,6 +10,7 @@ import {
   type StudioBundleOpOf,
   type StudioBundleSelectionIssue,
   type StudioBundleStoryPatch,
+  storyPatchKeys,
   studioBundleOpCreates,
   studioBundleOpCreators,
   studioBundlePendingDependents,
@@ -170,8 +171,7 @@ export function findBundleSelectionIssues(
     const since = op.baselineAt ?? proposedAt;
     switch (op.kind) {
       case "story.update": {
-        const keys = Object.keys(op.patch) as (keyof StudioBundleStoryPatch)[];
-        return keys.every((key) =>
+        return storyPatchKeys(op.patch).every((key) =>
           isDeepStrictEqual(rows.story[key], op.baseline[key]),
         )
           ? "ok"
@@ -391,8 +391,8 @@ function rebaseOp(
   switch (op.kind) {
     case "story.update": {
       const baseline: Record<string, unknown> = {};
-      for (const key of Object.keys(op.patch)) {
-        baseline[key] = rows.story[key as keyof StudioBundleStoryPatch];
+      for (const key of storyPatchKeys(op.patch)) {
+        baseline[key] = rows.story[key];
       }
       return { ...op, baseline: baseline as StudioBundleStoryPatch };
     }

@@ -143,7 +143,7 @@ export function createStudioChatReadTools({
   const tools = {
     get_overview: tool({
       description:
-        "Read the story's overview, theme, story instructions, style, structure, and counts.",
+        "Read the story's overview, theme, story instructions (the writer's own words), genre, voice picks and notes, kinds of moments, structure, and counts.",
       inputSchema: emptySchema,
       execute: async () => {
         const workspace = load();
@@ -159,7 +159,24 @@ export function createStudioChatReadTools({
           overview: story.overview,
           theme: story.theme,
           instructions: story.instructions,
-          style: story.style,
+          genre: story.genre,
+          picks: story.voice.picks.map((pick) => ({
+            id: pick.id,
+            label: pick.label,
+            question: pick.question,
+            options: pick.options.map((option) => ({
+              id: option.id,
+              label: option.label,
+            })),
+            suggestedOptionId: pick.suggestedOptionId,
+            chosenOptionId: pick.chosenOptionId,
+            custom: pick.custom,
+          })),
+          notes: story.voice.notes.map((note) => ({
+            id: note.id,
+            text: note.text,
+          })),
+          momentKinds: story.voice.moments.map((moment) => moment.kind),
           structure: {
             template: story.structureTemplate,
             label: template?.label ?? story.structureTemplate,

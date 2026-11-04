@@ -142,7 +142,6 @@ export type StudioStoryDto = {
   title: string;
   overview: string;
   instructions: string;
-  style: StudioStyle;
   genre: string[];
   voice: StudioVoice;
   theme: string;
@@ -266,12 +265,35 @@ export const studioChangeModeSchema = z.enum(["set", "add"]);
 /** Stored aspect labels: 1-60 characters once trimmed. */
 export const studioAspectSchema = z.string().trim().min(1).max(60);
 
-export const studioStyleSchema = z.object({
-  povAndTense: z.string(),
-  register: z.string(),
-  pacing: z.string(),
-  avoid: z.string(),
-  notes: z.string(),
+export const studioVoiceSchema = z.object({
+  picks: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      question: z.string(),
+      why: z.string(),
+      options: z.array(
+        z.object({ id: z.string(), label: z.string(), hint: z.string() }),
+      ),
+      suggestedOptionId: z.string(),
+      chosenOptionId: z.string().nullable(),
+      custom: z.string().nullable(),
+    }),
+  ),
+  notes: z.array(
+    z.object({
+      id: z.string(),
+      text: z.string(),
+      origin: z.enum(["author", "ai"]),
+    }),
+  ),
+  moments: z.array(
+    z.object({
+      id: z.string(),
+      kind: z.string(),
+      planItemId: z.string().nullable(),
+    }),
+  ),
 });
 
 export const studioFieldsSchema = z.record(
@@ -297,14 +319,6 @@ export const studioFlagPayloadSchema = z.discriminatedUnion("kind", [
     changeId: z.string().min(1),
   }),
 ]);
-
-export const EMPTY_STUDIO_STYLE: StudioStyle = {
-  povAndTense: "",
-  register: "",
-  pacing: "",
-  avoid: "",
-  notes: "",
-};
 
 export const EMPTY_STUDIO_VOICE: StudioVoice = {
   picks: [],
