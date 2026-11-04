@@ -5,7 +5,6 @@ import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type {
   StudioChangeDto,
   StudioPlanItemDto,
-  StudioStyle,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
 import { getInstructionStack } from "@/lib/studio/instructions";
@@ -14,8 +13,9 @@ import {
   getOrderedMoments,
   getPlanIndex,
 } from "@/lib/studio/plan-order";
-import { hashText, tailParagraphs } from "@/lib/studio/prose-text";
+import { tailParagraphs } from "@/lib/studio/prose-text";
 import { changesComingOut, computeStateGoingIn } from "@/lib/studio/state";
+import { promptVoiceSamples } from "@/lib/studio/voice";
 
 import {
   budgetPrompt,
@@ -25,35 +25,24 @@ import {
   xmlField,
   xmlGroup,
 } from "./prompt-kit";
+import {
+  STUDIO_LENGTH_RULE,
+  STUDIO_PROSE_RULE_LINES,
+  voicePromptSection,
+  voiceSamplesPromptSection,
+} from "./voice-prompt";
 
 export type StudioMomentAttempt = "first" | "again";
 
-const MOMENT_BASE_OUTPUT_TOKENS = 1_100;
+const MOMENT_BASE_OUTPUT_TOKENS = 1_800;
 const PREVIOUS_TEXT_PARAGRAPHS = 2;
-const MAX_VOICE_SAMPLES = 2;
 // Same idea as the story prose route: a fresh alternative needs more
 // sampling room to differ from the draft the author just set aside.
 const AGAIN_TEMPERATURE_BOOST = 0.13;
 const MAX_TEMPERATURE = 1;
 
-const EMPTY_STYLE: StudioStyle = {
-  povAndTense: "",
-  register: "",
-  pacing: "",
-  avoid: "",
-  notes: "",
-};
-
-const STYLE_FIELDS: { key: keyof StudioStyle; tag: string }[] = [
-  { key: "povAndTense", tag: "pov_and_tense" },
-  { key: "register", tag: "register" },
-  { key: "pacing", tag: "pacing" },
-  { key: "avoid", tag: "avoid" },
-  { key: "notes", tag: "notes" },
-];
-
 const SYSTEM_PROMPT = [
-  "You write one moment of a longer piece of fiction at a time. The prompt gives you the story's instructions and style, the Bible entries in play, summaries of what came before, the text immediately before this moment, and a brief for this moment.",
+  "You write one moment of a longer piece of fiction at a time. The prompt gives you the story's instructions and voice, the Bible entries in play, summaries of what came before, the text immediately before this moment, and a brief for this moment.",
   "",
   "Writing contract:",
   "- Write only this moment, in the story's point of view and tense. Do not write the next moment; material marked do-not-write is there only so you can set it up.",
@@ -62,11 +51,11 @@ const SYSTEM_PROMPT = [
   "- `by_the_end_of_this_moment` lists changes this moment must bring about. `scene_heading_toward` and `chapter_heading_toward` show where the larger arc is going; they may land in later moments, so do not force them here unless this moment's brief calls for them.",
   '- Fields marked use="steer-only-never-narrate" are background that shapes your choices. Never state them, hint at them as exposition, or narrate them.',
   "- Do not narrate character-sheet traits or backstory as description. Let them show only through what the character does and notices in this moment.",
-  "- Match intensity to the stakes of the moment. Small moments stay small.",
-  "- Follow the writer's instructions and style. Where they conflict, the more specific instruction wins. They shape voice, not canon: established facts and what each character knows outrank them.",
+  ...STUDIO_PROSE_RULE_LINES,
+  "- Follow the writer's instructions and voice. Where they conflict, the more specific instruction wins. They shape voice, not canon: established facts and what each character knows outrank them.",
   "- `this_scene_in_the_authors_words` and `this_chapter_in_the_authors_words` are the writer's plan for the scene and chapter around this moment. Text marked author=\"true\" is the writer's own direction and outranks AI scaffolding (`how_to_write`, craft fields, descriptions not marked author, entry details). It does not outrank established facts.",
   "- When a Bible entry's own words (`in_the_authors_words`) and its details disagree, its own words win.",
-  "- Aim for roughly 150 to 450 words.",
+  STUDIO_LENGTH_RULE,
   "- Output the prose only. No title, heading, notes, preamble, options, or commentary.",
   "",
   "Avoid:",
@@ -125,24 +114,6 @@ function section(
   };
 }
 
-function pickVoiceSamples(
-  workspace: StudioWorkspace,
-  momentId: string,
-  attempt: StudioMomentAttempt,
-) {
-  const samples = workspace.story.voiceSamples.filter(
-    (sample) => sample.text.trim().length > 0,
-  );
-  if (samples.length === 0) return [];
-  const start =
-    Number.parseInt(hashText(momentId + attempt), 16) % samples.length;
-  const count = Math.min(MAX_VOICE_SAMPLES, samples.length);
-  return Array.from(
-    { length: count },
-    (_, offset) => samples[(start + offset) % samples.length],
-  );
-}
-
 /**
  * `proseOverlay` maps moment ids to prose proposed but not saved (the agent
  * chat writing several moments in one turn). It stands in for the saved
@@ -154,7 +125,7 @@ export function buildStudioMomentPrompt(
   momentId: string,
   globalInstructions: string,
   profile: LocalinkAiModelProfile,
-  attempt: StudioMomentAttempt = "first",
+  _attempt: StudioMomentAttempt = "first",
   proseOverlay?: ReadonlyMap<string, string>,
   note?: string | null,
 ): { system: string; prompt: string; maxOutputTokens: number } {
@@ -175,12 +146,10 @@ export function buildStudioMomentPrompt(
   );
   const sections: StudioPromptSection[] = [];
 
-  // 1. Instruction stack. Style is its own section, so keep it out of the
-  // story layer here.
+  // 1. Instruction stack. The story's own words travel in the voice section.
   const layers = getInstructionStack(
     {
       globalInstructions,
-      story: { ...workspace.story, style: EMPTY_STYLE },
       planItems: workspace.planItems,
     },
     momentId,
@@ -224,18 +193,8 @@ export function buildStudioMomentPrompt(
     );
   }
 
-  // 2. Style.
-  sections.push(
-    section(
-      "style",
-      xmlGroup(
-        "style",
-        STYLE_FIELDS.map(({ key, tag }) =>
-          xmlField(tag, workspace.story.style[key]),
-        ),
-      ),
-    ),
-  );
+  // 2. Voice.
+  sections.push(section("voice", voicePromptSection(workspace.story)));
 
   // 3. Bible: this moment's and its scene's present entries, as of this moment.
   const bibleIds = new Set(selectMomentEntryIds(workspace.planItems, momentId));
@@ -293,7 +252,6 @@ export function buildStudioMomentPrompt(
     );
   });
   const nextMomentDropOrder = earlier.length;
-  const voiceSamplesDropOrder = earlier.length + 1;
 
   // 5. Previous written moment's tail.
   const moments = getOrderedMoments(workspace.planItems);
@@ -384,20 +342,12 @@ export function buildStudioMomentPrompt(
     );
   }
 
-  // 8. Voice samples, rotated per moment and attempt.
-  const samples = pickVoiceSamples(workspace, momentId, attempt);
+  // 8. Voice samples. Unprotected with no dropOrder, so they drop last.
   sections.push(
     section(
       "voice-samples",
-      xmlGroup(
-        "voice_samples",
-        samples.map((sample) =>
-          xmlField("sample", sample.text, {
-            label: sample.kind.trim() || undefined,
-          }),
-        ),
-      ),
-      { protected: false, dropOrder: voiceSamplesDropOrder },
+      voiceSamplesPromptSection(promptVoiceSamples(workspace.story)),
+      { protected: false },
     ),
   );
 

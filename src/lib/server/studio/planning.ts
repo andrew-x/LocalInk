@@ -156,7 +156,6 @@ function instructionsBlock(
   const layers = getInstructionStack(
     {
       globalInstructions,
-      story: workspace.story,
       planItems: workspace.planItems,
     },
     itemId,
