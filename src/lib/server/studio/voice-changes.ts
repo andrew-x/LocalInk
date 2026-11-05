@@ -3,6 +3,7 @@ import "server-only";
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import type { StudioStoryDto } from "@/lib/studio/contracts";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 import {
   effectivePickChoice,
   STUDIO_VOICE_LIMITS,
@@ -17,7 +18,7 @@ import {
   xmlGroup,
 } from "./prompt-kit";
 
-const OUTPUT_TOKENS = 1_200;
+const OUTPUT_TOKENS = 4_000;
 const TEMPERATURE = 0.4;
 const MAX_NEW_NOTES = 3;
 
@@ -51,7 +52,7 @@ export async function interpretStudioVoiceComplaint(
   signal: AbortSignal,
 ): Promise<StudioVoiceOp[]> {
   const { story } = input;
-  const profile = LOCALINK_AI_MODEL_PROFILES[story.chatModel];
+  const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_ASSIST_MODEL];
 
   const sections: StudioPromptSection[] = [
     section("sample", xmlField("sample", input.sampleText)),
@@ -111,7 +112,7 @@ export async function interpretStudioVoiceComplaint(
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   const result = await generateLocalinkObject({
-    model: story.chatModel,
+    model: STUDIO_ASSIST_MODEL,
     system: SYSTEM_PROMPT,
     prompt: budgeted.prompt,
     maxOutputTokens: budgeted.maxOutputTokens,

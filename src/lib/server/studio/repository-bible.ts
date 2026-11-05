@@ -15,10 +15,6 @@ import {
   studioStories,
 } from "@/lib/drizzle/schema";
 import {
-  DEFAULT_STORY_GENERATION_MODEL,
-  type StoryGenerationModel,
-} from "@/lib/story-generation-models";
-import {
   STUDIO_MAX_ENTRY_FIELDS,
   type StudioAspect,
   type StudioChangeDto,
@@ -73,8 +69,6 @@ export function insertStudioStory(
       brainDump: input.brainDump,
       instructions: input.instructions ?? "",
       voiceSamples: [],
-      proseModel: DEFAULT_STORY_GENERATION_MODEL,
-      chatModel: DEFAULT_STORY_GENERATION_MODEL,
       createdAt: now,
       updatedAt: now,
     })
@@ -92,8 +86,6 @@ export type StudioStoryPatch = Partial<{
   structureNotes: string;
   genre: string[];
   voice: StudioVoice;
-  proseModel: StoryGenerationModel;
-  chatModel: StoryGenerationModel;
 }>;
 
 /** Settings fields have a single writer, so the last write wins. */

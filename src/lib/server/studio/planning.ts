@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { ActionError } from "@/lib/action-error";
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
+import { getDb } from "@/lib/drizzle/db";
 import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
 import {
   STUDIO_CRAFT_FIELDS,
@@ -48,6 +49,7 @@ import {
   xmlField,
   xmlGroup,
 } from "./prompt-kit";
+import { listReplaceableBeats } from "./replan";
 import { voicePromptSection, voiceSamplesPromptSection } from "./voice-prompt";
 
 export type { StagedStudioPlan } from "@/lib/studio/planning-contract";
@@ -56,10 +58,12 @@ const MODEL = DEFAULT_STORY_GENERATION_MODEL;
 const PROFILE = LOCALINK_AI_MODEL_PROFILES[MODEL];
 const FLESH_OUT_CONCURRENCY = 3;
 
+// Runaway guards with wide headroom over the largest real plans, not length
+// limits: a length finish discards the whole plan.
 const OUTPUT_TOKENS = {
-  questions: 1_500,
-  initial: 20_000,
-  children: 8_000,
+  questions: 4_000,
+  initial: 48_000,
+  children: 16_000,
 } as const;
 
 const PLANNER_RULES = [
@@ -546,6 +550,7 @@ async function generateChildren(
   globalInstructions: string,
   parent: StudioPlanItemDto,
   abortSignal: AbortSignal,
+  note?: string,
 ): Promise<{ parentId: string; items: StagedFleshOutItems }> {
   const childKind = childKindOf(parent);
   const states = computeStateGoingIn(stateInputFor(workspace), parent.id);
@@ -563,7 +568,10 @@ async function generateChildren(
       ASPECT_GUIDANCE +
       " Never restate a carried change in plannedChanges. Leave either list empty when it has nothing.",
     "Respect the state of each entry going in (shown in the Bible): characters do not know, believe, or have what they have not yet learned or gained at this point.",
-  ].join("\n");
+    note,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const output = await generateJson({
     schema: studioChildrenSchema,
@@ -698,6 +706,66 @@ async function generateFleshOut(
   return { mode: "flesh-out", targetItemId: request.targetItemId, groups };
 }
 
+const REPLAN_NOTE =
+  "The author revised the target's what_happens, so its earlier unwritten beats were set aside. Plan the beats the target needs as it reads now. Any beats still listed under it are written or the author's own: keep them and add the rest after them.";
+
+/**
+ * Plans a scene's beats again after its description changed. The replaced
+ * beats are left out of the prompt, and their changes are shown on the scene
+ * so the new beats can carry them, which is what apply does too.
+ */
+async function generateReplan(
+  request: Extract<StudioPlanRequest, { mode: "replan" }>,
+  workspace: StudioWorkspace,
+  globalInstructions: string,
+  abortSignal: AbortSignal,
+): Promise<StagedStudioPlan> {
+  const scene = workspace.planItems.find(
+    (item) => item.id === request.targetItemId,
+  );
+  if (!scene) throw new StudioNotFoundError();
+  if (scene.kind !== "scene") {
+    throw new StudioBadRequestError("Only a scene's beats can be replanned.");
+  }
+  const replaced = getDb().transaction((tx) =>
+    listReplaceableBeats(tx, workspace.story.id, scene.id),
+  );
+  const hasBeats = workspace.planItems.some(
+    (item) => item.parentId === scene.id,
+  );
+  if (hasBeats && replaced.length === 0) {
+    throw new StudioBadRequestError(
+      "Every beat in this scene is written or edited by you, so there is nothing to replan.",
+    );
+  }
+
+  const replacedIds = new Set(replaced.map((beat) => beat.id));
+  const view: StudioWorkspace = {
+    ...workspace,
+    planItems: workspace.planItems.filter((item) => !replacedIds.has(item.id)),
+    prose: workspace.prose.filter((prose) => !replacedIds.has(prose.momentId)),
+    changes: workspace.changes.map((change) =>
+      replacedIds.has(change.planItemId)
+        ? { ...change, planItemId: scene.id }
+        : change,
+    ),
+  };
+  const { items } = await generateChildren(
+    view,
+    globalInstructions,
+    scene,
+    abortSignal,
+    REPLAN_NOTE,
+  );
+  return {
+    mode: "replan",
+    targetItemId: scene.id,
+    sceneWhatHappens: scene.whatHappens,
+    replaced,
+    items,
+  };
+}
+
 export async function generateStudioPlan(
   request: StudioPlanRequest,
   workspace: StudioWorkspace,
@@ -714,6 +782,13 @@ export async function generateStudioPlan(
       );
     case "flesh-out":
       return generateFleshOut(
+        request,
+        workspace,
+        globalInstructions,
+        abortSignal,
+      );
+    case "replan":
+      return generateReplan(
         request,
         workspace,
         globalInstructions,

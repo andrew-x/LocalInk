@@ -8,6 +8,7 @@ import type {
   StudioVoicePick,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 import { flattenPlan } from "@/lib/studio/plan-order";
 import { STUDIO_VOICE_LIMITS } from "@/lib/studio/voice";
 import {
@@ -24,7 +25,7 @@ import {
   xmlGroup,
 } from "./prompt-kit";
 
-const OUTPUT_TOKENS = 2_500;
+const OUTPUT_TOKENS = 8_000;
 const TEMPERATURE = 0.6;
 const OUTLINE_CLIP_CHARS = 160;
 const MAX_PICKS = { setup: 5, more: 3 } as const;
@@ -87,7 +88,7 @@ export async function generateStudioVoicePicks(
   abortSignal?: AbortSignal,
 ): Promise<StagedStudioVoicePicks> {
   const { story } = workspace;
-  const profile = LOCALINK_AI_MODEL_PROFILES[story.chatModel];
+  const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_ASSIST_MODEL];
   const system = `${BASE_SYSTEM_PROMPT}\n${
     mode === "setup" ? SETUP_MOMENTS_LINE : MORE_MOMENTS_LINE
   }`;
@@ -120,7 +121,7 @@ export async function generateStudioVoicePicks(
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   const result = await generateLocalinkObject({
-    model: story.chatModel,
+    model: STUDIO_ASSIST_MODEL,
     system,
     prompt: budgeted.prompt,
     maxOutputTokens: budgeted.maxOutputTokens,

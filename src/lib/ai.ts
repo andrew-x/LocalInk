@@ -28,7 +28,8 @@ export type LocalinkAiModelProfile = {
   reasoningOutputTokenAllowance: number;
 };
 
-// Venice /models checked 2026-10-28 (DeepSeek rechecked 2026-10-31). Kimi is an
+// Venice /models checked 2026-10-28 (DeepSeek V4 Pro and V4.1 Flash 1017
+// Uncensored rechecked 2026-11-05: both Private, 1M context). Kimi is an
 // explicitly accepted Anonymized choice; other Venice profiles are Private.
 // OpenRouter Mistral's mistral/zdr endpoint checked 2026-10-31. Never substitute
 // another model or provider.
@@ -46,7 +47,7 @@ export const LOCALINK_AI_MODEL_PROFILES = {
     model: "deepseek-v4-pro-0813",
     provider: "venice",
     contextWindowTokens: 1_000_000,
-    maxCompletionTokens: 32_768,
+    maxCompletionTokens: 262_144,
     temperature: 0.82,
     reasoningEffort: "none",
     reasoningOutputTokenAllowance: 0,

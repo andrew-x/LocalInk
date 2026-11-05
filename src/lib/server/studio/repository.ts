@@ -82,8 +82,6 @@ export function toStoryDto(row: StudioStoryRow): StudioStoryDto {
     structureNotes: row.structureNotes,
     brainDump: row.brainDump,
     voiceSamples: row.voiceSamples,
-    proseModel: row.proseModel,
-    chatModel: row.chatModel,
     setupStatus: row.setupStatus,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

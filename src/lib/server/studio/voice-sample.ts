@@ -4,6 +4,7 @@ import { generateLocalinkText, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
 import type { StudioEntryDto, StudioWorkspace } from "@/lib/studio/contracts";
 import { getInstructionStack } from "@/lib/studio/instructions";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import { getPlanIndex } from "@/lib/studio/plan-order";
 import {
   promptVoiceSamples,
@@ -26,8 +27,12 @@ import {
   voiceSamplesPromptSection,
 } from "./voice-prompt";
 
-/** About 1,000 tokens covers a 400-word passage with room to spare. */
-const SAMPLE_OUTPUT_TOKENS = 1_000;
+/**
+ * A runaway guard, not a length limit: about 10x a normal passage. A length
+ * finish discards the sample, and this call does not stream, so there is no
+ * Stop to end a runaway early.
+ */
+const SAMPLE_OUTPUT_TOKENS = 8_000;
 const MAX_CAST = 6;
 const FALLBACK_CAST = 3;
 
@@ -132,7 +137,7 @@ export async function generateStudioVoiceSample(
     workspace.planItems.some((item) => item.id === input.planItemId)
       ? input.planItemId
       : null;
-  const profile = LOCALINK_AI_MODEL_PROFILES[story.proseModel];
+  const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_PROSE_MODEL];
   const kindKey = input.kind.trim().toLowerCase();
   const others = promptVoiceSamples(story).filter(
     (sample) => sample.kind.trim().toLowerCase() !== kindKey,
@@ -178,7 +183,7 @@ export async function generateStudioVoiceSample(
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   const result = await generateLocalinkText({
-    model: story.proseModel,
+    model: STUDIO_PROSE_MODEL,
     system: SYSTEM_PROMPT,
     prompt: budgeted.prompt,
     maxOutputTokens: budgeted.maxOutputTokens,

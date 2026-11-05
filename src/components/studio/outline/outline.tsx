@@ -31,7 +31,7 @@ import { studioOutlineLineId } from "@/components/studio/workspace/workspace-anc
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
 import { buildPlanTree, type StudioPlanNode } from "@/lib/studio/plan-order";
 
-import { ChapterBlock } from "./chapter-block";
+import { ChapterBlock, focusChapterDescription } from "./chapter-block";
 import { focusSceneCard } from "./scene-card";
 import { StoryLine } from "./story-line";
 import { useOutlineFocusTracker, useOutlineOpen } from "./use-outline-open";
@@ -332,7 +332,7 @@ export function Outline() {
     const created = await actions.addChapter();
     if (!created) return;
     openChapter(created.id);
-    setRenamingId(created.id);
+    focusChapterDescription(created.id);
   }
 
   return (

@@ -34,7 +34,6 @@ import {
 
 export type StudioMomentAttempt = "first" | "again";
 
-const MOMENT_BASE_OUTPUT_TOKENS = 1_800;
 const PREVIOUS_TEXT_PARAGRAPHS = 2;
 // Same idea as the story prose route: a fresh alternative needs more
 // sampling room to differ from the draft the author just set aside.
@@ -360,7 +359,9 @@ export function buildStudioMomentPrompt(
     system,
     sections,
     contextWindowTokens: profile.contextWindowTokens,
-    maxOutputTokens: MOMENT_BASE_OUTPUT_TOKENS,
+    // No length cap: the prompt sets length, and a cut-off draft is discarded.
+    // The profile's ceiling only guards a runaway, which Stop also ends.
+    maxOutputTokens: profile.maxCompletionTokens,
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   // The author's one-off request goes after the budgeted prompt, as in the

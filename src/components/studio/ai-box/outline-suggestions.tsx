@@ -14,6 +14,7 @@ import {
   type StudioBundleOpDto,
 } from "@/lib/studio/bundle-contract";
 import type { StudioEntryDto, StudioPlanItemDto } from "@/lib/studio/contracts";
+import { PLAN_ITEM_PLACEHOLDER, planItemLabel } from "@/lib/studio/plan-labels";
 import { cn } from "@/lib/util";
 
 import {
@@ -152,10 +153,12 @@ export function SuggestionLine({ item }: { item: ProposedPlanItem }) {
   const { proposedUnder } = useOutlineSuggestions();
   const children = proposedUnder(item.tempId);
   const isBeat = item.kind === "moment";
-  const title =
-    item.title.trim() ||
-    (item.kind === "chapter" ? "Untitled chapter" : "Untitled scene");
-  const main = isBeat ? startOf(item.whatHappens) || item.label : title;
+  // Untitled chapters and scenes lead with their description, like beats.
+  const title = isBeat ? "" : item.title.trim();
+  const main =
+    title ||
+    startOf(item.whatHappens) ||
+    (isBeat ? item.label : PLAN_ITEM_PLACEHOLDER[item.kind]);
   const kindLabel =
     item.kind === "chapter"
       ? "New chapter"
@@ -176,18 +179,18 @@ export function SuggestionLine({ item }: { item: ProposedPlanItem }) {
         <span
           className={cn(
             "min-w-0 text-foreground/90",
-            isBeat ? "flex-1 truncate" : "max-w-[60%] shrink-0 truncate",
+            title ? "max-w-[60%] shrink-0 truncate" : "flex-1 truncate",
             item.kind === "chapter" && "font-semibold",
             item.kind === "scene" && "font-medium",
           )}
         >
           {main}
         </span>
-        {isBeat ? null : (
+        {title ? (
           <span className="min-w-0 flex-1 truncate text-muted-foreground/80">
             {startOf(item.whatHappens)}
           </span>
-        )}
+        ) : null}
         <SuggestionButtons
           bundleId={item.bundleId}
           label={item.label}
@@ -331,10 +334,10 @@ function planTitle(
 ): string {
   if (isStudioBundleTempRef(ref)) {
     const proposed = preview.proposedPlanItems.find((p) => p.tempId === ref);
-    return proposed?.title.trim() || "a new item";
+    return proposed ? planItemLabel(proposed) : "a new item";
   }
   const item = planItems.find((candidate) => candidate.id === ref);
-  return item?.title.trim() || `an untitled ${item?.kind ?? "item"}`;
+  return item ? planItemLabel(item) : "an item that no longer exists";
 }
 
 /** A suggested move or delete of a saved line, as a violet note under it. */

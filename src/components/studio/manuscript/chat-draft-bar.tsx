@@ -11,6 +11,7 @@ import {
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import { isStudioBundleTempRef } from "@/lib/studio/bundle-contract";
 import type { StudioPlanItemDto, StudioProseDto } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import { getOrderedMoments } from "@/lib/studio/plan-order";
 
 import {
@@ -117,7 +118,7 @@ export function ChatDraftBar({
   const send = useChatSend();
   const [keeping, setKeeping] = useState(false);
   const scene = state.planItems.find((item) => item.id === sceneId);
-  const title = scene?.title.trim() || "Untitled scene";
+  const title = scene ? planItemLabel(scene) : "This scene";
   const draft: SceneDraft = { sceneId, beats, status: "ready" };
   const issues = [
     ...new Set(

@@ -13,6 +13,7 @@ import {
 import { usePlanTreeActions } from "@/components/studio/workspace/use-plan-tree-actions";
 import { studioOutlineLineId } from "@/components/studio/workspace/workspace-anchors";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
+import { PLAN_ITEM_PLACEHOLDER, planItemLabel } from "@/lib/studio/plan-labels";
 import { cn } from "@/lib/util";
 
 import { type OutlineStatus, useOutlineView } from "./use-outline-view";
@@ -42,8 +43,6 @@ export function StatusDot({ status }: { status: OutlineStatus }) {
     />
   );
 }
-
-export const UNTITLED = { chapter: "Untitled", scene: "Untitled scene" };
 
 type OutlineLineProps = {
   item: StudioPlanItemDto;
@@ -81,8 +80,8 @@ export function OutlineLine({
   const isChapter = item.kind === "chapter";
   const renaming = renamingId === item.id;
   const hint = drop?.targetId === item.id ? drop.hint : null;
-  const title =
-    item.title.trim() || (isChapter ? UNTITLED.chapter : UNTITLED.scene);
+  const title = item.title.trim();
+  const description = item.whatHappens.trim();
 
   function handleClick(event: MouseEvent<HTMLDivElement>) {
     // Clicks from the actions, including their portaled menus, are theirs.
@@ -115,7 +114,7 @@ export function OutlineLine({
       ) : null}
       <div
         aria-expanded={isOpen}
-        aria-label={`${number !== undefined ? `Chapter ${number}: ` : ""}${title} (${STATUS_LABEL[status].toLowerCase()})`}
+        aria-label={`${number !== undefined ? `Chapter ${number}: ` : ""}${planItemLabel(item)} (${STATUS_LABEL[status].toLowerCase()})`}
         aria-level={isChapter ? 1 : 2}
         className={cn(
           "group/line flex h-7 min-w-0 cursor-pointer select-none items-center gap-2 whitespace-nowrap rounded-md px-2 font-normal text-label-sm outline-none transition-colors hover:bg-foreground/5 focus-visible:ring-2 focus-visible:ring-ring/40",
@@ -148,22 +147,38 @@ export function OutlineLine({
         ) : null}
         {renaming ? (
           <RenameInput item={item} />
-        ) : (
+        ) : title ? (
           <span
             className={cn(
               "max-w-[70%] shrink-0 truncate",
               isChapter ? "font-semibold" : "font-medium",
-              !item.title.trim() && "text-muted-foreground italic",
               status === "planned" && !isChapter && "text-muted-foreground",
             )}
           >
             {title}
           </span>
+        ) : (
+          // Titles are optional: the description stands in for one.
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate",
+              isChapter ? "font-semibold" : "font-medium",
+              !description && "text-muted-foreground italic",
+              status === "planned" && !isChapter && "text-muted-foreground",
+            )}
+          >
+            {/* An open chapter shows its whole description below the line. */}
+            {isChapter && isOpen
+              ? ""
+              : description || PLAN_ITEM_PLACEHOLDER[item.kind]}
+          </span>
         )}
-        <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground/80">
-          {/* An open chapter shows its whole description below the line. */}
-          {renaming || (isChapter && isOpen) ? "" : item.whatHappens}
-        </span>
+        {renaming || title ? (
+          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground/80">
+            {/* An open chapter shows its whole description below the line. */}
+            {renaming || (isChapter && isOpen) ? "" : item.whatHappens}
+          </span>
+        ) : null}
         {wordCount ? (
           <span className="shrink-0 text-caption text-muted-foreground/80 tabular-nums">
             {wordCount.toLocaleString()}

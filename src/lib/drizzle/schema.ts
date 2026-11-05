@@ -366,10 +366,12 @@ export const studioStories = sqliteTable(
       .$type<StudioVoiceSample[]>()
       .notNull()
       .default(emptyJsonArraySql),
+    // Unused since Studio fixed its models; kept so no table rebuild is needed.
     proseModel: text("prose_model")
       .$type<StoryGenerationModel>()
       .notNull()
       .default(DEFAULT_STORY_GENERATION_MODEL),
+    // Unused since Studio fixed its models; kept so no table rebuild is needed.
     chatModel: text("chat_model")
       .$type<StoryGenerationModel>()
       .notNull()

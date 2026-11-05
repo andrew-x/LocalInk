@@ -8,7 +8,7 @@ import {
   studioErrorResponse,
   toStudioRouteError,
 } from "@/lib/server/studio/route-kit";
-import { DEFAULT_STORY_GENERATION_MODEL } from "@/lib/story-generation-models";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import { studioRewriteRequestSchema } from "@/lib/studio/rewrite-contract";
 
 export const runtime = "nodejs";
@@ -36,7 +36,7 @@ export async function POST(request: Request): Promise<Response> {
     ids.momentId = input.momentId;
     log.start({
       mode: input.mode,
-      model: DEFAULT_STORY_GENERATION_MODEL,
+      model: STUDIO_PROSE_MODEL,
       selectionChars: input.selectedText.length,
     });
 

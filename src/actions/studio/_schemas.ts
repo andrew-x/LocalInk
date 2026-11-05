@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { storyGenerationModelSchema } from "@/lib/story-generation-models";
 import { STUDIO_BUNDLE_MAX_OPS } from "@/lib/studio/bundle-contract";
 import { STUDIO_CHAT_MAX_MESSAGE_CHARS } from "@/lib/studio/chat-contract";
 import {
@@ -69,9 +68,6 @@ export const updateStudioStoryActionSchema = z.object({
       theme: z.string().max(2000),
       structureTemplate: structureTemplateSchema,
       structureNotes: z.string().max(8000),
-      proseModel: storyGenerationModelSchema,
-      // Only configured profiles, all of which support tool calling.
-      chatModel: storyGenerationModelSchema,
     })
     .partial(),
 });
@@ -261,7 +257,7 @@ export const restoreStudioProseVersionActionSchema = z.object({
 export const applyStudioPlanActionSchema = z.object({
   ...storyIdField,
   generationId: id,
-  mode: z.enum(["initial", "flesh-out"]),
+  mode: z.enum(["initial", "flesh-out", "replan"]),
   targetItemId: id.optional(),
 });
 

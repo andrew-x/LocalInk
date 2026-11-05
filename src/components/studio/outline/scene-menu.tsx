@@ -68,8 +68,16 @@ export function OutlineMenu({
   );
 }
 
-/** The scene card's ⋯: Versions…, Re-read, Delete. */
-export function SceneMenu({ scene }: { scene: StudioPlanNode }) {
+/** The scene card's ⋯: Replan beats, Versions…, Re-read, Delete. */
+export function SceneMenu({
+  canReplan,
+  onReplan,
+  scene,
+}: {
+  canReplan: boolean;
+  onReplan: () => void;
+  scene: StudioPlanNode;
+}) {
   const { state, dispatch } = useStudioStore();
   const proseByMoment = useProseByMomentId();
   const { remove } = usePlanTreeActions();
@@ -137,6 +145,14 @@ export function SceneMenu({ scene }: { scene: StudioPlanNode }) {
         onOpenChange={setMenuOpen}
         open={menuOpen}
       >
+        <button
+          className={MENU_ITEM_CLASS}
+          disabled={!canReplan}
+          onClick={() => choose(onReplan)}
+          type="button"
+        >
+          Replan beats
+        </button>
         <button
           className={MENU_ITEM_CLASS}
           onClick={() => choose(() => setVersionsOpen(true))}

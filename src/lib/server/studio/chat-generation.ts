@@ -9,6 +9,7 @@ import type {
   StudioChatStep,
 } from "@/lib/studio/chat-contract";
 import type { StudioWorkspace } from "@/lib/studio/contracts";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 
 import { StudioBundleBuilder } from "./bundle-builder";
 import {
@@ -35,7 +36,7 @@ import { StudioContextTooLargeError } from "./prompt-kit";
 const OUTPUT_RESERVE = 32_768;
 const TOOL_FRAMING_RESERVE = 16_384;
 const MAX_STEPS = 12;
-const MAX_OUTPUT_TOKENS = 16_384;
+const MAX_OUTPUT_TOKENS = 32_768;
 const MAX_TEMPERATURE = 0.8;
 
 function byteSize(value: unknown): number {
@@ -59,7 +60,7 @@ export function createStudioChatGeneration({
   onProgress: (step: StudioChatStep) => void;
 }) {
   const storyId = workspace.story.id;
-  const profile = LOCALINK_AI_MODEL_PROFILES[workspace.story.chatModel];
+  const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_ASSIST_MODEL];
   const builder = new StudioBundleBuilder(storyId);
   const budget: StudioChatToolBudget = { remaining: 0 };
   const { tools, schemas } = createStudioChatTools({

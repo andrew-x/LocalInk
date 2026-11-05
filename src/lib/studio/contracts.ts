@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { StoryGenerationModel } from "@/lib/story-generation-models";
 import type { StudioBundleDto } from "@/lib/studio/bundle-contract";
 
 export type StudioEntryType =
@@ -149,9 +148,6 @@ export type StudioStoryDto = {
   structureNotes: string;
   brainDump: string;
   voiceSamples: StudioVoiceSample[];
-  proseModel: StoryGenerationModel;
-  /** The agent chat's model; one of the existing generation profiles. */
-  chatModel: StoryGenerationModel;
   setupStatus: StudioSetupStatus;
   createdAt: string;
   updatedAt: string;

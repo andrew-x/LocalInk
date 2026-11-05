@@ -20,6 +20,7 @@ import {
   studioSceneAnchorId,
 } from "@/components/studio/workspace/workspace-anchors";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 
 import { ChatDraftBar, chatDraftsOf } from "./chat-draft-bar";
 import {
@@ -105,7 +106,7 @@ function LoopDraftBar({ draft }: { draft: SceneDraft }) {
           ? `scene ${queue.index} of ${queue.total} in this chapter`
           : null
       }
-      title={scene?.title.trim() || "Untitled scene"}
+      title={scene ? planItemLabel(scene) : "This scene"}
     />
   );
 }
@@ -224,7 +225,7 @@ export function Manuscript() {
                     onFocusMoment={handleFocusMoment}
                     prose={proseById.get(block.moment.id)}
                     storyId={storyId}
-                    title={block.moment.title}
+                    title={planItemLabel(block.moment)}
                   />
                 </div>
               );

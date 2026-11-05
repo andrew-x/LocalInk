@@ -73,7 +73,16 @@ Read-back summarizes a moment and reconciles it against planned changes.
 
 Plan items list `authorFields`, and entry fields carry `author`. AI apply paths skip or only fill around author-owned content. Initial planning merges fields by normalized label (`mergeAiFields`): author fields are untouched, AI fields may be refreshed, empty-value proposals are ignored, and read-back never overwrites a protected plan field.
 
-An explicit pick of an AI option (a selection rewrite) counts as the author's approval and may overwrite what the author wrote. Plan flesh-out only adds children, so it never touches the text of the chapter or scene being planned. Change records with `authorEdited` are never modified by read-back, including when they are matched or moved from the parent scene.
+An explicit pick of an AI option (a selection rewrite) counts as the author's approval and may overwrite what the author wrote. Plan flesh-out only adds children, so it never touches the text of the chapter or scene being planned.
+
+## Replanning beats
+
+Replan beats (offered after a scene description edit, and in the scene ⋯ menu) is the one planning path that deletes plan items, so it is narrow:
+
+- It replaces only beats with no prose, no prose versions, and no author-owned field. Everything else stays in place, and new beats are appended after the kept ones. Versions count as kept because deleting the beat would cascade away prose history the author may have written.
+- Changes pinned to replaced beats move back to the scene rather than being deleted, and the prompt shows them there, so the new beats carry them again through `carriesChangeIds`. Ones no new beat claims stay on the scene as "heading toward" context.
+- Apply is stale-guarded: the scene's saved description and the replaceable beat set (ids and revisions) must match what the plan was generated from, or nothing changes and the author replans. The card flushes the description before requesting, because the route plans from saved text.
+- There is no undo. Pending bundle ops that targeted a replaced beat surface as conflicts when accepted. Change records with `authorEdited` are never modified by read-back, including when they are matched or moved from the parent scene.
 
 ## Concurrent field saves
 
@@ -128,7 +137,7 @@ A bundle is one turn's proposed changes. They show in place (in the outline, cha
 
 Voice lives on the story (`genre`, `voice`, `voice_samples`, `instructions`); the design reasoning is below. Migrations 0017 (columns) and 0018 (carry-over) hold the data side.
 
-- `studio_stories.style` is a dead column: nothing reads or writes it, but `studio_stories` must only ever gain `ADD COLUMN`. Dropping it makes drizzle-kit rebuild the table, and the rebuild's `DROP TABLE` cascade-deletes every story's plan, prose, and entries (same trap as tension above). Migration 0018 carried old style boxes over as AI notes and pasted samples as kept samples, so nothing was lost.
+- `studio_stories.style` is a dead column: nothing reads or writes it, but `studio_stories` must only ever gain `ADD COLUMN`. Dropping it makes drizzle-kit rebuild the table, and the rebuild's `DROP TABLE` cascade-deletes every story's plan, prose, and entries (same trap as tension above). Migration 0018 carried old style boxes over as AI notes and pasted samples as kept samples, so nothing was lost. `prose_model` and `chat_model` are dead for the same reason since Studio fixed its models (see [Provider Notes](ai-prose-generation.md#provider-notes)).
 - Kept samples are the anchors of the voice: prompts carry them because exemplars steer prose better than descriptions of it. Picks and notes describe; samples show.
 - A sample goes stale only when genre or a pick's effective choice changes away from its suggested default. Picks resting at their default are left out of the fingerprint, so "Ask me more" (which adds picks at their defaults) does not stale kept samples. Notes and _In your words_ deliberately do not trigger it: they are small, frequent edits, and marking every sample stale on each one would make the anchors disappear from prompts almost constantly. The cost is that a note can drift from a sample until the next pick change or an explicit "Still sounds right".
 - _In your words_ holds author text only. Planning used to fill it, which made the author's own words indistinguishable from AI output and let a re-plan overwrite them, so planning stopped; AI-originated guidance goes in notes with `origin: "ai"`.
@@ -146,7 +155,7 @@ Flow: a prepare action stores the user message, a streaming route generates, the
 - Write tool results carry metadata only (ids, word counts), never prose, to keep prose out of stored chat history. Within the turn the model can read its proposed prose back with `get_prose`.
 - Tool input schemas are strict-safe for the same `strictJsonSchema` reason as structured output. The builder re-validates at propose time what accept enforces and returns `{ error }` so the model retries; accept stays the authority.
 - Tools are not sent with `strict`, so a provider may omit required-nullable keys. A repair hook (`chat-tool-repair.ts`) fills omitted keys whose schema allows null and lets the SDK re-parse; the wire schemas stay strict-safe. The route end log reports `repairedToolCalls` next to `invalidToolCalls`.
-- Output is capped per step (16k tokens) and tool inputs count toward it, so the prompt tells the model to split very large proposals across several propose calls. A truncated step ends as `length`, which discards the whole turn.
+- Output is capped per step (32k tokens) and tool inputs count toward it, so the prompt tells the model to split very large proposals across several propose calls. A truncated step ends as `length`, which discards the whole turn.
 - Budgeting trims whole oldest turns and fails loudly if the current message still does not fit. It never truncates the current message.
 - Deleting a thread rejects its pending bundles in the same transaction, because a pending bundle without its card leaves previews with no way to review.
 - Chat session state lives outside the workspace store. Every store change re-renders the outline, Lexical editors, and entry cards, so per-token updates there would be costly.

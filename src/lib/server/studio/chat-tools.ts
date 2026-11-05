@@ -19,6 +19,7 @@ import {
   type StudioPlanKind,
   studioChangeModeSchema,
 } from "@/lib/studio/contracts";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import { countWords } from "@/lib/studio/prose-text";
 
 import type { StudioBundleBuilder } from "./bundle-builder";
@@ -203,8 +204,7 @@ export function createStudioChatTools({
     }
     const plan = builder.planProse(momentIds);
     if ("error" in plan) return plan;
-    const profile =
-      LOCALINK_AI_MODEL_PROFILES[plan.snapshot.workspace.story.proseModel];
+    const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_PROSE_MODEL];
     const results: (
       | { momentId: string; ok: true; words: number }
       | { momentId: string; ok: false; error: string }

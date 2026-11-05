@@ -1,6 +1,7 @@
 "use client";
 
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import { PLAN_ITEM_PLACEHOLDER } from "@/lib/studio/plan-labels";
 
 import { useWritingLoop } from "./use-writing-loop";
 
@@ -18,14 +19,17 @@ export function UpNext({ sceneId }: { sceneId: string }) {
   const loop = useWritingLoop();
   const scene = state.planItems.find((item) => item.id === sceneId);
   if (!scene) return null;
-  const title = scene.title.trim() || "Untitled scene";
+  const title = scene.title.trim();
   const start = descriptionStart(scene.whatHappens);
 
   return (
     <p className="flex flex-wrap items-baseline justify-center gap-x-2 text-center font-sans text-caption text-muted-foreground">
       <span>
-        Up next: <span className="text-foreground/80">{title}</span>
-        {start ? `, ${start}` : null}
+        Up next:{" "}
+        <span className="text-foreground/80">
+          {title || start || PLAN_ITEM_PLACEHOLDER.scene}
+        </span>
+        {title && start ? `, ${start}` : null}
       </span>
       <button
         className="rounded-sm px-1.5 py-0.5 text-studio-proposed underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50"

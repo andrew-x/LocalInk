@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/common/button";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 
 import { useWritingLoop } from "./use-writing-loop";
 
@@ -24,7 +25,7 @@ export function WritingStatus() {
     : undefined;
   const title = (
     <span className="text-foreground italic">
-      {scene?.title.trim() || "Untitled scene"}
+      {scene ? planItemLabel(scene, 40) : "this scene"}
     </span>
   );
   const current = draft

@@ -9,6 +9,7 @@ import type { ChatTurnStatus } from "@/components/studio/chat/use-chat-turn";
 import { chapterNumbers } from "@/components/studio/shared/inspect-labels";
 import { useStudioStore } from "@/components/studio/workspace/use-studio-store";
 import type { StudioPlanItemDto } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import { cn } from "@/lib/util";
 
 import { SuggestionBar } from "./suggestion-bar";
@@ -44,13 +45,13 @@ function lookingAtLabel(
     const chapter = `Ch ${chapterNumbers(planItems).get(item.id) ?? ""}`.trim();
     return title ? `${chapter}: ${title}` : chapter;
   }
-  if (item.kind === "scene") return title || "Untitled scene";
+  if (item.kind === "scene") return planItemLabel(item);
   const scene = planItems.find((candidate) => candidate.id === item.parentId);
   const beats = planItems
     .filter((candidate) => candidate.parentId === item.parentId)
     .sort((a, b) => a.position - b.position);
   const number = beats.findIndex((beat) => beat.id === item.id) + 1;
-  const sceneTitle = scene?.title.trim() || "Untitled scene";
+  const sceneTitle = scene ? planItemLabel(scene) : "Scene";
   return number > 0 ? `${sceneTitle}, beat ${number}` : sceneTitle;
 }
 

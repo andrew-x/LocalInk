@@ -31,6 +31,11 @@ export type PlanAiController = {
   pending: ReadonlyMap<string, PlanAiPending>;
   /** Plans a chapter's scenes or a scene's beats, then applies them. */
   fleshOut: (itemId: string) => Promise<void>;
+  /**
+   * Plans a scene's beats again from its current description. Written and
+   * author-edited beats are kept; the rest are replaced.
+   */
+  replan: (sceneId: string) => Promise<void>;
   cancel: (itemId: string) => void;
 };
 
@@ -45,8 +50,9 @@ const PlanAiContext = createContext<PlanAiController | null>(null);
  * second request for an item already being planned is ignored.
  *
  * Applying replaces the workspace while the author may be typing in the
- * outline. That is safe because flesh-out only adds children, and autosaved
- * fields the author has edited ignore store values until their save lands.
+ * outline. That is safe because flesh-out only adds children, a replan only
+ * replaces beats nobody wrote or edited, and autosaved fields the author has
+ * edited ignore store values until their save lands.
  */
 export function PlanAiProvider({ children }: { children: ReactNode }) {
   const { state, dispatch } = useStudioStore();
@@ -77,8 +83,8 @@ export function PlanAiProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const fleshOut = useCallback(
-    async (itemId: string) => {
+  const plan = useCallback(
+    async (itemId: string, mode: "flesh-out" | "replan") => {
       if (controllers.current.has(itemId)) return;
       const controller = new AbortController();
       controllers.current.set(itemId, controller);
@@ -87,7 +93,7 @@ export function PlanAiProvider({ children }: { children: ReactNode }) {
       try {
         const preview = await postStudioJson<StudioPlanPreview>(
           "/api/studio/plan",
-          { mode: "flesh-out", storyId, targetItemId: itemId },
+          { mode, storyId, targetItemId: itemId },
           controller.signal,
         );
         if (controller.signal.aborted) return;
@@ -96,7 +102,7 @@ export function PlanAiProvider({ children }: { children: ReactNode }) {
           applyStudioPlan({
             storyId,
             generationId: preview.generationId,
-            mode: "flesh-out",
+            mode,
             targetItemId: itemId,
           }),
           APPLY_FAILED_MESSAGE,
@@ -118,6 +124,15 @@ export function PlanAiProvider({ children }: { children: ReactNode }) {
     [dispatch, run, setItemPending, storyId],
   );
 
+  const fleshOut = useCallback(
+    (itemId: string) => plan(itemId, "flesh-out"),
+    [plan],
+  );
+  const replan = useCallback(
+    (sceneId: string) => plan(sceneId, "replan"),
+    [plan],
+  );
+
   const cancel = useCallback(
     (itemId: string) => {
       // Applying is already committing on the server; let it land.
@@ -130,8 +145,8 @@ export function PlanAiProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<PlanAiController>(
-    () => ({ pending, fleshOut, cancel }),
-    [cancel, fleshOut, pending],
+    () => ({ pending, fleshOut, replan, cancel }),
+    [cancel, fleshOut, pending, replan],
   );
   return createElement(PlanAiContext.Provider, { value }, children);
 }

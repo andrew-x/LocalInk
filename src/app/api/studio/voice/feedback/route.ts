@@ -18,6 +18,7 @@ import {
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
 import { interpretStudioVoiceComplaint } from "@/lib/server/studio/voice-changes";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 import {
   type StagedStudioVoiceChanges,
   type StagedStudioVoiceSample,
@@ -89,7 +90,7 @@ export async function POST(request: Request): Promise<Response> {
       sampleText = kept.text;
     }
 
-    log.start({ model: story.chatModel });
+    log.start({ model: STUDIO_ASSIST_MODEL });
     const generationId = generateId("studio-voice-feedback");
     binding = {
       storyId: input.storyId,

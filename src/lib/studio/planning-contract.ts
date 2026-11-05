@@ -74,6 +74,12 @@ export const studioPlanRequestSchema = z.discriminatedUnion("mode", [
     /** A plan item id, or "story" to flesh out every chapter without scenes. */
     targetItemId: id,
   }),
+  z.object({
+    /** Re-plans a scene's beats, keeping written and author-edited ones. */
+    mode: z.literal("replan"),
+    storyId: id,
+    targetItemId: id,
+  }),
 ]);
 
 export type StudioPlanRequest = z.infer<typeof studioPlanRequestSchema>;
@@ -252,6 +258,15 @@ export type StagedStudioPlan =
       mode: "flesh-out";
       targetItemId: string;
       groups: { parentId: string; items: StudioChildren["items"] }[];
+    }
+  | {
+      mode: "replan";
+      targetItemId: string;
+      /** The scene description the beats were planned from. */
+      sceneWhatHappens: string;
+      /** The beats this plan replaces, as they were when it was generated. */
+      replaced: { id: string; revision: number }[];
+      items: StudioChildren["items"];
     };
 
 /** What a plan route returns. Full payloads stay on the server. */
@@ -296,5 +311,11 @@ export function toStudioPlanPreview(
         summary: `${plural(count, "new item")} across ${plural(staged.groups.length, "parent")}.`,
       };
     }
+    case "replan":
+      return {
+        generationId,
+        mode: "replan",
+        summary: `${plural(staged.items.length, "new beat")}, replacing ${staged.replaced.length}.`,
+      };
   }
 }

@@ -28,6 +28,7 @@ import type {
   StudioPlanItemDto,
   StudioProseOrigin,
 } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import type { StudioPlanNode } from "@/lib/studio/plan-order";
 import { markdownToPlainText } from "@/lib/studio/prose-text";
 import { cn } from "@/lib/util";
@@ -56,7 +57,7 @@ export function BeatVersionsDialog({
   onOpenChange,
 }: BeatVersionsDialogProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const sceneTitle = scene.title.trim() || "Untitled scene";
+  const sceneTitle = planItemLabel(scene);
 
   return (
     <Dialog

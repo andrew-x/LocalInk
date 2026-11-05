@@ -15,6 +15,7 @@ import {
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
 import { interpretStudioVoiceComplaint } from "@/lib/server/studio/voice-changes";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import { applyStudioVoiceOps } from "@/lib/studio/voice";
 import {
   type StagedStudioVoiceChanges,
@@ -56,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
     const { story } = workspace;
 
     log.start({
-      model: story.proseModel,
+      model: STUDIO_PROSE_MODEL,
       selectionChars: input.selectedText.length,
     });
     const generationId = generateId("studio-voice-tune");
@@ -94,7 +95,6 @@ export async function POST(request: Request): Promise<Response> {
       request.signal,
       globalInstructions,
       { genre: proposed.genre, voice: proposed.voice },
-      story.proseModel,
     );
     const [rewrite] = options;
 

@@ -25,6 +25,7 @@ import {
   getStudioStage,
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import {
   STUDIO_MOMENT_GENERATION_ID_HEADER,
   studioMomentProseRequestSchema,
@@ -60,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
-    const profile = LOCALINK_AI_MODEL_PROFILES[workspace.story.proseModel];
+    const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_PROSE_MODEL];
     log.start({
       model: profile.model,
       attempt: input.attempt,

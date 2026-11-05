@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { ActionError } from "@/lib/action-error";
 import day from "@/lib/dayjs";
@@ -32,7 +32,10 @@ import {
   type AspectModeResolver,
   createAspectModeResolver,
 } from "./aspect-modes";
+import { listReplaceableBeats } from "./replan";
 import {
+  applySiblingOrder,
+  listSiblingRows,
   loadStudioWorkspace,
   requireStudioStory,
   touchStudioStory,
@@ -425,68 +428,192 @@ function applyFleshOut(
         "Moments cannot be broken down further.",
       );
     }
-    const base = nextPosition(tx, storyId, parent.id);
     // A story-wide run only fills chapters that are still empty.
-    if (isStoryWide && base > 0) continue;
-
-    // The parent's planned changes a child realizes move down to that child
-    // (first claimant wins), so the arc stays visible below the parent.
-    const parentChanges = new Map(
-      tx
-        .select()
-        .from(studioChanges)
-        .where(
-          and(
-            eq(studioChanges.storyId, storyId),
-            eq(studioChanges.planItemId, parent.id),
-          ),
-        )
-        .all()
-        .map((row) => [row.id, row]),
-    );
-    const claimed = new Set<string>();
-    group.items.forEach((item, index) => {
-      const carried = item.carriesChangeIds.flatMap((changeId) => {
-        const row = parentChanges.get(changeId);
-        if (!row || claimed.has(changeId)) return [];
-        claimed.add(changeId);
-        return [row];
-      });
-      // A carried change is never inserted again as a new planned change.
-      const carriedKeys = new Set(carried.map(changeKey));
-      const { id, nextChangePosition } = insertAiPlanItem(
-        tx,
-        validEntryIds,
-        {
-          storyId,
-          parentId: parent.id,
-          kind: childKind,
-          position: base + index,
-          title: item.title,
-          whatHappens: item.whatHappens,
-          howToWrite: item.howToWrite,
-          craft: item.craft,
-          presentEntryIds: item.presentEntryIds,
-          plannedChanges: item.plannedChanges
-            .map((change) => ({
-              ...change,
-              mode: modes.resolve(change.entryId, change.aspect, change.mode),
-            }))
-            .filter((change) => !carriedKeys.has(changeKey(change))),
-        },
-        now,
-        modes,
-      );
-      let position = nextChangePosition;
-      for (const row of carried) {
-        if (row.authorEdited || row.status !== "planned") continue;
-        tx.update(studioChanges)
-          .set({ planItemId: id, position: position++, updatedAt: now })
-          .where(eq(studioChanges.id, row.id))
-          .run();
-      }
+    if (isStoryWide && nextPosition(tx, storyId, parent.id) > 0) continue;
+    insertAiChildren(tx, storyId, parent.id, childKind, group.items, {
+      modes,
+      validEntryIds,
+      now,
     });
   }
+}
+
+type StagedChildItems = Extract<
+  StagedStudioPlan,
+  { mode: "flesh-out" }
+>["groups"][number]["items"];
+
+/** Appends AI children to a parent, moving down the changes they carry. */
+function insertAiChildren(
+  tx: LocalinkTx,
+  storyId: string,
+  parentId: string,
+  childKind: StudioPlanKind,
+  items: StagedChildItems,
+  context: {
+    modes: AspectModeResolver;
+    validEntryIds: Set<string>;
+    now: string;
+  },
+): void {
+  const { modes, validEntryIds, now } = context;
+  const base = nextPosition(tx, storyId, parentId);
+
+  // The parent's planned changes a child realizes move down to that child
+  // (first claimant wins), so the arc stays visible below the parent.
+  const parentChanges = new Map(
+    tx
+      .select()
+      .from(studioChanges)
+      .where(
+        and(
+          eq(studioChanges.storyId, storyId),
+          eq(studioChanges.planItemId, parentId),
+        ),
+      )
+      .all()
+      .map((row) => [row.id, row]),
+  );
+  const claimed = new Set<string>();
+  items.forEach((item, index) => {
+    const carried = item.carriesChangeIds.flatMap((changeId) => {
+      const row = parentChanges.get(changeId);
+      if (!row || claimed.has(changeId)) return [];
+      claimed.add(changeId);
+      return [row];
+    });
+    // A carried change is never inserted again as a new planned change.
+    const carriedKeys = new Set(carried.map(changeKey));
+    const { id, nextChangePosition } = insertAiPlanItem(
+      tx,
+      validEntryIds,
+      {
+        storyId,
+        parentId,
+        kind: childKind,
+        position: base + index,
+        title: item.title,
+        whatHappens: item.whatHappens,
+        howToWrite: item.howToWrite,
+        craft: item.craft,
+        presentEntryIds: item.presentEntryIds,
+        plannedChanges: item.plannedChanges
+          .map((change) => ({
+            ...change,
+            mode: modes.resolve(change.entryId, change.aspect, change.mode),
+          }))
+          .filter((change) => !carriedKeys.has(changeKey(change))),
+      },
+      now,
+      modes,
+    );
+    let position = nextChangePosition;
+    for (const row of carried) {
+      if (row.authorEdited || row.status !== "planned") continue;
+      tx.update(studioChanges)
+        .set({ planItemId: id, position: position++, updatedAt: now })
+        .where(eq(studioChanges.id, row.id))
+        .run();
+    }
+  });
+}
+
+/**
+ * Replaces a scene's replaceable beats with the staged ones. The scene's
+ * description and every replaceable beat must be as they were when the plan
+ * was generated; anything else changed means the plan is stale.
+ */
+function applyReplan(
+  tx: LocalinkTx,
+  storyId: string,
+  staged: Extract<StagedStudioPlan, { mode: "replan" }>,
+  now: string,
+): void {
+  const scene = tx
+    .select()
+    .from(studioPlanItems)
+    .where(
+      and(
+        eq(studioPlanItems.id, staged.targetItemId),
+        eq(studioPlanItems.storyId, storyId),
+      ),
+    )
+    .get();
+  if (scene?.kind !== "scene") {
+    throw new ActionError("BAD_REQUEST", "The scene could not be found.");
+  }
+  const current = listReplaceableBeats(tx, storyId, scene.id);
+  const plannedFrom = new Map(
+    staged.replaced.map((beat) => [beat.id, beat.revision]),
+  );
+  if (
+    scene.whatHappens !== staged.sceneWhatHappens ||
+    current.length !== staged.replaced.length ||
+    current.some((beat) => plannedFrom.get(beat.id) !== beat.revision)
+  ) {
+    throw new ActionError(
+      "CONFLICT",
+      "This scene changed while its beats were being planned. Replan its beats again.",
+    );
+  }
+
+  const replacedIds = staged.replaced.map((beat) => beat.id);
+  if (replacedIds.length > 0) {
+    // Changes on the replaced beats go back to the scene, where the new beats
+    // can carry them again, instead of being deleted with the beats.
+    const sceneChanges = tx
+      .select({ position: studioChanges.position })
+      .from(studioChanges)
+      .where(
+        and(
+          eq(studioChanges.storyId, storyId),
+          eq(studioChanges.planItemId, scene.id),
+        ),
+      )
+      .all();
+    let position =
+      sceneChanges.reduce((max, row) => Math.max(max, row.position), -1) + 1;
+    const beatOrder = new Map(replacedIds.map((id, index) => [id, index]));
+    const moved = tx
+      .select()
+      .from(studioChanges)
+      .where(
+        and(
+          eq(studioChanges.storyId, storyId),
+          inArray(studioChanges.planItemId, replacedIds),
+        ),
+      )
+      .all()
+      .sort(
+        (a, b) =>
+          (beatOrder.get(a.planItemId) ?? 0) -
+            (beatOrder.get(b.planItemId) ?? 0) || a.position - b.position,
+      );
+    for (const row of moved) {
+      tx.update(studioChanges)
+        .set({ planItemId: scene.id, position: position++, updatedAt: now })
+        .where(eq(studioChanges.id, row.id))
+        .run();
+    }
+    tx.delete(studioPlanItems)
+      .where(
+        and(
+          eq(studioPlanItems.storyId, storyId),
+          inArray(studioPlanItems.id, replacedIds),
+        ),
+      )
+      .run();
+    const remaining = listSiblingRows(tx, storyId, scene.id).map(
+      (row) => row.id,
+    );
+    applySiblingOrder(tx, storyId, scene.id, remaining, now);
+  }
+
+  insertAiChildren(tx, storyId, scene.id, "moment", staged.items, {
+    modes: createAspectModeResolver(tx, storyId),
+    validEntryIds: new Set(loadEntryRows(tx, storyId).map((row) => row.id)),
+    now,
+  });
 }
 
 export function applyStagedStudioPlan(
@@ -503,6 +630,9 @@ export function applyStagedStudioPlan(
       break;
     case "flesh-out":
       applyFleshOut(tx, storyId, staged, now);
+      break;
+    case "replan":
+      applyReplan(tx, storyId, staged, now);
       break;
   }
   touchStudioStory(tx, storyId, now);

@@ -13,6 +13,7 @@ import {
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
 import { generateStudioVoicePicks } from "@/lib/server/studio/voice-picks";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 import {
   type StudioVoicePicksPreview,
   studioVoicePicksRequestSchema,
@@ -47,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
 
-    log.start({ model: workspace.story.chatModel, mode: input.mode });
+    log.start({ model: STUDIO_ASSIST_MODEL, mode: input.mode });
     const generationId = generateId("studio-voice-picks");
     binding = {
       storyId: input.storyId,

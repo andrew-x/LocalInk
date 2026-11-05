@@ -35,7 +35,7 @@ import { listEntrySuggestionKeys } from "./repository-entry-suggestions";
 
 const MODEL = DEFAULT_STORY_GENERATION_MODEL;
 const PROFILE = LOCALINK_AI_MODEL_PROFILES[MODEL];
-const OUTPUT_TOKENS = 2_500;
+const OUTPUT_TOKENS = 8_000;
 const TEMPERATURE = 0.2;
 const MIN_NAME_TOKEN_CHARS = 4;
 

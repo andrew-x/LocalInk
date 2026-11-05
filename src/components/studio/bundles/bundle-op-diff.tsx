@@ -14,6 +14,7 @@ import type {
   StudioProseDto,
   StudioVoice,
 } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import { describeStudioVoiceOp, diffStudioVoice } from "@/lib/studio/voice";
 import { cn } from "@/lib/util";
 
@@ -95,11 +96,11 @@ function planTitle(ctx: DiffContext, ref: string): string {
       (op) => op.kind === "plan.create" && op.tempId === ref,
     );
     if (creator?.kind !== "plan.create") return "a new item";
-    return creator.item.title.trim() || `Untitled ${creator.item.kind}`;
+    return planItemLabel(creator.item);
   }
   const item = ctx.planItems.find((candidate) => candidate.id === ref);
   if (!item) return "an item that no longer exists";
-  return item.title.trim() || `Untitled ${item.kind}`;
+  return planItemLabel(item);
 }
 
 function names(ctx: DiffContext, refs: string[]): string {
@@ -202,7 +203,7 @@ function buildModel(op: StudioBundleOpDto, ctx: DiffContext): DiffModel {
       const { item } = op;
       line("Kind", null, item.kind);
       if (item.parentRef) line("Inside", null, planTitle(ctx, item.parentRef));
-      line("Title", null, item.title.trim() || `Untitled ${item.kind}`);
+      if (item.title.trim()) line("Title", null, item.title);
       if (item.whatHappens.trim()) {
         line("What happens", null, item.whatHappens);
       }

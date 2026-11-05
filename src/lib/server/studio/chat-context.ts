@@ -11,6 +11,7 @@ import type {
   StudioPlanItemDto,
   StudioWorkspace,
 } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import {
   buildPlanTree,
   getAncestors,
@@ -19,7 +20,6 @@ import {
 
 import { effectivePickChoice } from "@/lib/studio/voice";
 
-import { clip } from "./bundle-draft";
 import { xmlField, xmlGroup } from "./prompt-kit";
 
 /**
@@ -113,7 +113,7 @@ function outlineText(workspace: StudioWorkspace): string {
             : "unwritten"
           : `${done}/${total} moments written`;
       lines.push(
-        `${"  ".repeat(depth)}- ${node.kind} ${node.id} “${clip(node.title, 80) || "Untitled"}” (${status})`,
+        `${"  ".repeat(depth)}- ${node.kind} ${node.id} “${planItemLabel(node, 80)}” (${status})`,
       );
       visit(node.children, depth + 1);
     }

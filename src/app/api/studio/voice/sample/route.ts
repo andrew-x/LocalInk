@@ -14,6 +14,7 @@ import {
   type StudioStageBinding,
 } from "@/lib/server/studio/staging";
 import { generateStudioVoiceSample } from "@/lib/server/studio/voice-sample";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import {
   type StudioVoiceSamplePreview,
   studioVoiceSampleRequestSchema,
@@ -49,7 +50,7 @@ export async function POST(request: Request): Promise<Response> {
     const workspace = loadStudioWorkspace(input.storyId);
     if (!workspace) throw new StudioNotFoundError();
 
-    log.start({ model: workspace.story.proseModel });
+    log.start({ model: STUDIO_PROSE_MODEL });
     const generationId = generateId("studio-voice-sample");
     binding = {
       storyId: input.storyId,

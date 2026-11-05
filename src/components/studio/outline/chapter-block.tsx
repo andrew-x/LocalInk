@@ -106,6 +106,27 @@ function WriteChapterButton({ chapter }: { chapter: StudioPlanNode }) {
   );
 }
 
+function chapterDescriptionId(chapterId: string): string {
+  return `studio-chapter-whatHappens-${chapterId}`;
+}
+
+/**
+ * Focuses an open chapter's description, caret at the end. A chapter
+ * created a moment ago may need another frame to render.
+ */
+export function focusChapterDescription(chapterId: string, attempts = 3) {
+  requestAnimationFrame(() => {
+    const element = document.getElementById(chapterDescriptionId(chapterId));
+    if (!(element instanceof HTMLTextAreaElement)) {
+      if (attempts > 1) focusChapterDescription(chapterId, attempts - 1);
+      return;
+    }
+    element.focus();
+    const end = element.value.length;
+    element.setSelectionRange(end, end);
+  });
+}
+
 /**
  * A chapter line. Open, it shows its description (autosaved), its scenes as
  * lines (one of them may be an open card) and "+ Scene".
@@ -152,7 +173,7 @@ export function ChapterBlock({ chapter }: { chapter: StudioPlanNode }) {
     const created = await add(chapter);
     if (!created) return;
     openScene(created.id);
-    focusSceneCard(created.id, "title");
+    focusSceneCard(created.id, "whatHappens");
   }
 
   async function confirmRemove() {
@@ -195,7 +216,7 @@ export function ChapterBlock({ chapter }: { chapter: StudioPlanNode }) {
                 }}
                 type="button"
               >
-                Rename
+                {chapter.title.trim() ? "Rename" : "Add title"}
               </button>
               <div className="my-1 h-px bg-border" />
               <button
@@ -307,6 +328,7 @@ function ChapterDescription({ chapter }: { chapter: StudioPlanItemDto }) {
     <div className="pr-2 pb-1.5 pl-2">
       <PlainText
         className="text-muted-foreground focus-visible:text-foreground"
+        id={chapterDescriptionId(chapter.id)}
         label="What happens in this chapter"
         maxLength={20_000}
         onBlur={() => void flush(true)}

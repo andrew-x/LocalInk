@@ -19,6 +19,7 @@ import {
   useStudioStore,
 } from "@/components/studio/workspace/use-studio-store";
 import type { StudioChangeDto, StudioEntryDto } from "@/lib/studio/contracts";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import { getAncestors } from "@/lib/studio/plan-order";
 import { lastKeptBeatAtOrBefore } from "@/lib/studio/reading-point";
 import { computeStateComingOut } from "@/lib/studio/state";
@@ -193,7 +194,7 @@ export function TrackingSection({ entry }: { entry: StudioEntryDto }) {
     const scene = getAncestors(planItems, point).findLast(
       (item) => item.kind === "scene",
     );
-    return scene ? scene.title.trim() || "Untitled scene" : null;
+    return scene ? planItemLabel(scene) : null;
   }, [planItems, point]);
 
   async function update(change: StudioChangeDto, value: string) {

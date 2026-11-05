@@ -37,6 +37,7 @@ import {
   type StudioChatStreamEvent,
   studioChatRequestSchema,
 } from "@/lib/studio/chat-contract";
+import { STUDIO_ASSIST_MODEL } from "@/lib/studio/models";
 
 export const runtime = "nodejs";
 
@@ -88,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
           : null,
     };
     log.start({
-      model: workspace.story.chatModel,
+      model: STUDIO_ASSIST_MODEL,
       historyMessages: turn.messages.length - 1,
       lookingAt: context.lookingAtItemId !== null,
     });

@@ -2,13 +2,10 @@ import "server-only";
 
 import { generateLocalinkObject, LOCALINK_AI_MODEL_PROFILES } from "@/lib/ai";
 import { LocalinkTextStreamFinishError } from "@/lib/ai-text-stream";
-import {
-  DEFAULT_STORY_GENERATION_MODEL,
-  type StoryGenerationModel,
-} from "@/lib/story-generation-models";
 import { STUDIO_CRAFT_FIELDS } from "@/lib/studio/bible-templates";
 import type { StudioWorkspace } from "@/lib/studio/contracts";
 import { getInstructionStack } from "@/lib/studio/instructions";
+import { STUDIO_PROSE_MODEL } from "@/lib/studio/models";
 import { markdownToPlainText } from "@/lib/studio/prose-text";
 import {
   normalizeStudioRewriteOptions,
@@ -38,7 +35,8 @@ import {
 } from "./voice-prompt";
 
 const TEMPERATURE = 0.9;
-const MIN_OUTPUT_TOKENS = 1_200;
+// A runaway guard, not a length limit; long selections get more room below.
+const MIN_OUTPUT_TOKENS = 8_000;
 const OUTPUT_TOKENS_PER_SELECTION_CHAR = 1;
 
 const MODE_GUIDANCE: Record<Exclude<StudioRewriteMode, "custom">, string> = {
@@ -89,9 +87,8 @@ export async function generateStudioRewrite(
   abortSignal?: AbortSignal,
   globalInstructions = "",
   voiceOverride?: StudioVoiceOverride,
-  model: StoryGenerationModel = DEFAULT_STORY_GENERATION_MODEL,
 ): Promise<StudioRewriteResponse> {
-  const profile = LOCALINK_AI_MODEL_PROFILES[model];
+  const profile = LOCALINK_AI_MODEL_PROFILES[STUDIO_PROSE_MODEL];
   const moment = workspace.planItems.find(
     (item) => item.id === request.momentId,
   );
@@ -214,7 +211,7 @@ export async function generateStudioRewrite(
     reasoningAllowance: profile.reasoningOutputTokenAllowance,
   });
   const result = await generateLocalinkObject({
-    model,
+    model: STUDIO_PROSE_MODEL,
     system: SYSTEM_PROMPT,
     prompt: budgeted.prompt,
     maxOutputTokens: budgeted.maxOutputTokens,

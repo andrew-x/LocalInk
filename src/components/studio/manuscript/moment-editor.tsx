@@ -42,7 +42,7 @@ const momentEditorLogger = createLogger("studio-moment-editor");
 type MomentEditorProps = {
   storyId: string;
   momentId: string;
-  /** The plan title, used only for the accessible label. */
+  /** The beat's label, used only for the accessible label. */
   title: string;
   prose: StudioProseDto | undefined;
   isSceneStart: boolean;
@@ -125,7 +125,7 @@ export const MomentEditor = memo(function MomentEditor({
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              aria-label={`Moment: ${title.trim() || "untitled"}`}
+              aria-label={`Moment: ${title}`}
               aria-multiline
               className={cn(
                 STUDIO_PROSE_CLASS,

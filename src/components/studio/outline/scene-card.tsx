@@ -1,7 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { type KeyboardEvent, useCallback } from "react";
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/common/button";
 import { ItemSuggestions } from "@/components/studio/ai-box/outline-suggestions";
@@ -15,11 +21,12 @@ import {
 import { usePlanAi } from "@/components/studio/workspace/use-plan-ai";
 import { useProseByMomentId } from "@/components/studio/workspace/use-studio-store";
 import { studioOutlineLineId } from "@/components/studio/workspace/workspace-anchors";
+import { planItemLabel } from "@/lib/studio/plan-labels";
 import type { StudioPlanNode } from "@/lib/studio/plan-order";
 
 import { BeatList } from "./beat-list";
 import { FlagNotes } from "./flag-notes";
-import { StatusDot, UNTITLED } from "./outline-line";
+import { StatusDot } from "./outline-line";
 import { PlainText } from "./plain-text";
 import { SceneMenu } from "./scene-menu";
 import { useOutlineEditReporter, useOutlineOpen } from "./use-outline-open";
@@ -63,8 +70,18 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
   const { close } = useOutlineOpen();
   const patchItem = usePatchPlanItem();
   const onDirtyChange = useOutlineEditReporter();
+  const planAi = usePlanAi();
+  const replan = useReplanState(scene);
   const status = statuses.get(scene.id) ?? "planned";
-  const title = scene.title.trim() || UNTITLED.scene;
+  const label = planItemLabel(scene);
+  // Set once a description edit lands while the scene has beats, so the card
+  // can offer a replan. Edits before the first plan have nothing to replan.
+  const [descriptionChanged, setDescriptionChanged] = useState(false);
+  const [editingDescription, setEditingDescription] = useState(false);
+  const hasBeats = useRef(scene.children.length > 0);
+  useEffect(() => {
+    hasBeats.current = scene.children.length > 0;
+  }, [scene.children.length]);
 
   const save = useCallback(
     async (changed: Partial<Record<FieldKey, string>>, final: boolean) => {
@@ -76,7 +93,11 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
         patch.whatHappens = changed.whatHappens;
       }
       if (Object.keys(patch).length === 0) return true;
-      return (await patchItem(scene.id, patch)) !== null;
+      const saved = (await patchItem(scene.id, patch)) !== null;
+      if (saved && patch.whatHappens !== undefined && hasBeats.current) {
+        setDescriptionChanged(true);
+      }
+      return saved;
     },
     [patchItem, scene.id],
   );
@@ -86,6 +107,13 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
     save,
     serverValues: { title: scene.title, whatHappens: scene.whatHappens },
   });
+
+  /** The route plans from the saved description, so land edits first. */
+  async function replanBeats() {
+    if (!(await flush(true))) return;
+    setDescriptionChanged(false);
+    await planAi.replan(scene.id);
+  }
 
   function focusLine() {
     requestAnimationFrame(() =>
@@ -127,7 +155,7 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
     >
       <div
         aria-expanded
-        aria-label={`Scene: ${title}`}
+        aria-label={`Scene: ${label}`}
         aria-level={2}
         className="flex h-7 min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         data-outline-line={scene.id}
@@ -150,10 +178,14 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
               focusSceneCard(scene.id, "whatHappens");
             }
           }}
-          placeholder={UNTITLED.scene}
+          placeholder="Title (optional)"
           value={values.title}
         />
-        <SceneActions scene={scene} />
+        <SceneActions
+          canReplan={replan.available}
+          onReplan={() => void replanBeats()}
+          scene={scene}
+        />
       </div>
       {/* biome-ignore lint/a11y/useSemanticElements: the card body belongs to the scene's tree item */}
       <div className="mt-0.5 flex flex-col gap-1.5 pl-[15px]" role="group">
@@ -163,11 +195,41 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
           id={sceneFieldId(scene.id, "whatHappens")}
           label="What happens in this scene"
           maxLength={20_000}
-          onBlur={() => void flush(true)}
+          onBlur={() => {
+            setEditingDescription(false);
+            void flush(true);
+          }}
           onChange={(event) => setValue("whatHappens", event.target.value)}
+          onFocus={() => setEditingDescription(true)}
           placeholder="What happens, and how it should feel"
           value={values.whatHappens}
         />
+        {descriptionChanged && !editingDescription && replan.available ? (
+          <div className="flex items-center gap-1 text-caption text-muted-foreground">
+            <span className="min-w-0 flex-1">
+              The beats were planned from the earlier description.
+            </span>
+            <Button
+              className="h-6 px-2 text-caption text-primary hover:text-primary"
+              onClick={() => void replanBeats()}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              <span aria-hidden="true">✦</span> Replan beats
+            </Button>
+            <Button
+              aria-label="Keep these beats"
+              className="size-6"
+              onClick={() => setDescriptionChanged(false)}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <X aria-hidden="true" className="size-3" />
+            </Button>
+          </div>
+        ) : null}
         <BeatList scene={scene} />
         <WhoChips scene={scene} />
         <FlagNotes scene={scene} />
@@ -176,8 +238,37 @@ export function SceneCard({ scene }: { scene: StudioPlanNode }) {
   );
 }
 
+/**
+ * Whether the scene's beats can be replanned now: it has beats that nobody
+ * wrote or edited (the server also keeps beats with version history), and
+ * nothing is planning, drafting, or keeping in it.
+ */
+function useReplanState(scene: StudioPlanNode) {
+  const planAi = usePlanAi();
+  const loop = useWritingLoop();
+  const proseByMoment = useProseByMomentId();
+  const replaceable = scene.children.some(
+    (beat) =>
+      beat.authorFields.length === 0 &&
+      !proseByMoment.get(beat.id)?.markdown.trim(),
+  );
+  const busy =
+    planAi.pending.has(scene.id) ||
+    loop.draft?.sceneId === scene.id ||
+    loop.isKeeping;
+  return { available: replaceable && !busy };
+}
+
 /** Write ▸ when there are unwritten beats, Plan beats when there are none. */
-function SceneActions({ scene }: { scene: StudioPlanNode }) {
+function SceneActions({
+  canReplan,
+  onReplan,
+  scene,
+}: {
+  canReplan: boolean;
+  onReplan: () => void;
+  scene: StudioPlanNode;
+}) {
   const planAi = usePlanAi();
   const loop = useWritingLoop();
   const proseByMoment = useProseByMomentId();
@@ -233,7 +324,7 @@ function SceneActions({ scene }: { scene: StudioPlanNode }) {
           Write ▸
         </Button>
       ) : null}
-      <SceneMenu scene={scene} />
+      <SceneMenu canReplan={canReplan} onReplan={onReplan} scene={scene} />
     </div>
   );
 }
