@@ -97,7 +97,7 @@ export function GeneratingStep({
             Retry
           </Button>
           <Button onClick={onCancel} variant="outline">
-            Back to questions
+            Back to people and places
           </Button>
         </div>
       </div>

@@ -1,0 +1,1 @@
+ALTER TABLE `studio_entries` ADD `summary_origin` text DEFAULT 'author' NOT NULL;

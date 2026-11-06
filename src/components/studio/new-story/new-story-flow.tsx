@@ -5,6 +5,11 @@ import { useCallback, useState } from "react";
 import type { StudioQuestionsResponse } from "@/lib/studio/planning-contract";
 
 import { BrainDumpStep } from "./brain-dump-step";
+import {
+  type CastFlowState,
+  CastStep,
+  EMPTY_CAST_FLOW_STATE,
+} from "./cast-step";
 import { GeneratingStep } from "./generating-step";
 import { type QuestionAnswer, QuestionsStep } from "./questions-step";
 
@@ -14,7 +19,7 @@ type NewStoryFlowProps = {
   resume: FlowStory | null;
 };
 
-type FlowStep = "brain-dump" | "questions" | "generating";
+type FlowStep = "brain-dump" | "questions" | "cast" | "generating";
 
 export function NewStoryFlow({ resume }: NewStoryFlowProps) {
   const [story, setStory] = useState<FlowStory | null>(resume);
@@ -29,6 +34,10 @@ export function NewStoryFlow({ resume }: NewStoryFlowProps) {
   >(null);
   const [questionsFailed, setQuestionsFailed] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // Same for the cast's open questions; the characters themselves are saved.
+  const [castState, setCastState] = useState<CastFlowState>(
+    EMPTY_CAST_FLOW_STATE,
+  );
 
   const handleLoaded = useCallback(
     (loaded: StudioQuestionsResponse["questions"]) => setQuestions(loaded),
@@ -56,15 +65,25 @@ export function NewStoryFlow({ resume }: NewStoryFlowProps) {
           questions={questions}
           onContinue={(nextAnswers) => {
             setAnswers(nextAnswers);
-            setStep("generating");
+            setStep("cast");
           }}
+          storyId={story.id}
+          title={story.title}
+        />
+      ) : step === "cast" ? (
+        <CastStep
+          answers={answers}
+          castState={castState}
+          onBack={() => setStep("questions")}
+          onCastStateChange={setCastState}
+          onContinue={() => setStep("generating")}
           storyId={story.id}
           title={story.title}
         />
       ) : (
         <GeneratingStep
           answers={answers}
-          onCancel={() => setStep("questions")}
+          onCancel={() => setStep("cast")}
           storyId={story.id}
           title={story.title}
         />

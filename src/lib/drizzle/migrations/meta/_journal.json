@@ -134,6 +134,13 @@
       "when": 1793756005582,
       "tag": "0018_studio-voice-carry-over",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1793922638561,
+      "tag": "0019_entry-summary-origin",
+      "breakpoints": true
     }
   ]
 }

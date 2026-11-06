@@ -288,6 +288,18 @@ export const applyStudioRefreshedFieldsActionSchema = z.object({
   generationId: id,
 });
 
+export const applyStudioCastActionSchema = z.object({
+  ...storyIdField,
+  generationId: id,
+  mode: z.enum(["draft", "add"]),
+});
+
+export const applyStudioCastRevisionActionSchema = z.object({
+  ...storyIdField,
+  entryId: id,
+  generationId: id,
+});
+
 export const resolveStudioFlagActionSchema = z.object({
   ...storyIdField,
   flagId: id,

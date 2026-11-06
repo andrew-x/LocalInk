@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 
-import type { StudioRefreshedFieldsApplyResult } from "@/actions/studio/_types";
+import type {
+  StudioCastRevisionApplyResult,
+  StudioRefreshedFieldsApplyResult,
+} from "@/actions/studio/_types";
+import { applyStudioCastRevision } from "@/actions/studio/apply-studio-cast-revision";
 import { applyStudioRefreshedFields } from "@/actions/studio/apply-studio-refreshed-fields";
 import { updateStudioEntry } from "@/actions/studio/update-studio-entry";
 import { actionFailureMessage } from "@/components/studio/manuscript/read-back-client";
@@ -71,6 +75,65 @@ export function usePatchEntry() {
           });
         } catch {
           toast.error(PATCH_FAILED_MESSAGE, { id: PATCH_TOAST_ID });
+        }
+        return null;
+      });
+      slot.queue = task.catch(() => null);
+      return task;
+    },
+    [dispatch, storyId],
+  );
+}
+
+/** Resolves once every save already queued for the entry has settled. */
+export function waitForEntrySaves(
+  storyId: string,
+  entryId: string,
+): Promise<unknown> {
+  return getSlot(`${storyId}:${entryId}`).queue;
+}
+
+const CAST_REVISION_FAILED_MESSAGE = "The entry could not be revised.";
+
+/**
+ * Applies a staged cast revision through the same per-entry queue as field
+ * edits. Like a details refresh it is revision-guarded: an edit made while
+ * the AI worked makes it stale (`{ entry: null, stale: true }`). Resolves
+ * null after toasting a failure.
+ */
+export function useApplyCastRevision() {
+  const { state, dispatch } = useStudioStore();
+  const storyId = state.story.id;
+
+  return useCallback(
+    (
+      entryId: string,
+      generationId: string,
+    ): Promise<StudioCastRevisionApplyResult | null> => {
+      const slot = getSlot(`${storyId}:${entryId}`);
+      const task = slot.queue.then(async () => {
+        try {
+          const result = await applyStudioCastRevision({
+            storyId,
+            entryId,
+            generationId,
+          });
+          if (result?.data) {
+            const saved = result.data.entry;
+            if (
+              saved &&
+              (!slot.newest || saved.revision > slot.newest.revision)
+            ) {
+              slot.newest = saved;
+            }
+            if (saved) dispatch({ type: "merge", entries: [saved] });
+            return result.data;
+          }
+          toast.error(
+            actionFailureMessage(result, CAST_REVISION_FAILED_MESSAGE),
+          );
+        } catch {
+          toast.error(CAST_REVISION_FAILED_MESSAGE);
         }
         return null;
       });

@@ -75,6 +75,17 @@ Plan items list `authorFields`, and entry fields carry `author`. AI apply paths 
 
 An explicit pick of an AI option (a selection rewrite) counts as the author's approval and may overwrite what the author wrote. Plan flesh-out only adds children, so it never touches the text of the chapter or scene being planned.
 
+## People and places step (onboarding)
+
+Onboarding runs brain dump → questions → people and places → plan → voice. The step comes before the plan so the plan is built on the characters and places the author tuned, not the other way round. In code it is the "cast", and a cast member is a character or a place.
+
+- Cast members are real `studio_entries` rows, created while the story is still `draft`. Cast routes stage results and `applyStudioCast` / `applyStudioCastRevision` persist them (same AI boundary as above). A planned story refuses cast drafts.
+- Only people and places the author mentioned get a sheet. The model returns a verbatim `mention` per entry and the normalizer drops any entry whose mention and name are both absent from the brain dump plus answers (`isMentionedIn`). The prompt alone was not trusted for this. A person may also match on a plain first name ("Mara" for "Mara Quinn"), but not on a possessive or a title ("Mara's father", "Uncle Joe"). A place never matches on its first word, since "Blue" proves nothing about "Blue Door Café". An explicit "Add someone" or "Add a place" is the author's request and skips the check.
+- `summary_origin` records who wrote the paragraph. Only cast drafts are `ai`. While a paragraph is `ai`, a pick or nudge may rewrite it. Any author edit to the paragraph stamps `author`, and applying the initial plan flips the rest to `author` ("keeping the cast makes it yours"). Other rows default to `author`, which matches how the paragraph was treated before the column existed. Picks and nudges otherwise use the details-refresh rules (only AI fields, revision-guarded).
+- Per type: once a story has any character entry, the initial plan adds no character entries and does not merge into existing ones; the same goes for places. The prompt says so, and `applyInitial` drops new proposals of that type as well. For a type with no entries yet, the prompt still limits new entries to what the author mentioned.
+- The initial plan refers to existing entries by their real id. Before this, `applyInitial` could only resolve the plan's own temp ids, so a pre-existing entry could never be put in `presentTempIds` or planned changes.
+- Cast questions are display-only and live in the client flow; they are not persisted. After a reload, "Ask me about them/it" fetches new ones.
+
 ## Replanning beats
 
 Replan beats (offered after a scene description edit, and in the scene ⋯ menu) is the one planning path that deletes plan items, so it is narrow:

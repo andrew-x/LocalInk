@@ -14,6 +14,7 @@ import {
 } from "@/lib/studio/bible-templates";
 import type {
   StudioChangeDto,
+  StudioEntryType,
   StudioPlanItemDto,
   StudioPlanKind,
   StudioWorkspace,
@@ -154,7 +155,7 @@ function stateInputFor(workspace: StudioWorkspace) {
   };
 }
 
-function instructionsBlock(
+export function instructionsBlock(
   workspace: StudioWorkspace,
   globalInstructions: string,
   itemId: string,
@@ -314,22 +315,26 @@ function ancestorsBlock(workspace: StudioWorkspace, itemId: string): string {
 }
 
 /** Examples of what is worth tracking. Nothing here is required. */
-function entrySuggestionsBlock(): string {
+export function entrySuggestionsBlock(types?: StudioEntryType[]): string {
   return xmlGroup(
     "entry_field_examples",
-    Object.entries(STUDIO_ENTRY_SUGGESTIONS).map(([type, group]) =>
-      xmlGroup(
-        "type",
-        group.suggestions.map((suggestion) =>
-          xmlField("example", suggestion.hint, {
-            label: suggestion.label,
-            use: suggestion.steerOnly ? "steer-only-never-narrate" : undefined,
-            scope: suggestion.backstoryOnly ? "backstory-only" : undefined,
-          }),
+    Object.entries(STUDIO_ENTRY_SUGGESTIONS)
+      .filter(([type]) => !types || types.includes(type as StudioEntryType))
+      .map(([type, group]) =>
+        xmlGroup(
+          "type",
+          group.suggestions.map((suggestion) =>
+            xmlField("example", suggestion.hint, {
+              label: suggestion.label,
+              use: suggestion.steerOnly
+                ? "steer-only-never-narrate"
+                : undefined,
+              scope: suggestion.backstoryOnly ? "backstory-only" : undefined,
+            }),
+          ),
+          { name: type },
         ),
-        { name: type },
       ),
-    ),
   );
 }
 
@@ -438,6 +443,18 @@ async function generateInitialPlan(
       ),
   );
   const voice = voiceSamplesBlock(workspace);
+  const castIsSet = workspace.entries.some(
+    (entry) => entry.type === "character",
+  );
+  const placesAreSet = workspace.entries.some(
+    (entry) => entry.type === "place",
+  );
+  const castRule = castIsSet
+    ? "The author has already set the cast: the character entries in the Bible. Do not add character entries. Anyone else the story needs stays unnamed or incidental in plan text, with no entry. Build the plan around the cast's wants, needs, false beliefs, and fears."
+    : "Add a character entry only for a person the brain dump or the answers name or clearly refer to (by name or by role, such as her mother). Never invent a character the author did not mention; anyone else the story needs stays unnamed or incidental in plan text, with no entry. If the author gave only a role, use the role as the name. Character depth follows importance: a lead gets 10-16 fields (how they look, daily life, what they want, what they need, false belief, the wound or history behind it, what they fear, a contradiction, how they talk, habits and tells, what they won't do, what they are good at), a supporting character 5-8, a minor one 2-4.";
+  const placeRule = placesAreSet
+    ? "The author has already set the places: the place entries in the Bible. Do not add place entries. Set scenes in those places; any other setting the story needs stays incidental in plan text, with no entry."
+    : "Add a place entry only for a place the brain dump or the answers name or clearly refer to (the lighthouse, her apartment) where something happens or that the story returns to. Never invent a place the author did not mention; any other setting stays incidental in plan text, with no entry. Place depth follows importance: a central setting gets 8-12 fields (what it is and where, layout, sights, sounds and smells, how it changes with time, who goes there, what happens there, rules and routines, history, what it means to the people in it, what can go wrong there), a recurring one 4-6, a passing one 2-3.";
 
   const draftTask = [
     "Plan this story from the brain dump and the author's answers.",
@@ -447,8 +464,8 @@ async function generateInitialPlan(
     "- genre: 1 to 4 short shelf labels a bookstore would use, for example YA, Middle grade, Romance, Romantic suspense, Thriller, Fantasy, Horror, Mystery, Literary, plus modifiers such as Some action. If the voice block already has a genre, return it unchanged.",
     "- theme: one sentence on what the story is about underneath. This is for planning only and is never stated in prose.",
     "- structureTemplate: pick the one template from structure_templates that best fits and shape the chapters by its guidance. Choose freeform when none fits.",
-    "- entries: the Bible. A character entry for every named or important person, a relationship entry for each significant pair (relatedTempIds holds the two people), places that recur, things that matter, lore only where rules matter. If the story needs a kind of entry none of those fit (a group, an event), use type custom and set customTypeLabel (for example Group); otherwise customTypeLabel is null. Use short tempIds such as c1, p1. relatedTempIds may link any entries that belong together.",
-    "- entry fields: each entry has fields, an ordered list of { label, value, steerOnly, backstoryOnly }. entry_field_examples lists examples of things worth tracking for each type; they are ideas, not a required set. Choose the 4-10 fields that matter most for this entry in this story. Make them specific and concrete (for example what she hides behind jokes, who owns the deck chairs) rather than generic. Reuse the same label across entries of the same type when it fits naturally, so the Bible stays consistent. Never pad: leave out a field you have nothing specific to say about. Set steerOnly to true for fields the writing should follow but never state (what a character needs, a false belief, theme-like fields). Set backstoryOnly to true for origin or backstory fields that should not surface in present-day scenes. Otherwise both are false.",
+    `- entries: the Bible, new entries only. ${castRule} ${placeRule} Add a relationship entry for each significant pair (relatedTempIds holds the two people), things that matter, lore only where rules matter. If the story needs a kind of entry none of those fit (a group, an event), use type custom and set customTypeLabel (for example Group); otherwise customTypeLabel is null. Use short tempIds such as c1, p1 for new entries. To refer to an entry already in the Bible (in relatedTempIds, presentTempIds, entryTempId, or aboutTempId), use its id attribute instead of a tempId. relatedTempIds may link any entries that belong together.`,
+    "- entry fields: each entry has fields, an ordered list of { label, value, steerOnly, backstoryOnly }. entry_field_examples lists examples of things worth tracking for each type; they are ideas, not a required set. Choose the fields that matter most for this entry in this story: 4-10 for anything but a character or place. Make them specific and concrete (for example what she hides behind jokes, who owns the deck chairs) rather than generic. Reuse the same label across entries of the same type when it fits naturally, so the Bible stays consistent. Never pad: leave out a field you have nothing specific to say about. Set steerOnly to true for fields the writing should follow but never state (what a character needs, a false belief, theme-like fields). Set backstoryOnly to true for origin or backstory fields that should not surface in present-day scenes. Otherwise both are false.",
     "- chapters: in story order. Each has a title (short and particular, not generic), whatHappens, howToWrite, craft (keys purpose and endHook), presentTempIds (entries in the chapter), and plannedChanges: the key changes the chapter causes in what an entry believes, wants, knows, feels, where it is, its status, how it looks, or anything else worth tracking, each with an aspect label, a mode, and a short value. aboutTempId is set only when the aspect concerns another entry, such as how one character feels about another; otherwise null. " +
       ASPECT_GUIDANCE,
     "- scenes: include a chapter's scenes only where the brain dump specified scenes for it; otherwise omit scenes. A scene has the same fields as a chapter; its craft keys are wants, goesWrong, differentAfter, entry, exit.",

@@ -8,7 +8,8 @@ export type StudioStageBinding = {
   storyId: string;
   /**
    * "chat": targetId is the thread id. "voice": targetId is "picks",
-   * "sample:<kind>", "feedback:<kind>" or "tune:<momentId>".
+   * "sample:<kind>", "feedback:<kind>" or "tune:<momentId>". "cast": targetId
+   * is "draft", "add" or "revise:<entryId>".
    */
   kind:
     | "plan"
@@ -16,7 +17,8 @@ export type StudioStageBinding = {
     | "read-back"
     | "undo-delete"
     | "chat"
-    | "voice";
+    | "voice"
+    | "cast";
   targetId: string;
   generationId: string;
 };

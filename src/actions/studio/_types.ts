@@ -41,6 +41,10 @@ export type {
   StudioBundleWorkspacePatch,
 } from "@/lib/studio/bundle-contract";
 export type {
+  StudioCastApplyResult,
+  StudioCastRevisionApplyResult,
+} from "@/lib/studio/cast-contract";
+export type {
   StudioChatDiscardResult,
   StudioChatMessageDto,
   StudioChatPreparedTurn,

@@ -44,6 +44,7 @@ import type {
   StudioSetupStatus,
   StudioStructureTemplateId,
   StudioStyle,
+  StudioSummaryOrigin,
   StudioVoice,
   StudioVoiceSample,
 } from "@/lib/studio/contracts";
@@ -406,6 +407,12 @@ export const studioEntries = sqliteTable(
     customTypeLabel: text("custom_type_label").notNull().default(""),
     name: text("name").notNull(),
     summary: text("summary").notNull().default(""),
+    // Who wrote `summary`. Only the cast step's AI drafts are "ai"; applying
+    // the initial plan makes them the author's.
+    summaryOrigin: text("summary_origin")
+      .$type<StudioSummaryOrigin>()
+      .notNull()
+      .default("author"),
     fields: text("fields", { mode: "json" })
       // Entry fields are a StudioEntryField[] in the current shape; rows
       // written before Amendment A hold a legacy key record. Read through

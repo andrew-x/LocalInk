@@ -37,6 +37,7 @@ export type StudioChangeStatus = "planned" | "confirmed";
 export type StudioProseOrigin = "ai" | "author" | "ai-edited";
 export type StudioFlagKind = "unplanned-change" | "missing-planned-change";
 export type StudioFlagStatus = "open" | "resolved" | "dismissed";
+export type StudioSummaryOrigin = "ai" | "author";
 
 /** The pre-Amendment-A stored shape: one value per fixed template key. */
 export type StudioFieldValue = { value: string; author: "ai" | "author" };
@@ -160,6 +161,8 @@ export type StudioEntryDto = {
   customTypeLabel: string;
   name: string;
   summary: string;
+  /** "ai" only for a cast-step draft the author has not kept or edited yet. */
+  summaryOrigin: StudioSummaryOrigin;
   fields: StudioEntryField[];
   relatedEntryIds: string[];
   position: number;

@@ -132,6 +132,7 @@ export function toEntryDto(row: StudioEntryRow): StudioEntryDto {
     customTypeLabel: row.customTypeLabel,
     name: row.name,
     summary: row.summary,
+    summaryOrigin: row.summaryOrigin,
     fields: normalizeEntryFields(row.fields, row.type),
     relatedEntryIds: row.relatedEntryIds,
     position: row.position,

@@ -20,6 +20,20 @@ type Pending = { timer: number | null; controller: AbortController | null };
 const pending = new Map<string, Pending>();
 
 /**
+ * Cancels the entry's scheduled or running refresh, for a caller about to
+ * rewrite the details itself (a cast revision), which the refresh would
+ * otherwise make stale. An apply already queued still runs, revision-guarded.
+ */
+export function cancelAutoDetails(storyId: string, entryId: string): void {
+  const key = `${storyId}:${entryId}`;
+  const slot = pending.get(key);
+  if (!slot) return;
+  if (slot.timer !== null) window.clearTimeout(slot.timer);
+  slot.controller?.abort();
+  pending.delete(key);
+}
+
+/**
  * Returns `(entryId) => void`: schedules a refresh of the entry's AI-owned
  * details (add, update, remove) from its saved paragraph. Debounced 2 s per
  * entry; a newer call cancels the older timer and aborts its request. Call it

@@ -55,12 +55,13 @@ export type StudioRefreshedFieldsApplyResult = {
 
 /**
  * Keeps only ops the AI may make: never on author-owned or unknown fields,
- * never with a blank value, one op per field, at most 12. An add whose label
+ * never with a blank value, one op per field, at most `maxOps`. An add whose label
  * matches an AI field becomes an update; one matching an author field drops.
  */
 export function normalizeStudioRefreshedFields(
   raw: z.infer<typeof studioRefreshFieldsOutputSchema>,
   existing: StudioEntryField[],
+  maxOps: number = STUDIO_REFRESH_OPS_MAX,
 ): StudioFieldRefreshOp[] {
   const aiById = new Map(
     existing.filter((field) => field.author === "ai").map((f) => [f.id, f]),
@@ -73,7 +74,7 @@ export function normalizeStudioRefreshedFields(
   const result: StudioFieldRefreshOp[] = [];
 
   for (const item of raw.ops) {
-    if (result.length >= STUDIO_REFRESH_OPS_MAX) break;
+    if (result.length >= maxOps) break;
     const value = item.value.trim().slice(0, VALUE_MAX);
 
     if (item.action === "remove") {

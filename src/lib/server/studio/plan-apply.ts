@@ -227,6 +227,18 @@ function applyInitial(
     .where(eq(studioStories.id, storyId))
     .run();
 
+  // Planning keeps the cast, which makes its AI-drafted paragraphs the
+  // author's: from here on no AI path rewrites them.
+  tx.update(studioEntries)
+    .set({ summaryOrigin: "author" })
+    .where(
+      and(
+        eq(studioEntries.storyId, storyId),
+        eq(studioEntries.summaryOrigin, "ai"),
+      ),
+    )
+    .run();
+
   // Bible entries. A name that already exists keeps the existing entry: its
   // untouched AI fields are refreshed and new labels are added (up to the
   // field cap) by `mergeAiFields`; author-written fields are never changed.
@@ -244,8 +256,19 @@ function applyInitial(
       row,
     ]),
   );
-  const tempToId = new Map<string, string>();
+  // The plan refers to existing entries by their own id.
+  const tempToId = new Map<string, string>(
+    existing.map((row) => [row.id, row.id]),
+  );
   const insertedRelated: { id: string; relatedTempIds: string[] }[] = [];
+  // The cast step already set the characters (or places): the plan may not
+  // add any of that type, and the author's tuned AI details are not
+  // refreshed by a plan pass.
+  const setTypes = new Set<string>(
+    existing
+      .map((row) => row.type)
+      .filter((type) => type === "character" || type === "place"),
+  );
 
   for (const entry of plan.entries) {
     const name = clip(entry.name, MAX_NAME);
@@ -256,6 +279,10 @@ function applyInitial(
     }));
 
     const match = byName.get(`${entry.type}:${name.toLowerCase()}`);
+    if (setTypes.has(entry.type)) {
+      if (match) tempToId.set(entry.tempId, match.id);
+      continue;
+    }
     if (match) {
       tempToId.set(entry.tempId, match.id);
       const current = normalizeEntryFields(match.fields, match.type);

@@ -42,6 +42,7 @@ export function previewStudioWorkspace(
       customTypeLabel: op.entry.customTypeLabel,
       name: op.entry.name,
       summary: op.entry.summary,
+      summaryOrigin: "author",
       fields: applyFieldOps(
         [],
         op.entry.fields.map((field) => ({ op: "set" as const, ...field })),

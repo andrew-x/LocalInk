@@ -1,7 +1,14 @@
 "use client";
 
 import { ChevronRight, ChevronUp, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/common/button";
 import { Input } from "@/components/common/input";
@@ -39,6 +46,13 @@ type EntryCardProps = {
   focusName?: boolean;
   onClose?: () => void;
   onDeleted?: () => void;
+  /**
+   * "cast" is the onboarding cast step: no plan exists yet, so there is no
+   * tracking, only the details, and every card is open at once.
+   */
+  variant?: "workspace" | "cast";
+  /** Shown under the paragraph (the cast step's tuning controls). */
+  children?: ReactNode;
 };
 
 /**
@@ -51,7 +65,10 @@ export function EntryCard({
   focusName,
   onClose,
   onDeleted,
+  variant = "workspace",
+  children,
 }: EntryCardProps) {
+  const isCast = variant === "cast";
   const { state } = useStudioStore();
   const patchEntry = usePatchEntry();
   const autoDetails = useAutoDetails();
@@ -71,10 +88,11 @@ export function EntryCard({
     [entry.id, state.planItems],
   );
 
-  // An entry opened from elsewhere (a chip, a link) should be on screen.
+  // An entry opened from elsewhere (a chip, a link) should be on screen. The
+  // cast shows every card at once, so there it would jump to the last one.
   useEffect(() => {
-    rootRef.current?.scrollIntoView({ block: "nearest" });
-  }, []);
+    if (!isCast) rootRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isCast]);
 
   // Refreshes the AI-owned details when the saved paragraph is non-blank and
   // differs from the one last refreshed from. Called only on final flushes
@@ -168,7 +186,7 @@ export function EntryCard({
               type="button"
             >
               <Trash2 aria-hidden="true" className="size-3.5" />
-              Delete
+              {isCast ? "Remove" : "Delete"}
             </button>
           </OutlineMenu>
           {onClose ? (
@@ -208,7 +226,15 @@ export function EntryCard({
           placeholder="Write a paragraph about them in your own words. The AI keeps track of the rest."
           value={values.summary}
         />
+        {entry.summaryOrigin === "ai" ? (
+          <p className="text-caption text-muted-foreground/80">
+            Drafted from your brain dump. Edit it freely; it becomes yours when
+            you plan.
+          </p>
+        ) : null}
       </div>
+
+      {children ? <div className="px-1.5">{children}</div> : null}
 
       {entry.type === "relationship" ? (
         <div className="px-1.5">
@@ -230,25 +256,33 @@ export function EntryCard({
               tracking && "rotate-90",
             )}
           />
-          What the AI is tracking
+          {isCast
+            ? `Details${entry.fields.length > 0 ? ` · ${entry.fields.length}` : ""}`
+            : "What the AI is tracking"}
         </button>
         {tracking ? (
           <>
-            <TrackingSection entry={entry} />
+            {isCast ? null : <TrackingSection entry={entry} />}
             <DetailsList entry={entry} />
           </>
         ) : null}
       </div>
 
       <StudioConfirmDialog
-        confirmLabel="Delete"
-        description="This also deletes everything tracked for it over the story, and removes it from the scenes it appears in. This cannot be undone."
+        confirmLabel={isCast ? "Remove" : "Delete"}
+        description={
+          isCast
+            ? entry.type === "place"
+              ? "It leaves the story, along with everything written about it here."
+              : "They leave the story, along with everything written about them here."
+            : "This also deletes everything tracked for it over the story, and removes it from the scenes it appears in. This cannot be undone."
+        }
         destructive
         loading={isDeleting}
         onConfirm={() => void confirmDelete()}
         onOpenChange={setConfirmingDelete}
         open={confirmingDelete}
-        title={`Delete ${entry.name}?`}
+        title={isCast ? `Remove ${entry.name}?` : `Delete ${entry.name}?`}
       />
     </section>
   );

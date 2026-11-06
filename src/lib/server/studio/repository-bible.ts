@@ -25,6 +25,7 @@ import {
   type StudioFlagDto,
   type StudioStoryDto,
   type StudioStructureTemplateId,
+  type StudioSummaryOrigin,
   type StudioVoice,
 } from "@/lib/studio/contracts";
 import {
@@ -136,6 +137,8 @@ export function insertStudioEntry(
     fields?: NewStudioEntryField[];
     /** "ai" for an accepted bundle's new entry: new fields are AI-written. */
     fieldAuthor?: "ai" | "author";
+    /** "ai" for a cast-step draft, which the AI may still rewrite. */
+    summaryOrigin?: StudioSummaryOrigin;
   },
 ): StudioEntryDto {
   const now = day().toISOString();
@@ -159,6 +162,7 @@ export function insertStudioEntry(
       type: input.type,
       name: input.name,
       summary: input.summary ?? "",
+      summaryOrigin: input.summaryOrigin ?? "author",
       customTypeLabel:
         input.type === "custom" ? (input.customTypeLabel ?? "") : "",
       fields: (input.fields ?? []).map(
@@ -259,9 +263,15 @@ export function patchStudioEntry(
       `An entry can hold at most ${STUDIO_MAX_ENTRY_FIELDS} fields. Remove one before adding another.`,
     );
   }
+  const summary = patch.summary ?? current.summary;
   const next = {
     name: patch.name ?? current.name,
-    summary: patch.summary ?? current.summary,
+    summary,
+    // An author edit to an AI-drafted paragraph makes it the author's.
+    summaryOrigin:
+      input.stampAuthors !== false && summary !== current.summary
+        ? ("author" as const)
+        : current.summaryOrigin,
     fields,
     relatedEntryIds: patch.relatedEntryIds
       ? [...new Set(patch.relatedEntryIds)]
@@ -758,7 +768,8 @@ export function removeStudioChange(
  * author-owned fields are never touched). The entry's revision is the
  * compare-and-swap against the revision the refresh read: a mismatch writes
  * nothing and returns null, since the author's newer edit triggers its own
- * refresh.
+ * refresh. A cast revision may also carry a new paragraph, written only
+ * while the paragraph is still the AI's draft.
  */
 export function applyRefreshedEntryFields(
   tx: LocalinkTx,
@@ -767,17 +778,23 @@ export function applyRefreshedEntryFields(
     entryId: string;
     sourceRevision: number;
     ops: StudioFieldRefreshOp[];
+    summary?: string | null;
   },
 ): StudioEntryDto | null {
   const current = requireEntry(tx, input.storyId, input.entryId);
   if (current.revision !== input.sourceRevision) return null;
   const currentFields = normalizeEntryFields(current.fields, current.type);
   const { fields } = refreshAiFields(currentFields, input.ops);
-  if (isDeepStrictEqual(fields, currentFields)) return toEntryDto(current);
+  const summary =
+    input.summary && current.summaryOrigin === "ai"
+      ? input.summary
+      : current.summary;
+  if (isDeepStrictEqual(fields, currentFields) && summary === current.summary)
+    return toEntryDto(current);
   const now = day().toISOString();
   const row = tx
     .update(studioEntries)
-    .set({ fields, revision: current.revision + 1, updatedAt: now })
+    .set({ fields, summary, revision: current.revision + 1, updatedAt: now })
     .where(
       and(
         eq(studioEntries.id, input.entryId),
